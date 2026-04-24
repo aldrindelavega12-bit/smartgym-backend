@@ -1,0 +1,66 @@
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from db.connection import execute_query
+
+app = Flask(__name__)
+CORS(app)  # Para payagan ang access kahit hindi galing sa Pi mismo ang request
+
+# --- 1. TEST ENDPOINT (Dito mo malalaman kung buhay ang API) ---
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    return jsonify({"status": "online", "message": "Gym Master Brain is Active"}), 200
+
+# --- 2. GET MEMBER INFO (Para sa Website/Dashboard) ---
+@app.route('/api/member/<member_id>', methods=['GET'])
+def get_member(member_id):
+    # Kukuha ng data sa 'members' table na ginawa natin sa Phase 1
+    query = "SELECT member_id, name, status, phone_number FROM members WHERE member_id = %s"
+    result = execute_query(query, (member_id,), fetch=True)
+    
+    if result:
+        return jsonify(result[0]), 200
+    return jsonify({"error": "Member not found"}), 404
+
+# --- 3. LOCKER ACCESS VERIFICATION (Para sa Phase 3: Locker Pi) ---
+@app.route('/api/locker/verify', methods=['POST'])
+def verify_locker():
+    data = request.json
+    user_id = data.get('user_id')
+
+    if not user_id:
+        return jsonify({"allowed": False, "reason": "INVALID_INPUT"}), 400
+
+    # A. Check kung ang user ay kasalukuyang nasa loob (Active Session)
+    # Galing ito sa attendance_sessions table mo
+    session = execute_query(
+        "SELECT id FROM attendance_sessions WHERE user_id = %s AND time_out IS NULL",
+        (user_id,), fetch=True
+    )
+
+    if not session:
+        return jsonify({
+            "allowed": False, 
+            "reason": "NOT_IN_GYM",
+            "message": "Kailangan muna mag-scan sa turnstile bago gumamit ng locker."
+        }), 403
+
+    # B. Check kung may utang na overtime (Milestone 6)
+    overtime = execute_query(
+        "SELECT id FROM locker_sessions WHERE user_id = %s AND overtime_paid = 0",
+        (user_id,), fetch=True
+    )
+
+    if overtime:
+        return jsonify({
+            "allowed": False, 
+            "reason": "UNPAID_OVERTIME",
+            "message": "Magbayad muna ng locker overtime sa counter."
+        }), 403
+
+    return jsonify({"allowed": True, "message": "Locker Access Granted!"}), 200
+
+# --- RUN THE SERVER ---
+if __name__ == '__main__':
+    # host='0.0.0.0' ay CRITICAL para ma-access ng ibang device sa network
+    # port=5000 ang default ng Flask
+    app.run(host='0.0.0.0', port=5000, debug=True)ZX
