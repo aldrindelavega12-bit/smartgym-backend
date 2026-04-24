@@ -37,6 +37,7 @@ def get_connection():
         database=os.getenv("DB_NAME", "smart_gym_db"),
         port=int(os.getenv("DB_PORT", 3306))
     )
+
 @app.route("/debug-db")
 def debug_db():
     import os
@@ -46,6 +47,7 @@ def debug_db():
         "db": os.getenv("DB_NAME"),
         "port": os.getenv("DB_PORT")
     }
+
 @app.route("/")
 def home():
     return "Smart Gym System API is running"
