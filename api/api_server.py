@@ -26,6 +26,18 @@ CORS(app)
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 
+import os
+import pymysql
+
+def get_connection():
+    return pymysql.connect(
+        host=os.getenv("DB_HOST", "127.0.0.1"),
+        user=os.getenv("DB_USER", "smartgym"),
+        password=os.getenv("DB_PASSWORD", "smartgym123"),
+        database=os.getenv("DB_NAME", "smart_gym_db"),
+        port=int(os.getenv("DB_PORT", 3306))
+    )
+
 @app.route("/")
 def home():
     return "Smart Gym System API is running"
@@ -837,7 +849,6 @@ def get_dashboard():
         cursor.execute("""
             SELECT COUNT(*) AS total
             FROM attendance_sessions
-            WHERE DATE(time_in) = CURDATE()
         """)
         total_attendance = cursor.fetchone()["total"]
 
