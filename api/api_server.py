@@ -31,11 +31,11 @@ import pymysql
 
 def get_connection():
     return pymysql.connect(
-        host=os.getenv("DB_HOST", "127.0.0.1"),
-        user=os.getenv("DB_USER", "smartgym"),
-        password=os.getenv("DB_PASSWORD", "smartgym123"),
-        database=os.getenv("DB_NAME", "smart_gym_db"),
-        port=int(os.getenv("DB_PORT", 3306))
+        host=os.environ["DB_HOST"],
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        database=os.environ["DB_NAME"],
+        port=int(os.environ["DB_PORT"])
     )
 
 @app.route("/test-db")
