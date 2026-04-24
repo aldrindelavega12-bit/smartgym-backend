@@ -38,15 +38,16 @@ def get_connection():
         port=int(os.getenv("DB_PORT", 3306))
     )
 
-@app.route("/debug-db")
-def debug_db():
-    import os
-    return {
-        "host": os.getenv("DB_HOST"),
-        "user": os.getenv("DB_USER"),
-        "db": os.getenv("DB_NAME"),
-        "port": os.getenv("DB_PORT")
-    }
+@app.route("/test-db")
+def test_db():
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM attendance_sessions")
+        result = cursor.fetchone()
+        return {"count": result[0]}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.route("/")
 def home():
