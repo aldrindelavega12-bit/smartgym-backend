@@ -26,17 +26,11 @@ CORS(app)
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 
-import os
+from config.settings import DB_CONFIG
 import pymysql
 
 def get_connection():
-    return pymysql.connect(
-        host=os.environ["DB_HOST"],
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-        database=os.environ["DB_NAME"],
-        port=int(os.environ["DB_PORT"])
-    )
+    return pymysql.connect(**DB_CONFIG)
 
 @app.route("/test-db")
 def test_db():
@@ -167,12 +161,12 @@ def face_version():
 from flask import request, jsonify
 import mysql.connector
 
-DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "smartgym",
-    "password": "smartgym123",
-    "database": "smart_gym_db"
-}
+# DB_CONFIG = {
+#     "host": "127.0.0.1",
+#     "user": "smartgym",
+#     "password": "smartgym123",
+#     "database": "smart_gym_db"
+# }
 @app.route('/api/start_locker', methods=['POST'])
 def start_locker():
     try:
@@ -525,12 +519,6 @@ def get_fp_templates():
 
 import mysql.connector
 
-DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "smartgym",
-    "password": "smartgym123",
-    "database": "smart_gym_db"
-}
 
 @app.route('/api/get_available_locker', methods=['GET'])
 def get_available_locker():
@@ -630,12 +618,7 @@ import pymysql
 
 
 # ===== DB CONFIG =====
-DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "smartgym",
-    "password": "smartgym123",
-    "database": "smart_gym_db",
-}
+
 
 # ===== DB CONNECTION FUNCTION =====
 def get_connection():

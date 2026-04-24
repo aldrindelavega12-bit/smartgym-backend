@@ -1,9 +1,11 @@
-# Database Configuration
+import os
+
 DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "smartgym",
-    "password": "smartgym123",
-    "database": "smart_gym_db"
+    "host": os.getenv("DB_HOST") or "127.0.0.1",
+    "user": os.getenv("DB_USER") or "smartgym",
+    "password": os.getenv("DB_PASSWORD") or "smartgym123",
+    "database": os.getenv("DB_NAME") or "smart_gym_db",
+    "port": int(os.getenv("DB_PORT") or 3306)
 }
 
 # System Settings
