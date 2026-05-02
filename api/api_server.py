@@ -1214,6 +1214,17 @@ def get_bookings():
         conn.close()
         
 # ==============================
+# FORMAT TIME
+# ==============================
+def format_time(time_str):
+
+    return datetime.strptime(
+        time_str,
+        "%H:%M"
+    ).strftime("%I:%M %p").upper().strip()
+
+
+# ==============================
 # BOOKED SLOTS
 # ==============================
 @app.route("/api/booked_slots")
@@ -1226,7 +1237,9 @@ def booked_slots():
 
         conn = get_connection()
 
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
 
         cursor.execute("""
             SELECT start_time, end_time
@@ -1246,29 +1259,25 @@ def booked_slots():
         for r in rows:
 
             # =========================
-            # CONVERT TIME
+            # GET TIME
             # =========================
-            start = str(r["start_time"])
-            end = str(r["end_time"])
+            start = str(r["start_time"])[:5]
+            end = str(r["end_time"])[:5]
 
-            # REMOVE SECONDS
-            start = start[:5]
-            end = end[:5]
+            # =========================
+            # FORMAT
+            # =========================
+            start = format_time(start)
+            end = format_time(end)
 
-            # TO 12HR
-            start = datetime.strptime(
-                start,
-                "%H:%M"
-            ).strftime("%I:%M %p")
-
-            end = datetime.strptime(
-                end,
-                "%H:%M"
-            ).strftime("%I:%M %p")
-
-            slot = f"{start} - {end}"
+            # =========================
+            # FINAL SLOT
+            # =========================
+            slot = f"{start} - {end}".strip()
 
             slots.append(slot)
+
+        print("BOOKED SLOTS:", slots)
 
         return jsonify({
             "slots": slots
@@ -1276,7 +1285,7 @@ def booked_slots():
 
     except Exception as e:
 
-        print("ERROR:", e)
+        print("BOOKED SLOT ERROR:", e)
 
         return jsonify({
             "error": str(e)
@@ -1286,20 +1295,6 @@ def booked_slots():
 
         conn.close()
 
-
-# ==============================
-# FORMAT TIME
-# ==============================
-def format_time(time_str):
-
-    from datetime import datetime
-
-    return datetime.strptime(
-        time_str,
-        "%H:%M"
-    ).strftime("%I:%M %p")
-
-        
 @app.route("/api/fully_booked_dates")
 def fully_booked_dates():
 
