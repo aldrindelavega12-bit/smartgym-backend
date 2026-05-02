@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db.connection import execute_query
 import mysql.connector
 from flask_socketio import SocketIO
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -1244,16 +1245,26 @@ def booked_slots():
 
         for r in rows:
 
+            # =========================
+            # CONVERT TIME
+            # =========================
             start = str(r["start_time"])
             end = str(r["end_time"])
 
             # REMOVE SECONDS
-            start = start[:-3]
-            end = end[:-3]
+            start = start[:5]
+            end = end[:5]
 
-            # CONVERT TO 12HR
-            start = format_time(start)
-            end = format_time(end)
+            # TO 12HR
+            start = datetime.strptime(
+                start,
+                "%H:%M"
+            ).strftime("%I:%M %p")
+
+            end = datetime.strptime(
+                end,
+                "%H:%M"
+            ).strftime("%I:%M %p")
 
             slot = f"{start} - {end}"
 
