@@ -1018,21 +1018,70 @@ def get_members_list():
 
 @app.route("/api/book_locker", methods=["POST"])
 def book_locker():
+
     try:
         data = request.get_json()
 
         user_id = data.get("user_id")
         locker = data.get("locker")
         date = data.get("date")
-        time = data.get("time")
+        slot = data.get("time")
+
+        # SPLIT SLOT
+        start_time = slot.split(" - ")[0]
+        end_time = slot.split(" - ")[1]
 
         conn = get_connection()
         cursor = conn.cursor()
 
+        # =================================
+        # CHECK IF SLOT ALREADY BOOKED
+        # =================================
         cursor.execute("""
-            INSERT INTO locker_bookings (user_id, locker_number, date, time, status)
-            VALUES (%s, %s, %s, %s, 'PENDING')
-        """, (user_id, locker, date, time))
+            SELECT * FROM locker_bookings
+            WHERE locker_number=%s
+            AND date=%s
+            AND start_time=%s
+            AND end_time=%s
+            AND status IN ('PENDING','APPROVED')
+        """, (
+            locker,
+            date,
+            start_time,
+            end_time
+        ))
+
+        existing = cursor.fetchone()
+
+        # IF SLOT EXISTS
+        if existing:
+
+            return jsonify({
+                "status": "error",
+                "message": "Slot already fully booked"
+            })
+
+        # =================================
+        # INSERT BOOKING
+        # =================================
+        cursor.execute("""
+            INSERT INTO locker_bookings
+            (
+                user_id,
+                locker_number,
+                date,
+                start_time,
+                end_time,
+                status
+            )
+            VALUES (%s,%s,%s,%s,%s,'PENDING')
+        """, (
+            user_id,
+            locker,
+            date,
+            start_time,
+            end_time
+        ))
 
         conn.commit()
 
@@ -1042,11 +1091,12 @@ def book_locker():
         })
 
     except Exception as e:
+
         return jsonify({
             "status": "error",
             "message": str(e)
         })
-
+    
 @app.route("/api/bookings")
 def get_bookings():
     try:
