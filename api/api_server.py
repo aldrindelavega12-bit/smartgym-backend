@@ -1141,51 +1141,40 @@ def get_bookings():
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute("""
-            SELECT
-                id,
-                user_id,
-                locker_number,
-                date,
-                start_time,
-                end_time,
-                status,
-                reason,
-                created_at
+            SELECT *
             FROM locker_bookings
             ORDER BY id DESC
         """)
 
         bookings = cursor.fetchall()
 
-        # =========================
-        # SERIALIZE
-        # =========================
         for b in bookings:
 
-            # COMBINE SLOT
-            if b["start_time"] and b["end_time"]:
+            # FORMAT SLOT
+            if b.get("start_time") and b.get("end_time"):
 
                 b["slot"] = (
                     f'{b["start_time"]} - {b["end_time"]}'
                 )
 
+            # OLD RECORDS
+            elif b.get("time"):
+
+                b["slot"] = str(b["time"])
+
             else:
 
-                b["slot"] = "N/A"
+                b["slot"] = "-"
 
-            # DATE FORMAT
-            if b["date"]:
+            # FORMAT DATE
+            if b.get("date"):
 
                 b["date"] = str(b["date"])
 
-            # CREATED AT
-            if b["created_at"]:
+            # FORMAT CREATED
+            if b.get("created_at"):
 
                 b["created_at"] = str(b["created_at"])
-
-            # REMOVE OLD FIELDS
-            b.pop("start_time", None)
-            b.pop("end_time", None)
 
         return jsonify({
             "data": bookings
@@ -1193,7 +1182,7 @@ def get_bookings():
 
     except Exception as e:
 
-        print("ERROR:", e)
+        print(e)
 
         return jsonify({
             "error": str(e)
