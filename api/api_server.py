@@ -1150,31 +1150,51 @@ def get_bookings():
 
         for b in bookings:
 
-            # FORMAT SLOT
+            # =========================
+            # FIX DATE
+            # =========================
+            if b.get("date"):
+
+                b["date"] = str(b["date"])
+
+            # =========================
+            # FIX CREATED_AT
+            # =========================
+            if b.get("created_at"):
+
+                b["created_at"] = str(b["created_at"])
+
+            # =========================
+            # FIX TIMEDELTA
+            # =========================
+            if b.get("start_time"):
+
+                b["start_time"] = str(b["start_time"])
+
+            if b.get("end_time"):
+
+                b["end_time"] = str(b["end_time"])
+
+            if b.get("time"):
+
+                b["time"] = str(b["time"])
+
+            # =========================
+            # SLOT FORMAT
+            # =========================
             if b.get("start_time") and b.get("end_time"):
 
                 b["slot"] = (
                     f'{b["start_time"]} - {b["end_time"]}'
                 )
 
-            # OLD RECORDS
             elif b.get("time"):
 
-                b["slot"] = str(b["time"])
+                b["slot"] = b["time"]
 
             else:
 
                 b["slot"] = "-"
-
-            # FORMAT DATE
-            if b.get("date"):
-
-                b["date"] = str(b["date"])
-
-            # FORMAT CREATED
-            if b.get("created_at"):
-
-                b["created_at"] = str(b["created_at"])
 
         return jsonify({
             "data": bookings
@@ -1182,7 +1202,7 @@ def get_bookings():
 
     except Exception as e:
 
-        print(e)
+        print("ERROR:", e)
 
         return jsonify({
             "error": str(e)
@@ -1191,6 +1211,7 @@ def get_bookings():
     finally:
 
         conn.close()
+
         
 @app.route("/api/fully_booked_dates")
 def fully_booked_dates():
