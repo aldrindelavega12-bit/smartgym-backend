@@ -1027,23 +1027,25 @@ def book_locker():
         date = data.get("date")
         slot = data.get("time")
 
+        # =========================
         # SPLIT SLOT
+        # =========================
         start_time = slot.split(" - ")[0]
         end_time = slot.split(" - ")[1]
 
         conn = get_connection()
         cursor = conn.cursor()
 
-        # =================================
-        # CHECK IF SLOT ALREADY BOOKED
-        # =================================
+        # =========================
+        # CHECK IF ALREADY APPROVED
+        # =========================
         cursor.execute("""
             SELECT * FROM locker_bookings
             WHERE locker_number=%s
             AND date=%s
             AND start_time=%s
             AND end_time=%s
-            AND status IN ('PENDING','APPROVED')
+            AND status='APPROVED'
         """, (
             locker,
             date,
@@ -1053,17 +1055,47 @@ def book_locker():
 
         existing = cursor.fetchone()
 
-        # IF SLOT EXISTS
+        # SLOT ALREADY APPROVED
         if existing:
 
             return jsonify({
                 "status": "error",
-                "message": "Slot already fully booked"
+                "message": "This slot is already fully booked"
             })
 
-        # =================================
+        # =========================
+        # OPTIONAL:
+        # CHECK IF USER ALREADY HAS
+        # PENDING REQUEST
+        # =========================
+        cursor.execute("""
+            SELECT * FROM locker_bookings
+            WHERE user_id=%s
+            AND locker_number=%s
+            AND date=%s
+            AND start_time=%s
+            AND end_time=%s
+            AND status='PENDING'
+        """, (
+            user_id,
+            locker,
+            date,
+            start_time,
+            end_time
+        ))
+
+        pending = cursor.fetchone()
+
+        if pending:
+
+            return jsonify({
+                "status": "error",
+                "message": "You already requested this slot"
+            })
+
+        # =========================
         # INSERT BOOKING
-        # =================================
+        # =========================
         cursor.execute("""
             INSERT INTO locker_bookings
             (
@@ -1087,7 +1119,7 @@ def book_locker():
 
         return jsonify({
             "status": "success",
-            "message": "Booking saved"
+            "message": "Booking submitted for approval"
         })
 
     except Exception as e:
@@ -1097,32 +1129,78 @@ def book_locker():
             "message": str(e)
         })
     
+from datetime import timedelta
+
 @app.route("/api/bookings")
 def get_bookings():
+
     try:
+
         conn = get_connection()
+
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        cursor.execute("SELECT * FROM locker_bookings ORDER BY id DESC")
+        cursor.execute("""
+            SELECT
+                id,
+                user_id,
+                locker_number,
+                date,
+                start_time,
+                end_time,
+                status,
+                reason,
+                created_at
+            FROM locker_bookings
+            ORDER BY id DESC
+        """)
+
         bookings = cursor.fetchall()
 
-        # 🔥 FIX: convert non-serializable fields
+        # =========================
+        # SERIALIZE
+        # =========================
         for b in bookings:
-            for key, value in b.items():
-                if isinstance(value, (timedelta,)):
-                    b[key] = str(value)
+
+            # COMBINE SLOT
+            if b["start_time"] and b["end_time"]:
+
+                b["slot"] = (
+                    f'{b["start_time"]} - {b["end_time"]}'
+                )
+
+            else:
+
+                b["slot"] = "N/A"
+
+            # DATE FORMAT
+            if b["date"]:
+
+                b["date"] = str(b["date"])
+
+            # CREATED AT
+            if b["created_at"]:
+
+                b["created_at"] = str(b["created_at"])
+
+            # REMOVE OLD FIELDS
+            b.pop("start_time", None)
+            b.pop("end_time", None)
 
         return jsonify({
             "data": bookings
         })
 
     except Exception as e:
+
         print("ERROR:", e)
+
         return jsonify({
             "error": str(e)
         })
 
     finally:
+
         conn.close()
 
 @app.route("/api/update_booking", methods=["POST"])
