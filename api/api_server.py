@@ -1223,9 +1223,6 @@ def format_time(time_str):
     ).strftime("%I:%M %p").upper().strip()
 
 
-# ==============================
-# BOOKED SLOTS
-# ==============================
 @app.route("/api/booked_slots")
 def booked_slots():
 
@@ -1245,7 +1242,7 @@ def booked_slots():
             FROM locker_bookings
             WHERE locker_number=%s
             AND date=%s
-            AND status='APPROVED'
+            AND status IN ('PENDING','APPROVED')
         """, (
             locker,
             date
@@ -1257,26 +1254,26 @@ def booked_slots():
 
         for r in rows:
 
-            # =========================
-            # GET TIME
-            # =========================
-            start = str(r["start_time"])[:5]
-            end = str(r["end_time"])[:5]
+            # 🔥 KEEP ORIGINAL FORMAT
+            start = str(r["start_time"]).strip().upper()
+            end = str(r["end_time"]).strip().upper()
 
-            # =========================
-            # FORMAT
-            # =========================
-            start = format_time(start)
-            end = format_time(end)
+            # 🔥 REMOVE SECONDS ONLY
+            start = start.replace(":00 ", " ")
+            end = end.replace(":00 ", " ")
 
-            # =========================
-            # FINAL SLOT
-            # =========================
-            slot = f"{start} - {end}".strip()
+            # FIX MYSQL TIME
+            if len(start) > 8:
+                start = start[:8]
+
+            if len(end) > 8:
+                end = end[:8]
+
+            slot = f"{start} - {end}"
 
             slots.append(slot)
 
-        print("BOOKED SLOTS:", slots)
+        print("BOOKED:", slots)
 
         return jsonify({
             "slots": slots
