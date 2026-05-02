@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from db.connection import execute_query
 import math
+import requests
 
 LOCKER_ALLOWED_HOURS = 3
 
@@ -39,7 +40,10 @@ def check_time_out(user_id):
 
         if datetime.now() > allowed_time and overtime_paid == 0:
 
-            overtime_minutes = int((datetime.now() - allowed_time).total_seconds() / 60)
+            overtime_minutes = int(
+                (datetime.now() - allowed_time).total_seconds() / 60
+            )
+
             fee = math.ceil(overtime_minutes / 2)
 
             return {
@@ -55,6 +59,8 @@ def check_time_out(user_id):
 # ==========================
 def save_time_out(user_id):
 
+    now = datetime.now()
+
     # 1. Handle locker release
     locker = execute_query(
         "SELECT locker_number FROM locker_sessions "
@@ -64,12 +70,14 @@ def save_time_out(user_id):
     )
 
     if locker:
+
         locker_number = locker[0]["locker_number"]
 
+        # ✅ FIXED TIMEZONE
         execute_query(
-            "UPDATE locker_sessions SET end_time=NOW() "
+            "UPDATE locker_sessions SET end_time=%s "
             "WHERE user_id=%s AND end_time IS NULL",
-            (user_id,)
+            (now, user_id)
         )
 
         execute_query(
@@ -81,10 +89,33 @@ def save_time_out(user_id):
         print(f"[LOCKER RELEASED]: {locker_number}")
 
     # 2. Close attendance
+    # ✅ FIXED TIMEZONE
     execute_query(
-        "UPDATE attendance_sessions SET time_out=NOW() "
+        "UPDATE attendance_sessions SET time_out=%s "
         "WHERE user_id=%s AND time_out IS NULL",
-        (user_id,)
+        (now, user_id)
     )
 
     print("[SESSION CLOSED]:", user_id)
+
+    # ===================================
+    # 🔥 REALTIME WEBSITE UPDATE
+    # ===================================
+    try:
+
+        # attendance update
+        requests.post(
+            "https://smartgym-api-ia2e.onrender.com/api/notify/attendance",
+            timeout=5
+        )
+
+        # locker update
+        requests.post(
+            "https://smartgym-api-ia2e.onrender.com/api/notify/locker",
+            timeout=5
+        )
+
+        print("🔥 WEBSITE UPDATED")
+
+    except Exception as e:
+        print("❌ NOTIFY ERROR:", e)
