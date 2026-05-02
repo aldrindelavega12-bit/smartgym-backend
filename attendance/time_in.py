@@ -74,6 +74,11 @@ def check_time_in(user_id):
     return {"allowed": False, "reason": "USER_NOT_FOUND"}
 
 
+from db.connection import execute_query
+from datetime import datetime
+import requests
+
+
 # ==========================
 # SAVE ONLY (AFTER VALIDATION)
 # ==========================
@@ -89,3 +94,17 @@ def save_time_in(user_id):
         "INSERT INTO access_logs (user_id, direction, result, reason) VALUES (%s,%s,%s,%s)",
         (user_id, "IN", "ALLOW", "VALID")
     )
+
+    # ===================================
+    # 🔥 REALTIME WEBSITE UPDATE
+    # ===================================
+    try:
+        notify = requests.post(
+            "https://smartgym-api-ia2e.onrender.com/api/notify/attendance",
+            timeout=5
+        )
+
+        print("🔥 WEBSITE NOTIFY:", notify.status_code)
+
+    except Exception as e:
+        print("❌ NOTIFY ERROR:", e)
