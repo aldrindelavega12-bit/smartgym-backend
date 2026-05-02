@@ -1191,6 +1191,43 @@ def get_bookings():
     finally:
 
         conn.close()
+        
+@app.route("/api/fully_booked_dates")
+def fully_booked_dates():
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT DISTINCT date
+            FROM locker_bookings
+            WHERE status='APPROVED'
+        """)
+
+        rows = cursor.fetchall()
+
+        dates = []
+
+        for r in rows:
+
+            dates.append(str(r["date"]))
+
+        return jsonify({
+            "dates": dates
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "error": str(e)
+        })
+
+    finally:
+
+        conn.close()
 
 @app.route("/api/update_booking", methods=["POST"])
 def update_booking():
