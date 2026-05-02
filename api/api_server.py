@@ -1211,6 +1211,82 @@ def get_bookings():
     finally:
 
         conn.close()
+        
+# ==============================
+# BOOKED SLOTS
+# ==============================
+@app.route("/api/booked_slots")
+def booked_slots():
+
+    try:
+
+        locker = request.args.get("locker")
+        date = request.args.get("date")
+
+        conn = get_connection()
+
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT start_time, end_time
+            FROM locker_bookings
+            WHERE locker_number=%s
+            AND date=%s
+            AND status='APPROVED'
+        """, (
+            locker,
+            date
+        ))
+
+        rows = cursor.fetchall()
+
+        slots = []
+
+        for r in rows:
+
+            start = str(r["start_time"])
+            end = str(r["end_time"])
+
+            # REMOVE SECONDS
+            start = start[:-3]
+            end = end[:-3]
+
+            # CONVERT TO 12HR
+            start = format_time(start)
+            end = format_time(end)
+
+            slot = f"{start} - {end}"
+
+            slots.append(slot)
+
+        return jsonify({
+            "slots": slots
+        })
+
+    except Exception as e:
+
+        print("ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        })
+
+    finally:
+
+        conn.close()
+
+
+# ==============================
+# FORMAT TIME
+# ==============================
+def format_time(time_str):
+
+    from datetime import datetime
+
+    return datetime.strptime(
+        time_str,
+        "%H:%M"
+    ).strftime("%I:%M %p")
 
         
 @app.route("/api/fully_booked_dates")
