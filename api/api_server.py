@@ -1258,9 +1258,6 @@ def booked_slots():
             start = str(r["start_time"]).strip().upper()
             end = str(r["end_time"]).strip().upper()
 
-            # 🔥 REMOVE SECONDS ONLY
-            start = start.replace(":00 ", " ")
-            end = end.replace(":00 ", " ")
 
             # FIX MYSQL TIME
             if len(start) > 8:
