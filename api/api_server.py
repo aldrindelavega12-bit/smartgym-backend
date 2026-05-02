@@ -1031,8 +1031,8 @@ def book_locker():
         # =========================
         # SPLIT SLOT
         # =========================
-        start_time = slot.split(" - ")[0]
-        end_time = slot.split(" - ")[1]
+        start_time = slot.split(" - ")[0].strip()
+        end_time = slot.split(" - ")[1].strip()
 
         conn = get_connection()
         cursor = conn.cursor()
@@ -1065,7 +1065,6 @@ def book_locker():
             })
 
         # =========================
-        # OPTIONAL:
         # CHECK IF USER ALREADY HAS
         # PENDING REQUEST
         # =========================
