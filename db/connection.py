@@ -18,8 +18,19 @@ db_pool = pooling.MySQLConnectionPool(
 # GET CONNECTION
 # =========================
 def get_connection():
-    return db_pool.get_connection()
 
+    conn = db_pool.get_connection()
+
+    # =========================
+    # PH TIMEZONE
+    # =========================
+    cursor = conn.cursor()
+
+    cursor.execute("SET time_zone = '+08:00'")
+
+    cursor.close()
+
+    return conn
 
 # =========================
 # EXECUTE QUERY
