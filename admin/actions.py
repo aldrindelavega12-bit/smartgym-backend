@@ -308,32 +308,127 @@ def process_payment():
     # MEMBER
     if choice == "1":
 
-        print("1. Membership + Monthly (1 Year + 1 Month)")
-        print("2. Membership + Daily (1 Year + 1 Day)")
-        print("3. Membership Only (1 Year)")
+        print("1. Membership + Monthly")
+        print("2. Membership + Daily")
+        print("3. Membership Only")
+        print("4. Monthly Only")
+        print("5. Daily Only")
 
         pay_type = input("Select option: ")
         user_id = input("Enter Member ID: ").upper()
 
         # =========================
-        # MEMBERSHIP LOGIC
+        # GET MEMBER
         # =========================
+        member = execute_query(
+            """
+            SELECT membership_expires, monthly_expires
+            FROM members
+            WHERE id=%s
+            """,
+            (user_id,),
+            fetch=True
+        )
 
-        membership_expiry = now + timedelta(days=365)
+        if not member:
+            print("❌ Member not found.")
+            return
 
-        monthly_expiry = None
+        member = member[0]
+
+        current_membership = member["membership_expires"]
+        current_monthly = member["monthly_expires"]
+
+        # =========================
+        # DEFAULT VALUES
+        # =========================
+        membership_expiry = current_membership
+        monthly_expiry = current_monthly
         membership_type = ""
 
+        # =========================
+        # MEMBERSHIP + MONTHLY
+        # =========================
         if pay_type == "1":
-            monthly_expiry = now + timedelta(days=30)
+
+            # membership
+            if not current_membership or current_membership < now:
+                membership_expiry = now + timedelta(days=365)
+            else:
+                membership_expiry = current_membership + timedelta(days=365)
+
+            # monthly
+            if not current_monthly or current_monthly < now:
+                monthly_expiry = now + timedelta(days=30)
+            else:
+                monthly_expiry = current_monthly + timedelta(days=30)
+
             membership_type = "membership-monthly"
 
+        # =========================
+        # MEMBERSHIP + DAILY
+        # =========================
         elif pay_type == "2":
-            monthly_expiry = now + timedelta(days=1)
+
+            # membership
+            if not current_membership or current_membership < now:
+                membership_expiry = now + timedelta(days=365)
+            else:
+                membership_expiry = current_membership + timedelta(days=365)
+
+            # daily
+            if not current_monthly or current_monthly < now:
+                monthly_expiry = now + timedelta(days=1)
+            else:
+                monthly_expiry = current_monthly + timedelta(days=1)
+
             membership_type = "membership-daily"
 
+        # =========================
+        # MEMBERSHIP ONLY
+        # =========================
         elif pay_type == "3":
+
+            if not current_membership or current_membership < now:
+                membership_expiry = now + timedelta(days=365)
+            else:
+                membership_expiry = current_membership + timedelta(days=365)
+
             membership_type = "membership"
+
+        # =========================
+        # MONTHLY ONLY
+        # =========================
+        elif pay_type == "4":
+
+            # must have active membership
+            if not current_membership or current_membership < now:
+                print("❌ No active membership.")
+                return
+
+            if not current_monthly or current_monthly < now:
+                monthly_expiry = now + timedelta(days=30)
+            else:
+                monthly_expiry = current_monthly + timedelta(days=30)
+
+            membership_type = "monthly"
+
+        # =========================
+        # DAILY ONLY
+        # =========================
+        elif pay_type == "5":
+
+            # must have active membership
+            if not current_membership or current_membership < now:
+                print("❌ No active membership.")
+                return
+
+            if not current_monthly or current_monthly < now:
+                monthly_expiry = now + timedelta(days=1)
+            else:
+                monthly_expiry = current_monthly + timedelta(days=1)
+
+            membership_type = "daily"
 
         else:
             print("Invalid option.")
@@ -342,7 +437,6 @@ def process_payment():
         # =========================
         # UPDATE DATABASE
         # =========================
-
         execute_query(
             """
             UPDATE members 
@@ -351,33 +445,51 @@ def process_payment():
                 membership_type=%s
             WHERE id=%s
             """,
-            (membership_expiry, monthly_expiry, membership_type, user_id)
+            (
+                membership_expiry,
+                monthly_expiry,
+                membership_type,
+                user_id
+            )
         )
 
         # =========================
         # SAVE PAYMENT
         # =========================
-
         execute_query(
-            "INSERT INTO payments (user_id, payment_type, amount) VALUES (%s,%s,%s)",
-            (user_id, membership_type.upper(), 0)
+            """
+            INSERT INTO payments 
+            (user_id, payment_type, amount)
+            VALUES (%s,%s,%s)
+            """,
+            (
+                user_id,
+                membership_type.upper(),
+                0
+            )
         )
 
         # =========================
         # DISPLAY RESULT
         # =========================
-
         print("\n✅ PAYMENT RECORDED")
 
         print(f"Member ID: {user_id}")
         print(f"Type: {membership_type}")
 
-        print("\n--- MEMBERSHIP ---")
-        print(f"Valid Until: {membership_expiry.strftime('%Y-%m-%d %H:%M:%S')}")
+        if membership_expiry:
+            print("\n--- MEMBERSHIP ---")
+            print(
+                f"Valid Until: "
+                f"{membership_expiry.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
 
         if monthly_expiry:
             print("\n--- ACCESS ---")
-            print(f"Valid Until: {monthly_expiry.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(
+                f"Valid Until: "
+                f"{monthly_expiry.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
 
     # WALKIN
     elif choice == "2":
