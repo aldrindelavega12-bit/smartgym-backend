@@ -5,6 +5,7 @@ import time
 
 class InFingerprint:
 
+
     def __init__(self, port='/dev/fp_in', baudrate=57600):
 
         while True:
@@ -160,7 +161,7 @@ class InFingerprint:
             else:
                 print("❌ LOW CONFIDENCE")
 
-                # serial.write(b'DENIED\n')
+                send_to_arduino("OUT:DENY:NOT_LINKED")
 
                 return None
 

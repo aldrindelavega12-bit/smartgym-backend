@@ -1,4 +1,5 @@
 from pyfingerprint.pyfingerprint import PyFingerprint
+from hardware.arduino_serial import send_to_arduino
 import time
 
 
@@ -21,46 +22,69 @@ class OutFingerprint:
                 print("Retrying OUT sensor in 2 seconds...")
                 time.sleep(2)
 
-    def verify(self, timeout=5):
+    def verify(self, timeout=2):
 
         try:
 
-            if not self._wait_for_finger(timeout):
-                return None
+            start = time.time()
 
-            time.sleep(0.2)
+            # =========================
+            # WAIT FOR FINGER
+            # =========================
+            while not self.f.readImage():
 
+                if time.time() - start > timeout:
+                    return None
+
+                time.sleep(0.02)
+
+            print("📌 Finger detected")
+
+            # =========================
+            # CONVERT + SEARCH
+            # =========================
             self.f.convertImage(0x01)
 
-            result = self.f.searchTemplate()
-
-            positionNumber = result[0]
-            accuracyScore = result[1]
+            positionNumber, accuracyScore = self.f.searchTemplate()
 
             self._wait_for_removal()
 
+            # =========================
+            # NO MATCH
+            # =========================
             if positionNumber == -1:
+
+                print("❌ ACCESS DENIED (no match)")
+
+                send_to_arduino("OUT:DENY:NOT_LINKED")
+
                 return None
 
-            # fingerprint range check
-            if 50 <= accuracyScore <= 200:
+            # =========================
+            # VALID MATCH
+            # =========================
+            if accuracyScore >= 70:
 
-                print("[OUT] Fingerprint recognized")
-                print("Position:", positionNumber)
-                print("Accuracy:", accuracyScore)
+                print("✅ ACCESS GRANTED")
+                print("ID:", positionNumber)
+                print("Score:", accuracyScore)
 
                 return positionNumber
 
+            # =========================
+            # LOW CONFIDENCE
+            # =========================
             else:
 
-                print("[OUT] Fingerprint rejected")
-                print("Accuracy:", accuracyScore)
+                print("❌ LOW CONFIDENCE")
+
+                send_to_arduino("OUT:DENY:NOT_LINKED")
 
                 return None
 
-        except Exception:
+        except Exception as e:
 
-            time.sleep(0.3)
+            print("Verify error:", e)
 
             return None
 
