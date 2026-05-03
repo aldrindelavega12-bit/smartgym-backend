@@ -1,29 +1,72 @@
 import mysql.connector
+from mysql.connector import pooling
 from config.settings import DB_CONFIG
 
 
+# =========================
+# CONNECTION POOL
+# =========================
+db_pool = pooling.MySQLConnectionPool(
+    pool_name="smartgym_pool",
+    pool_size=5,
+    pool_reset_session=True,
+    **DB_CONFIG
+)
+
+
+# =========================
+# GET CONNECTION
+# =========================
 def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    return db_pool.get_connection()
 
 
+# =========================
+# EXECUTE QUERY
+# =========================
 def execute_query(query, params=None, fetch=False):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+
+    conn = None
+    cursor = None
 
     try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(dictionary=True)
+
         cursor.execute(query, params)
 
+        # =========================
+        # FETCH DATA
+        # =========================
         if fetch:
             result = cursor.fetchall()
             return result
+
+        # =========================
+        # SAVE CHANGES
+        # =========================
         else:
             conn.commit()
             return True
 
     except Exception as e:
+
         print("DB ERROR:", e)
+
         return None
 
     finally:
-        cursor.close()
-        conn.close()
+
+        try:
+            if cursor:
+                cursor.close()
+        except:
+            pass
+
+        try:
+            if conn:
+                conn.close()
+        except:
+            pass
