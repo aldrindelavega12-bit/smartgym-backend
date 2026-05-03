@@ -295,14 +295,32 @@ def in_lane_loop(in_fp, face_recognizer, ui):
         # ACCESS LOGIC
         # =========================
         # 🔥 NEW CHECK FIRST
-        membership_ok = check_membership_status(user_id, full_name, user[0]["phone"])
+        # =========================
+        # MEMBER MEMBERSHIP CHECK ONLY
+        # =========================
+        if user_type == "Member":
 
-        if not membership_ok:
-            ui.set_status("MEMBERSHIP EXPIRED")
-            print_access(full_name, user_type, "ACCESS DENIED", "MEMBERSHIP EXPIRED")
-            send_to_arduino("IN:DENY:EXPIRED")
-            time.sleep(2)
-            continue
+            membership_ok = check_membership_status(
+                user_id,
+                full_name,
+                user[0]["phone"]
+            )
+
+            if not membership_ok:
+
+                ui.set_status("MEMBERSHIP EXPIRED")
+
+                print_access(
+                    full_name,
+                    user_type,
+                    "ACCESS DENIED",
+                    "MEMBERSHIP EXPIRED"
+                )
+
+                send_to_arduino("IN:DENY:EXPIRED")
+
+                time.sleep(2)
+                continue
 
         # THEN normal logic
         result = check_time_in(user_id)
