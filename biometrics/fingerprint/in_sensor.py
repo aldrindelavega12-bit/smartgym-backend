@@ -1,4 +1,5 @@
 from pyfingerprint.pyfingerprint import PyFingerprint
+from hardware.arduino_serial import init_serial, send_to_arduino, ser
 import time
 
 
@@ -141,7 +142,7 @@ class InFingerprint:
                 print("❌ ACCESS DENIED (no match)")
 
                 send_to_arduino(f"IN:DENY:NOT_LINKED")
-                # serial.write(b'DENIED\n')
+                
 
                 return None
 
