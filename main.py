@@ -97,6 +97,7 @@ def notify_locker():
         pass
     
 def check_membership_status(user_id, full_name, phone):
+
     from datetime import date
     from sms_module.sms import send_sms
 
@@ -112,70 +113,102 @@ def check_membership_status(user_id, full_name, phone):
     row = result[0]
     today = date.today()
 
-    # 📞 FORMAT NUMBER
+    # =========================
+    # FORMAT NUMBER
+    # =========================
     if phone.startswith("09"):
         phone = "63" + phone[1:]
 
-    # =========================
-    # 🔴 YEARLY CHECK (BLOCK IF EXPIRED)
-    # =========================
+    # ==================================================
+    # 🔴 YEARLY MEMBERSHIP CHECK
+    # (REMINDER ONLY - NO BLOCK)
+    # ==================================================
     if row["membership_expires"]:
+
         yearly_expiry = row["membership_expires"].date()
         yearly_days = (yearly_expiry - today).days
 
-
+        # EXPIRED
         if yearly_days < 0:
-            print("DEBUG: YEARLY EXPIRED")
 
-            if row.get("last_sms_sent") != today:
-                send_sms(phone, f"Hello {full_name}, your annual membership has expired. Please renew. - SMARTGYM")
+            print("DEBUG: YEARLY MEMBERSHIP EXPIRED")
 
-                execute_query("""
-                    UPDATE members SET last_sms_sent = %s WHERE id = %s
-                """, (today, user_id))
-
-            return False  # ❌ BLOCK
-
-    # =========================
-    # 🟡 MONTHLY CHECK (SMART REMINDER)
-    # =========================
-    if row["monthly_expires"]:
-        monthly_expiry = row["monthly_expires"].date()
-        monthly_days = (monthly_expiry - today).days
-
-
-        # ❌ STOP AFTER -1
-        if monthly_days < -1:
-            return False
-
-        # 🔥 SEND REMINDERS (3 → -1)
-        if monthly_days <= 3:
-
-            # ❌ avoid spam (once per day)
+            # avoid spam
             if row.get("last_sms_sent") != today:
 
-                if monthly_days > 0:
-                    msg = f"Hello {full_name}, your membership will expire in {monthly_days} day(s). - SMARTGYM"
-
-                elif monthly_days == 0:
-                    msg = f"Hello {full_name}, your membership expires TODAY. Please renew to avoid interruption. - SMARTGYM"
-
-                else:  # -1
-                    msg = f"Hello {full_name}, your membership has expired. Please renew immediately. - SMARTGYM"
-
-
-                send_sms(phone, msg)
+                send_sms(
+                    phone,
+                    f"Hello {full_name}, your annual membership has expired. Please renew. - SMARTGYM"
+                )
 
                 execute_query("""
-                    UPDATE members SET last_sms_sent = %s WHERE id = %s
+                    UPDATE members
+                    SET last_sms_sent = %s
+                    WHERE id = %s
                 """, (today, user_id))
 
-        # ❌ BLOCK IF EXPIRED
-        if monthly_days < 0:
-            print("DEBUG: BLOCKING ACCESS (EXPIRED)")
-            return False
+    # ==================================================
+    # 🔴 MONTHLY / DAILY ACCESS REQUIRED
+    # ==================================================
+    if not row["monthly_expires"]:
 
-    return True  # ✅ ALLOW
+        print("DEBUG: NO MONTHLY ACCESS")
+
+        return False
+
+    monthly_expiry = row["monthly_expires"].date()
+    monthly_days = (monthly_expiry - today).days
+
+    # =========================
+    # SEND REMINDERS
+    # =========================
+    if monthly_days <= 3:
+
+        # avoid spam
+        if row.get("last_sms_sent") != today:
+
+            if monthly_days > 0:
+
+                msg = (
+                    f"Hello {full_name}, your access will expire in "
+                    f"{monthly_days} day(s). - SMARTGYM"
+                )
+
+            elif monthly_days == 0:
+
+                msg = (
+                    f"Hello {full_name}, your access expires TODAY. "
+                    f"Please renew to avoid interruption. - SMARTGYM"
+                )
+
+            else:
+
+                msg = (
+                    f"Hello {full_name}, your access has expired. "
+                    f"Please renew immediately. - SMARTGYM"
+                )
+
+            send_sms(phone, msg)
+
+            execute_query("""
+                UPDATE members
+                SET last_sms_sent = %s
+                WHERE id = %s
+            """, (today, user_id))
+
+    # =========================
+    # BLOCK IF ACCESS EXPIRED
+    # =========================
+    if monthly_days < 0:
+
+        print("DEBUG: MONTHLY ACCESS EXPIRED")
+
+        return False
+
+    # =========================
+    # VALID ACCESS
+    # =========================
+    return True
 
 # =========================
 # IN THREAD (Entry Lane)
@@ -308,13 +341,13 @@ def in_lane_loop(in_fp, face_recognizer, ui):
 
             if not membership_ok:
 
-                ui.set_status("MEMBERSHIP EXPIRED")
+                ui.set_status("ACCESS EXPIRED")
 
                 print_access(
                     full_name,
                     user_type,
                     "ACCESS DENIED",
-                    "MEMBERSHIP EXPIRED"
+                    "ACCESS EXPIRED"
                 )
 
                 send_to_arduino("IN:DENY:EXPIRED")

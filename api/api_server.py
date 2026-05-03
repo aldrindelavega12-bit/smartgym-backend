@@ -837,6 +837,7 @@ def get_dashboard():
         cursor.execute("""
             SELECT COUNT(*) AS total
             FROM attendance_sessions
+            WHERE DATE(time_in) = CURDATE()
         """)
         total_attendance = cursor.fetchone()["total"]
 
