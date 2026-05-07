@@ -1024,30 +1024,41 @@ def book_locker():
     try:
         data = request.get_json()
 
+        print("BOOK DATA:", data)
+
         user_id = data.get("user_id")
         locker = data.get("locker")
         date = data.get("date")
-        slot = data.get("time")
+
+        # 🔥 NEW FORMAT
+        start_time = data.get("start_time")
+        end_time = data.get("end_time")
 
         # =========================
-        # SPLIT SLOT
+        # VALIDATE
         # =========================
-        start_time = slot.split(" - ")[0].strip()
-        end_time = slot.split(" - ")[1].strip()
+        if not start_time or not end_time:
+
+            return jsonify({
+                "status": "error",
+                "message": "Missing time"
+            })
 
         conn = get_connection()
         cursor = conn.cursor()
 
         # =========================
-        # CHECK IF ALREADY APPROVED
+        # CHECK OVERLAP
         # =========================
         cursor.execute("""
-            SELECT * FROM locker_bookings
+            SELECT *
+            FROM locker_bookings
             WHERE locker_number=%s
             AND date=%s
-            AND start_time=%s
-            AND end_time=%s
-            AND status='APPROVED'
+            AND status IN ('PENDING','APPROVED')
+            AND (
+                (%s < end_time AND %s > start_time)
+            )
         """, (
             locker,
             date,
@@ -1057,45 +1068,15 @@ def book_locker():
 
         existing = cursor.fetchone()
 
-        # SLOT ALREADY APPROVED
         if existing:
 
             return jsonify({
                 "status": "error",
-                "message": "This slot is already fully booked"
+                "message": "Time overlaps with existing booking"
             })
 
         # =========================
-        # CHECK IF USER ALREADY HAS
-        # PENDING REQUEST
-        # =========================
-        cursor.execute("""
-            SELECT * FROM locker_bookings
-            WHERE user_id=%s
-            AND locker_number=%s
-            AND date=%s
-            AND start_time=%s
-            AND end_time=%s
-            AND status='PENDING'
-        """, (
-            user_id,
-            locker,
-            date,
-            start_time,
-            end_time
-        ))
-
-        pending = cursor.fetchone()
-
-        if pending:
-
-            return jsonify({
-                "status": "error",
-                "message": "You already requested this slot"
-            })
-
-        # =========================
-        # INSERT BOOKING
+        # INSERT
         # =========================
         cursor.execute("""
             INSERT INTO locker_bookings
@@ -1120,10 +1101,12 @@ def book_locker():
 
         return jsonify({
             "status": "success",
-            "message": "Booking submitted for approval"
+            "message": "Booking submitted"
         })
 
     except Exception as e:
+
+        print("BOOK ERROR:", e)
 
         return jsonify({
             "status": "error",
