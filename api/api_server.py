@@ -1540,8 +1540,6 @@ def get_membership(user_id):
         
 from flask_socketio import SocketIO
 
-socketio = SocketIO(app, cors_allowed_origins="*")
-
 @app.route("/api/notify/priority", methods=["POST"])
 def notify_priority():
     data = request.json
