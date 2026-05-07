@@ -1,7 +1,7 @@
 Flask
 flask-cors
 flask-socketio
-gunicorn
+gunicorn==21.2.0
 eventlet==0.41.0
 pymysql
 mysql-connector-python
