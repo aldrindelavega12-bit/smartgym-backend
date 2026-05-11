@@ -1496,7 +1496,9 @@ def login():
             
 @app.route("/api/membership/<user_id>")
 def get_membership(user_id):
+
     try:
+
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
@@ -1509,7 +1511,11 @@ def get_membership(user_id):
                     ELSE 'EXPIRED'
                 END AS membership_status,
 
-                DATE_FORMAT(membership_expires, '%%Y-%%m-%%d') AS membership_validity,
+                DATE_FORMAT(
+                    membership_expires,
+                    '%%Y-%%m-%%d'
+                ) AS membership_validity,
+
                 membership_type,
 
                 CASE 
@@ -1517,7 +1523,10 @@ def get_membership(user_id):
                     ELSE 'UNPAID'
                 END AS monthly_status,
 
-                DATE_FORMAT(monthly_expires, '%%Y-%%m-%%d') AS monthly_validity
+                DATE_FORMAT(
+                    monthly_expires,
+                    '%%Y-%%m-%%d'
+                ) AS monthly_validity
 
             FROM members
             WHERE id = %s
@@ -1525,17 +1534,34 @@ def get_membership(user_id):
 
         data = cursor.fetchone()
 
+        # =====================================
+        # DAILY MEMBERSHIP = NO MONTHLY
+        # =====================================
+        if data:
+
+            membership_type = (
+                data["membership_type"] or ""
+            ).lower()
+
+            if "daily" in membership_type:
+
+                data["monthly_status"] = "-"
+                data["monthly_validity"] = "-"
+
         return jsonify({
             "data": data
         })
 
     except Exception as e:
+
         print("ERROR:", e)
+
         return jsonify({
             "error": str(e)
         })
 
     finally:
+
         conn.close()
         
 from flask_socketio import SocketIO
