@@ -1022,15 +1022,15 @@ def get_members_list():
         # =========================
         # MONTHLY STATUS
         # =========================
-        monthly_status = "UNPAID"
+        monthly_status = "EXPIRED"
 
-        if r["monthly_expires"]:
+		if r["monthly_expires"]:
 
-            monthly_status = (
-                "PAID"
-                if r["monthly_expires"] > now
-                else "UNPAID"
-            )
+			monthly_status = (
+				"ACTIVE"
+				if r["monthly_expires"] > now
+				else "EXPIRED"
+			)
 
         # =========================
         # DAILY = NO MONTHLY
