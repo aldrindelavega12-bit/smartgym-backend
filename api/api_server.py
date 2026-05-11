@@ -666,8 +666,8 @@ def get_attendance():
         for row in rows:
 
             # ===== FORMAT TIME (NO SECONDS) =====
-            time_in = row["time_in"].strftime("%Y-%m-%d %H:%M") if row["time_in"] else "-"
-            time_out = row["time_out"].strftime("%Y-%m-%d %H:%M") if row["time_out"] else "-"
+            time_in = row["time_in"].strftime("%I:%M %p") if row["time_in"] else "-"
+            time_out = row["time_out"].strftime("%I:%M %p") if row["time_out"] else "-"
 
             data.append({
                 "name": row["name"] if row["name"] else row["user_id"],
