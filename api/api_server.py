@@ -966,6 +966,7 @@ from datetime import datetime
 
 @app.route("/api/members_list", methods=["GET"])
 def get_members_list():
+
     conn = get_connection()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
 
@@ -982,79 +983,88 @@ def get_members_list():
     rows = cursor.fetchall()
 
     result = []
-	now = datetime.now()
 
-	for r in rows:
+    now = datetime.now()
 
-		# =========================
-		# FORMAT DATE ONLY
-		# =========================
-		def format_date(dt):
-			if not dt:
-				return None
-			return dt.strftime("%Y-%m-%d")
+    for r in rows:
 
-		membership_exp = format_date(
-			r["membership_expires"]
-		)
+        # =========================
+        # FORMAT DATE ONLY
+        # =========================
+        def format_date(dt):
 
-		monthly_exp = format_date(
-			r["monthly_expires"]
-		)
+            if not dt:
+                return None
 
-		# =========================
-		# MEMBERSHIP STATUS
-		# =========================
-		membership_status = "EXPIRED"
+            return dt.strftime("%Y-%m-%d")
 
-		if r["membership_expires"]:
-			membership_status = (
-				"ACTIVE"
-				if r["membership_expires"] > now
-				else "EXPIRED"
-			)
+        membership_exp = format_date(
+            r["membership_expires"]
+        )
 
-		# =========================
-		# MONTHLY STATUS
-		# =========================
-		monthly_status = "UNPAID"
+        monthly_exp = format_date(
+            r["monthly_expires"]
+        )
 
-		if r["monthly_expires"]:
-			monthly_status = (
-				"PAID"
-				if r["monthly_expires"] > now
-				else "UNPAID"
-			)
+        # =========================
+        # MEMBERSHIP STATUS
+        # =========================
+        membership_status = "EXPIRED"
 
-		# =========================
-		# DAILY = NO MONTHLY
-		# =========================
-		membership_type = (
-			r["membership_type"] or ""
-		).lower()
+        if r["membership_expires"]:
 
-		if "daily" in membership_type:
+            membership_status = (
+                "ACTIVE"
+                if r["membership_expires"] > now
+                else "EXPIRED"
+            )
 
-			monthly_status = "-"
-			monthly_exp = "-"
+        # =========================
+        # MONTHLY STATUS
+        # =========================
+        monthly_status = "UNPAID"
 
-		result.append({
+        if r["monthly_expires"]:
 
-			"id": r["id"],
+            monthly_status = (
+                "PAID"
+                if r["monthly_expires"] > now
+                else "UNPAID"
+            )
 
-			"name": r["full_name"],
+        # =========================
+        # DAILY = NO MONTHLY
+        # =========================
+        membership_type = (
+            r["membership_type"] or ""
+        ).lower()
 
-			"type": r["membership_type"],
+        if "daily" in membership_type:
 
-			"membership_expires": membership_exp,
+            monthly_status = "-"
+            monthly_exp = "-"
 
-			"membership_status": membership_status,
+        result.append({
 
-			"monthly_expires": monthly_exp,
+            "id": r["id"],
 
-			"monthly_status": monthly_status
+            "name": r["full_name"],
 
-		})
+            "type": r["membership_type"],
+
+            "membership_expires": membership_exp,
+
+            "membership_status": membership_status,
+
+            "monthly_expires": monthly_exp,
+
+            "monthly_status": monthly_status
+
+        })
+
+    conn.close()
+
+    return jsonify(result)
 
 @app.route("/api/book_locker", methods=["POST"])
 def book_locker():
