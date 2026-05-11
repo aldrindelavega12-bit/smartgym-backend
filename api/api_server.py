@@ -1487,6 +1487,61 @@ def create_account():
     finally:
         conn.close()
         
+@app.route("/api/account_status", methods=["GET"])
+def account_status():
+
+    try:
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT
+                m.id,
+                m.full_name,
+                ua.username
+
+            FROM members m
+
+            LEFT JOIN user_accounts ua
+            ON m.id = ua.user_id
+
+            ORDER BY m.id ASC
+        """)
+
+        rows = cursor.fetchall()
+
+        result = []
+
+        for r in rows:
+
+            result.append({
+
+                "id": r["id"],
+
+                "name": r["full_name"],
+
+                "username": r["username"],
+
+                "status":
+                    "HAS ACCOUNT"
+                    if r["username"]
+                    else "NO ACCOUNT"
+
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+
+        print("ERROR:", e)
+
+        return jsonify([])
+
+    finally:
+
+        conn.close()
+        
 @app.route("/api/login", methods=["POST"])
 def login():
     conn = None

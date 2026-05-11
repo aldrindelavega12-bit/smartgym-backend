@@ -376,6 +376,18 @@ def in_lane_loop(in_fp, face_recognizer, ui):
                 send_to_arduino("IN:LOCK")
 
                 save_time_in(user_id)
+                
+                            
+                # =========================
+                # DAILY = ONE ENTRY ONLY
+                # =========================
+                execute_query("""
+                    UPDATE members
+                    SET monthly_expires = NOW()
+                    WHERE id = %s
+                    AND LOWER(membership_type) LIKE '%daily%'
+                """, (user_id,))
+                
                 notify_attendance()
                 check_tailgating("IN")
                 

@@ -378,7 +378,10 @@ def process_payment():
 
             # daily
             if not current_monthly or current_monthly < now:
-                monthly_expiry = now + timedelta(days=1)
+                monthly_expiry = datetime.combine(
+                    now.date(),
+                    dt_time(23, 59, 59)
+                )
             else:
                 monthly_expiry = current_monthly + timedelta(days=1)
 
@@ -424,7 +427,10 @@ def process_payment():
                 return
 
             if not current_monthly or current_monthly < now:
-                monthly_expiry = now + timedelta(days=1)
+                monthly_expiry = datetime.combine(
+                    now.date(),
+                    dt_time(23, 59, 59)
+                )
             else:
                 monthly_expiry = current_monthly + timedelta(days=1)
 
