@@ -1056,8 +1056,6 @@ def get_members_list():
 
 		})
 
-		return jsonify(result)
-
 @app.route("/api/book_locker", methods=["POST"])
 def book_locker():
 
