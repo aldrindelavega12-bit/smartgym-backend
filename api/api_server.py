@@ -1691,7 +1691,7 @@ def notify_priority():
 
     return jsonify({"success": True})
 
- @app.route("/api/sync_attendance", methods=["POST"])
+@app.route("/api/sync_attendance", methods=["POST"])
 def sync_attendance():
 
     try:
@@ -1703,11 +1703,14 @@ def sync_attendance():
         conn = get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO attendance_sessions
             (user_id, time_in, status)
             VALUES (%s, NOW(), 'ACTIVE')
-        """, (user_id,))
+            """,
+            (user_id,)
+        )
 
         conn.commit()
 
