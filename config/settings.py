@@ -1,11 +1,11 @@
 import os
 
 DB_CONFIG = {
-    "host": os.getenv("mysql.railway.internal"),
+    "host": os.getenv("shortline.proxy.rlwy.net"),
     "user": os.getenv("root"),
     "password": os.getenv("bRQXvdMKWBmfeaABLzmdOVaCqkmzonoL"),
     "database": os.getenv("railway"),
-    "port": int(os.getenv("3306"))
+    "port": int(os.getenv("50506"))
 
 # System Settings
 FP_COOLDOWN_SECONDS = 3
