@@ -5,45 +5,16 @@ import threading
 
 
 # ==========================
-# CLOUD WEBSITE NOTIFY
+# BACKGROUND WEBSITE NOTIFY
 # ==========================
 def notify_website():
-
     try:
-
         requests.post(
             "https://smartgym-api-ia2e.onrender.com/api/notify/attendance",
             timeout=1
         )
-
-    except Exception as e:
-
-        print("NOTIFY ERROR:", e)
-
-
-# ==========================
-# CLOUD SYNC
-# ==========================
-def sync_attendance_cloud(user_id):
-
-    try:
-
-        requests.post(
-            "https://smartgym-api-ia2e.onrender.com/api/sync_attendance",
-            json={
-                "user_id": user_id
-            },
-            timeout=1
-        )
-
-        # realtime refresh
-        notify_website()
-
-        print(f"☁️ CLOUD SYNC SUCCESS: {user_id}")
-
-    except Exception as e:
-
-        print("SYNC ERROR:", e)
+    except:
+        pass
 
 
 # ==========================
@@ -70,6 +41,7 @@ def check_time_in(user_id):
 
         member = member[0]
 
+        # already inside
         active = execute_query(
             """
             SELECT *
@@ -83,27 +55,26 @@ def check_time_in(user_id):
         )
 
         if active:
-
             return {
                 "allowed": False,
                 "reason": "ALREADY_INSIDE"
             }
 
+        # yearly membership
         if (
             member["membership_expires"]
             and member["membership_expires"] > now
         ):
-
             return {
                 "allowed": True,
                 "reason": "VALID_MEMBER"
             }
 
+        # monthly membership
         if (
             member["monthly_expires"]
             and member["monthly_expires"] > now
         ):
-
             return {
                 "allowed": True,
                 "reason": "VALID_MEMBER"
@@ -118,7 +89,6 @@ def check_time_in(user_id):
     # WALKIN CHECK
     # ==========================
     print("1")
-
     walkin = execute_query(
         """
         SELECT *
@@ -132,7 +102,6 @@ def check_time_in(user_id):
     if walkin:
 
         print("2")
-
         payment = execute_query(
             """
             SELECT *
@@ -147,14 +116,12 @@ def check_time_in(user_id):
         )
 
         if not payment:
-
             return {
                 "allowed": False,
                 "reason": "WALKIN_EXPIRED"
             }
 
         print("3")
-
         active = execute_query(
             """
             SELECT *
@@ -168,7 +135,6 @@ def check_time_in(user_id):
         )
 
         if active:
-
             return {
                 "allowed": False,
                 "reason": "ALREADY_INSIDE"
@@ -186,15 +152,13 @@ def check_time_in(user_id):
 
 
 # ==========================
-# SAVE ONLY (LOCAL FIRST)
+# SAVE ONLY (BACKGROUND SAFE)
 # ==========================
 def save_time_in(user_id):
 
     now = datetime.now()
 
-    # ==========================
-    # SAVE LOCAL ATTENDANCE
-    # ==========================
+    # attendance session
     execute_query(
         """
         INSERT INTO attendance_sessions
@@ -204,9 +168,7 @@ def save_time_in(user_id):
         (user_id, now, "ACTIVE")
     )
 
-    # ==========================
-    # SAVE ACCESS LOG
-    # ==========================
+    # access logs
     execute_query(
         """
         INSERT INTO access_logs
@@ -217,10 +179,10 @@ def save_time_in(user_id):
     )
 
     # ==========================
-    # BACKGROUND CLOUD SYNC
+    # WEBSITE UPDATE (BACKGROUND)
     # ==========================
     threading.Thread(
-        target=sync_attendance_cloud,
-        args=(user_id,),
+        target=notify_website,
         daemon=True
     ).start()
+    

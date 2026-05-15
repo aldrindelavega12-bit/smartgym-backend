@@ -1693,48 +1693,6 @@ def notify_priority():
 
 
 
-@app.route("/api/sync_attendance", methods=["POST"])
-def sync_attendance():
-
-    try:
-
-        data = request.get_json()
-
-        user_id = data.get("user_id")
-
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO attendance_sessions
-            (user_id, time_in, status)
-            VALUES (%s, NOW(), 'ACTIVE')
-            """,
-            (user_id,)
-        )
-
-        conn.commit()
-
-        print(f"☁️ CLOUD SYNC: {user_id}")
-
-        socketio.emit("attendance_update")
-
-        cursor.close()
-        conn.close()
-
-        return jsonify({
-            "success": True
-        })
-
-    except Exception as e:
-
-        print("SYNC ERROR:", e)
-
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
 
 socketio = SocketIO(app, cors_allowed_origins="*")
 

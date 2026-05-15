@@ -1,17 +1,6 @@
 import mysql.connector
 from mysql.connector import pooling
 from config.settings import DB_CONFIG
-import os
-
-if os.getenv("LOCAL_PI") == "1":
-
-    DB_CONFIG = {
-        "host": "127.0.0.1",
-        "user": "smartgym",
-        "password": "smartgym123",
-        "database": "smart_gym_db",
-        "port": 3306
-    }
 
 
 # =========================
@@ -19,8 +8,8 @@ if os.getenv("LOCAL_PI") == "1":
 # =========================
 db_pool = pooling.MySQLConnectionPool(
     pool_name="smartgym_pool",
-    pool_size=10,
-    pool_reset_session=False,
+    pool_size=5,
+    pool_reset_session=True,
     **DB_CONFIG
 )
 
@@ -30,35 +19,23 @@ db_pool = pooling.MySQLConnectionPool(
 # =========================
 def get_connection():
 
-    try:
+    conn = db_pool.get_connection()
 
-        conn = db_pool.get_connection()
+    # =========================
+    # PH TIMEZONE
+    # =========================
+    cursor = conn.cursor()
 
-        # AUTO RECONNECT
-        if not conn.is_connected():
+    cursor.execute("SET time_zone = '+08:00'")
 
-            conn.reconnect(
-                attempts=1,
-                delay=0
-            )
+    cursor.close()
 
-        return conn
-
-    except Exception as e:
-
-        print("DB CONNECTION ERROR:", e)
-
-        return None
-
+    return conn
 
 # =========================
 # EXECUTE QUERY
 # =========================
-def execute_query(
-    query,
-    params=None,
-    fetch=False
-):
+def execute_query(query, params=None, fetch=False):
 
     conn = None
     cursor = None
@@ -67,34 +44,22 @@ def execute_query(
 
         conn = get_connection()
 
-        if conn is None:
-            return None
+        cursor = conn.cursor(dictionary=True)
 
-        cursor = conn.cursor(
-            dictionary=True
-        )
-
-        cursor.execute(
-            query,
-            params
-        )
+        cursor.execute(query, params)
 
         # =========================
         # FETCH DATA
         # =========================
         if fetch:
-
             result = cursor.fetchall()
-
             return result
 
         # =========================
-        # SAVE / UPDATE
+        # SAVE CHANGES
         # =========================
         else:
-
             conn.commit()
-
             return True
 
     except Exception as e:
@@ -112,7 +77,7 @@ def execute_query(
             pass
 
         try:
-            if conn and conn.is_connected():
+            if conn:
                 conn.close()
         except:
             pass
