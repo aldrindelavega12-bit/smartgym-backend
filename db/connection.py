@@ -1,6 +1,21 @@
 import mysql.connector
 from mysql.connector import pooling
 from config.settings import DB_CONFIG
+import platform
+
+
+# =========================
+# AUTO LOCAL DB FOR RPI
+# =========================
+if platform.system() == "Linux":
+
+    DB_CONFIG = {
+        "host": "127.0.0.1",
+        "user": "smartgym",
+        "password": "smartgym123",
+        "database": "smart_gym_db",
+        "port": 3306
+    }
 
 
 # =========================
@@ -23,9 +38,13 @@ def get_connection():
 
         conn = db_pool.get_connection()
 
-        # 🔥 AUTO RECONNECT CHECK
+        # AUTO RECONNECT
         if not conn.is_connected():
-            conn.reconnect(attempts=1, delay=0)
+
+            conn.reconnect(
+                attempts=1,
+                delay=0
+            )
 
         return conn
 
@@ -39,7 +58,11 @@ def get_connection():
 # =========================
 # EXECUTE QUERY
 # =========================
-def execute_query(query, params=None, fetch=False):
+def execute_query(
+    query,
+    params=None,
+    fetch=False
+):
 
     conn = None
     cursor = None
@@ -51,9 +74,14 @@ def execute_query(query, params=None, fetch=False):
         if conn is None:
             return None
 
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(
+            dictionary=True
+        )
 
-        cursor.execute(query, params)
+        cursor.execute(
+            query,
+            params
+        )
 
         # =========================
         # FETCH DATA
@@ -65,7 +93,7 @@ def execute_query(query, params=None, fetch=False):
             return result
 
         # =========================
-        # SAVE / INSERT / UPDATE
+        # SAVE / UPDATE
         # =========================
         else:
 
@@ -81,14 +109,12 @@ def execute_query(query, params=None, fetch=False):
 
     finally:
 
-        # close cursor only
         try:
             if cursor:
                 cursor.close()
         except:
             pass
 
-        # 🔥 RETURN CONNECTION TO POOL
         try:
             if conn and conn.is_connected():
                 conn.close()
