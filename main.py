@@ -83,7 +83,10 @@ def notify_attendance():
     try:
         print("📡 Sending attendance update...")
 
-        res = requests.post(f"{API_URL}/api/notify/attendance")
+        res = requests.post(
+            f"{API_URL}/api/notify/attendance",
+            timeout=1
+        )
 
         print("Response:", res.status_code)
 
@@ -318,7 +321,7 @@ def in_lane_loop(in_fp, face_recognizer, ui):
 
                 send_to_arduino("IN:DENY:FACE_MISMATCH")
 
-                time.sleep(2)
+                time.sleep(0.3)
                 continue
 
             else:
@@ -352,7 +355,7 @@ def in_lane_loop(in_fp, face_recognizer, ui):
 
                 send_to_arduino("IN:DENY:EXPIRED")
 
-                time.sleep(2)
+                time.sleep(0.3)
                 continue
 
         # THEN normal logic
@@ -363,10 +366,12 @@ def in_lane_loop(in_fp, face_recognizer, ui):
 
             ui.set_status("ACCESS GRANTED")
             
+            send_to_arduino(f"IN:ALLOW:{full_name}:{current_time}")
+            
 
             print_access(full_name, user_type, "ACCESS GRANTED")
 
-            send_to_arduino(f"IN:ALLOW:{full_name}:{current_time}")
+            
 
             passed = wait_for_entry()
 
@@ -375,7 +380,11 @@ def in_lane_loop(in_fp, face_recognizer, ui):
 
                 send_to_arduino("IN:LOCK")
 
-                save_time_in(user_id)
+                threading.Thread(
+                    target=save_time_in,
+                    args=(user_id,),
+                    daemon=True
+                ).start()
                 
                             
                 # =========================
@@ -388,7 +397,10 @@ def in_lane_loop(in_fp, face_recognizer, ui):
                     AND LOWER(membership_type) LIKE '%daily%'
                 """, (user_id,))
                 
-                notify_attendance()
+                threading.Thread(
+                    target=notify_attendance,
+                    daemon=True
+                ).start()
                 check_tailgating("IN")
                 
 
@@ -409,7 +421,7 @@ def in_lane_loop(in_fp, face_recognizer, ui):
             send_to_arduino(f"IN:DENY:{reason}")
             
 
-        time.sleep(2)
+        time.sleep(0.3)
         
 def has_unpaid_overtime(user_id):
     try:
@@ -477,7 +489,7 @@ def out_lane_loop(out_fp):
             print_access(full_name, user_type, "EXIT DENIED", "ACTIVE LOCKER")
 
             send_to_arduino("OUT:DENY:ACTIVE_LOCKER")
-            time.sleep(2)
+            time.sleep(0.3)
             continue
 
         # =========================
@@ -489,7 +501,7 @@ def out_lane_loop(out_fp):
 
             send_to_arduino("OUT:DENY:OVERTIME")
 
-            time.sleep(2)
+            time.sleep(0.3)
             continue
 
         # =========================
@@ -517,8 +529,15 @@ def out_lane_loop(out_fp):
                 except:
                     pass
 
-                notify_attendance()
-                notify_locker()
+                threading.Thread(
+                    target=notify_attendance,
+                    daemon=True
+                ).start()
+                threading.Thread(
+                    target=notify_locker,
+                    daemon=True
+                ).start()
+                
                 check_tailgating("OUT")
                 
 
@@ -538,14 +557,15 @@ def out_lane_loop(out_fp):
                 f"OUT:DENY:{reason}"
             )
 
-        time.sleep(2)
+        time.sleep(0.3)
         
 def has_active_locker(user_id):
     try:
         r = requests.get(
             "http://192.168.1.19:5001/api/check_locker",
             params={"user_id": user_id},
-            headers={"X-API-KEY": "GYM_MASTER_2026"}
+            headers={"X-API-KEY": "GYM_MASTER_2026"},
+            timeout=1
         )
 
         if r.status_code != 200:
