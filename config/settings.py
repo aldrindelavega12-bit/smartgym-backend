@@ -1,12 +1,10 @@
 import os
 
-
 DB_CONFIG = {
-    "host": os.getenv("mysql.railway.internal"),
-    "user": os.getenv("root"),
-    "password": os.getenv("bRQXvdMKWBmfeaABLzmdOVaCqkmzonoL"),
-    "database": os.getenv("railway"),
-    "port": int(os.getenv("3306"))
+    "host": "127.0.0.1",
+    "user": "smartgym",
+    "password": "smartgym123",
+    "database": "smart_gym_db"
 }
 
 # System Settings

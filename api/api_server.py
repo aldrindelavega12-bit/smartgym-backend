@@ -1691,6 +1691,8 @@ def notify_priority():
 
     return jsonify({"success": True})
 
+
+
 @app.route("/api/sync_attendance", methods=["POST"])
 def sync_attendance():
 
