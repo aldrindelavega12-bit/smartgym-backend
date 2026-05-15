@@ -1691,7 +1691,7 @@ def notify_priority():
 
     return jsonify({"success": True})
 
-@app.route("/api/sync_attendance", methods=["POST"])
+ @app.route("/api/sync_attendance", methods=["POST"])
 def sync_attendance():
 
     try:
@@ -1711,11 +1711,12 @@ def sync_attendance():
 
         conn.commit()
 
-        conn.close()
-
         print(f"☁️ CLOUD SYNC: {user_id}")
 
         socketio.emit("attendance_update")
+
+        cursor.close()
+        conn.close()
 
         return jsonify({
             "success": True
@@ -1728,8 +1729,7 @@ def sync_attendance():
         return jsonify({
             "success": False,
             "error": str(e)
-        })
-    
+        }), 500
 
 socketio = SocketIO(app, cors_allowed_origins="*")
 
