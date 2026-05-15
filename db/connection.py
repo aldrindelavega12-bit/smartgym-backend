@@ -1,13 +1,9 @@
 import mysql.connector
 from mysql.connector import pooling
 from config.settings import DB_CONFIG
-import platform
+import os
 
-
-# =========================
-# AUTO LOCAL DB FOR RPI
-# =========================
-if platform.system() == "Linux":
+if os.getenv("LOCAL_PI") == "1":
 
     DB_CONFIG = {
         "host": "127.0.0.1",
