@@ -1,11 +1,11 @@
 import os
 
 DB_CONFIG = {
-    "host": os.getenv("MYSQLHOST"),
-    "user": os.getenv("MYSQLUSER"),
-    "password": os.getenv("MYSQLPASSWORD"),
-    "database": os.getenv("MYSQLDATABASE"),
-    "port": int(os.getenv("MYSQLPORT"))
+    "host": os.getenv("mysql.railway.internal"),
+    "user": os.getenv("root"),
+    "password": os.getenv("bRQXvdMKWBmfeaABLzmdOVaCqkmzonoL"),
+    "database": os.getenv("railway"),
+    "port": int(os.getenv("3306"))
 }
 # System Settings
 FP_COOLDOWN_SECONDS = 3
