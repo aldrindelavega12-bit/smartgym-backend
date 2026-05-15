@@ -1,12 +1,12 @@
 import os
 
 DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "smartgym",
-    "password": "smartgym123",
-    "database": "smart_gym_db"
+    "host": os.getenv("MYSQLHOST"),
+    "user": os.getenv("MYSQLUSER"),
+    "password": os.getenv("MYSQLPASSWORD"),
+    "database": os.getenv("MYSQLDATABASE"),
+    "port": int(os.getenv("MYSQLPORT"))
 }
-
 # System Settings
 FP_COOLDOWN_SECONDS = 3
 FACE_THRESHOLD = 60
