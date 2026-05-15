@@ -6,7 +6,7 @@ DB_CONFIG = {
     "password": os.getenv("bRQXvdMKWBmfeaABLzmdOVaCqkmzonoL"),
     "database": os.getenv("railway"),
     "port": int(os.getenv("3306"))
-}
+
 # System Settings
 FP_COOLDOWN_SECONDS = 3
 FACE_THRESHOLD = 60
