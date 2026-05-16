@@ -1773,6 +1773,44 @@ def sync_timeout():
         return jsonify({
             "success": False
         }), 500
+    
+@app.route("/api/sync_locker_start", methods=["POST"])
+def sync_locker_start():
+
+    try:
+
+        data = request.get_json()
+
+        user_id = data.get("user_id")
+        locker_id = data.get("locker_id")
+
+        execute_query(
+            """
+            INSERT INTO locker_sessions
+            (
+                user_id,
+                locker_number,
+                start_time,
+                status
+            )
+            VALUES (%s,%s,NOW(),'active')
+            """,
+            (user_id, locker_id)
+        )
+
+        socketio.emit("locker_update")
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("SYNC LOCKER ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
