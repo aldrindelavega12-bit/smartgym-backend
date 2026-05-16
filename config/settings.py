@@ -2,11 +2,11 @@ import os
 
 
 DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "smartgym",
-    "password": "smartgym123",
-    "database": "smart_gym_db",
-    "port": 3306
+    "host": "shortline.proxy.rlwy.net",
+    "user": "root",
+    "password": "bRQXvdMKWBmfeaABLzmdOVaCqkmzonoL",
+    "database": "railway",
+    "port": 50506
 }
 
 # System Settings
