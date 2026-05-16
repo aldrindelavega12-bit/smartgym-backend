@@ -1728,6 +1728,51 @@ def sync_attendance():
             "success": False
         }), 500
 
+@app.route("/api/sync_timeout", methods=["POST"])
+def sync_timeout():
+
+    try:
+
+        data = request.get_json()
+
+        user_id = data.get("user_id")
+
+        execute_query(
+            """
+            UPDATE attendance_sessions
+            SET time_out = NOW(),
+                status='COMPLETED'
+            WHERE session_id = (
+
+                SELECT session_id
+                FROM (
+
+                    SELECT session_id
+                    FROM attendance_sessions
+                    WHERE user_id=%s
+                    AND time_out IS NULL
+                    ORDER BY session_id DESC
+                    LIMIT 1
+
+                ) temp
+            )
+            """,
+            (user_id,)
+        )
+
+        socketio.emit("attendance_update")
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("SYNC TIMEOUT ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
