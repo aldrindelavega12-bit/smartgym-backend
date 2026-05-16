@@ -9,8 +9,8 @@ DB_CONFIG = {
 }
 
 #DB_CONFIG = {
-   # "host": "127.0.0.1",
-    #"user": "smartgym",
+ #   "host": "127.0.0.1",
+  #  "user": "smartgym",
    # "password": "smartgym123",
     #"database": "smart_gym_db",
     #"port": 3306

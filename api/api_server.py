@@ -1783,6 +1783,18 @@ def sync_locker_start():
 
         user_id = data.get("user_id")
         locker_id = data.get("locker_id")
+        
+        # CLOSE OLD ACTIVE SESSION
+        execute_query(
+            """
+            UPDATE locker_sessions
+            SET end_time = NOW(),
+                status='ended'
+            WHERE user_id=%s
+            AND end_time IS NULL
+            """,
+            (user_id,)
+        )
 
         execute_query(
             """
@@ -1807,6 +1819,40 @@ def sync_locker_start():
     except Exception as e:
 
         print("SYNC LOCKER ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
+    
+@app.route("/api/sync_locker_end", methods=["POST"])
+def sync_locker_end():
+
+    try:
+
+        data = request.get_json()
+
+        user_id = data.get("user_id")
+
+        execute_query(
+            """
+            UPDATE locker_sessions
+            SET end_time = NOW(),
+                status='ended'
+            WHERE user_id=%s
+            AND end_time IS NULL
+            """,
+            (user_id,)
+        )
+
+        socketio.emit("locker_update")
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("SYNC LOCKER END ERROR:", e)
 
         return jsonify({
             "success": False
