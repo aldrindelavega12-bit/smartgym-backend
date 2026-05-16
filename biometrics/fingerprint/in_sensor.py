@@ -166,7 +166,6 @@ class InFingerprint:
                 return None
 
         except Exception as e:
-            print("Verify error:", e)
             return None
 
 

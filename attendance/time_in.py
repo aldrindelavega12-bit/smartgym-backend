@@ -15,6 +15,27 @@ def notify_website():
         )
     except:
         pass
+    
+# ==========================
+# CLOUD SYNC
+# ==========================
+def sync_attendance_cloud(user_id):
+
+    try:
+
+        requests.post(
+            "https://smartgym-api-ia2e.onrender.com/api/sync_attendance",
+            json={
+                "user_id": user_id
+            },
+            timeout=1
+        )
+
+        print(f"☁️ CLOUD SYNC: {user_id}")
+
+    except Exception as e:
+
+        print("SYNC ERROR:", e)
 
 
 # ==========================
@@ -88,10 +109,10 @@ def check_time_in(user_id):
     # ==========================
     # WALKIN CHECK
     # ==========================
-    print("1")
+    
     walkin = execute_query(
         """
-        SELECT *
+        SELECT id
         FROM walkins
         WHERE id = %s
         """,
@@ -101,10 +122,10 @@ def check_time_in(user_id):
 
     if walkin:
 
-        print("2")
+        
         payment = execute_query(
             """
-            SELECT *
+            SELECT id
             FROM payments
             WHERE user_id = %s
             AND payment_type = 'WALKIN'
@@ -121,10 +142,10 @@ def check_time_in(user_id):
                 "reason": "WALKIN_EXPIRED"
             }
 
-        print("3")
+        
         active = execute_query(
             """
-            SELECT *
+            SELECT session_id
             FROM attendance_sessions
             WHERE user_id = %s
             AND time_out IS NULL
@@ -182,7 +203,8 @@ def save_time_in(user_id):
     # WEBSITE UPDATE (BACKGROUND)
     # ==========================
     threading.Thread(
-        target=notify_website,
+        target=sync_attendance_cloud,
+        args=(user_id,),
         daemon=True
     ).start()
     

@@ -1696,6 +1696,38 @@ def notify_priority():
 
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+@app.route("/api/sync_attendance", methods=["POST"])
+def sync_attendance():
+
+    try:
+
+        data = request.get_json()
+
+        user_id = data.get("user_id")
+
+        execute_query(
+            """
+            INSERT INTO attendance_sessions
+            (user_id, time_in, status)
+            VALUES (%s, NOW(), 'ACTIVE')
+            """,
+            (user_id,)
+        )
+
+        socketio.emit("attendance_update")
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("SYNC ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
+
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)

@@ -84,7 +84,7 @@ class OutFingerprint:
 
         except Exception as e:
 
-            print("Verify error:", e)
+            
 
             return None
 
