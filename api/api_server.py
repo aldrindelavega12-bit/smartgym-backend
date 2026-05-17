@@ -1691,10 +1691,8 @@ def notify_priority():
 
     return jsonify({"success": True})
 
+#SYNC
 
-
-
-socketio = SocketIO(app, cors_allowed_origins="*")
 
 @app.route("/api/sync_attendance", methods=["POST"])
 def sync_attendance():
@@ -2032,6 +2030,12 @@ def sync_payment():
         print("SYNC PAYMENT ERROR:", e)
 
         return jsonify({"success": False}), 500
+    
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode="threading"
+)
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
