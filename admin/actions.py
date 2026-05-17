@@ -38,7 +38,7 @@ def sync_member_cloud(member_data):
         requests.post(
             f"{CLOUD_API}/api/sync_member",
             json=member_data,
-            timeout=3
+            timeout=10
         )
 
         print("☁️ MEMBER SYNCED")
@@ -57,7 +57,7 @@ def delete_member_cloud(user_id):
             json={
                 "user_id": user_id
             },
-            timeout=3
+            timeout=10
         )
 
         print("☁️ MEMBER DELETED CLOUD")
@@ -66,6 +66,24 @@ def delete_member_cloud(user_id):
 
         print("DELETE CLOUD ERROR:", e)
         
+def delete_walkin_cloud(user_id):
+
+    try:
+
+        requests.post(
+            f"{CLOUD_API}/api/delete_walkin",
+            json={
+                "user_id": user_id
+            },
+            timeout=10
+        )
+
+        print("☁️ WALKIN DELETED CLOUD")
+
+    except Exception as e:
+
+        print("DELETE WALKIN CLOUD ERROR:", e)
+        
 def sync_walkin_cloud(walkin_data):
 
     try:
@@ -73,7 +91,7 @@ def sync_walkin_cloud(walkin_data):
         requests.post(
             f"{CLOUD_API}/api/sync_walkin",
             json=walkin_data,
-            timeout=3
+            timeout=10
         )
 
         print("☁️ WALKIN SYNCED")
@@ -279,7 +297,10 @@ def add_member(in_fp, out_fp, ui):
             "id": new_id,
             "full_name": full_name,
             "phone_number": phone_number,
-            "fingerprint_template": hex_template
+            "fingerprint_template": hex_template,
+            "membership_type": None,
+            "membership_expires": None,
+            "monthly_expires": None
         },),
         daemon=True
     ).start()

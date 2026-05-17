@@ -166,9 +166,29 @@ class InFingerprint:
                 return None
 
         except Exception as e:
-            return None
+            return 
+            
+    # =========================
+    # WAIT FOR FINGER
+    # =========================
+    def _wait_for_finger(self, timeout=10):
 
+        start = time.time()
 
+        while True:
+
+            try:
+
+                if self.f.readImage():
+                    return True
+
+            except:
+                return False
+
+            if time.time() - start > timeout:
+                return False
+
+            time.sleep(0.05)
 
     def _wait_for_removal(self, timeout=3):
 
