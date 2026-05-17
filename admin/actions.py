@@ -577,6 +577,37 @@ def process_payment():
         # =========================
         print("\n✅ PAYMENT RECORDED")
         
+        # ==============================
+        # SYNC UPDATED MEMBER TO CLOUD
+        # ==============================
+        member = execute_query(
+            """
+            SELECT *
+            FROM members
+            WHERE id=%s
+            """,
+            (user_id,),
+            fetch=True
+        )
+
+        if member:
+
+            member = member[0]
+
+            threading.Thread(
+                target=sync_member_cloud,
+                args=({
+                    "id": member["id"],
+                    "full_name": member["full_name"],
+                    "phone_number": member["phone_number"],
+                    "fingerprint_template": member["fingerprint_template"],
+                    "membership_type": member["membership_type"],
+                    "membership_expires": str(member["membership_expires"]) if member["membership_expires"] else None,
+                    "monthly_expires": str(member["monthly_expires"]) if member["monthly_expires"] else None
+                },),
+                daemon=True
+            ).start()
+        
         threading.Thread(
             target=sync_payment_cloud,
             args=({
