@@ -1858,7 +1858,180 @@ def sync_locker_end():
             "success": False
         }), 500
 
+@app.route("/api/sync_member", methods=["POST"])
+def sync_member():
 
+    try:
+
+        data = request.get_json()
+
+        execute_query(
+            """
+            INSERT INTO members
+            (
+                id,
+                full_name,
+                phone_number,
+                fingerprint_template
+            )
+            VALUES (%s,%s,%s,%s)
+            ON DUPLICATE KEY UPDATE
+                full_name=VALUES(full_name),
+                phone_number=VALUES(phone_number),
+                fingerprint_template=VALUES(fingerprint_template)
+            """,
+            (
+                data["id"],
+                data["full_name"],
+                data["phone_number"],
+                data["fingerprint_template"]
+            )
+        )
+
+        socketio.emit("member_update")
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("SYNC MEMBER ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
+    
+@app.route("/api/delete_member", methods=["POST"])
+def delete_member_cloud_api():
+
+    try:
+
+        data = request.get_json()
+
+        execute_query(
+            "DELETE FROM members WHERE id=%s",
+            (data["user_id"],)
+        )
+
+        socketio.emit("member_update")
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("DELETE MEMBER ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
+    
+@app.route("/api/sync_walkin", methods=["POST"])
+def sync_walkin():
+
+    try:
+
+        data = request.get_json()
+
+        execute_query(
+            """
+            INSERT INTO walkins
+            (
+                id,
+                full_name,
+                phone_number,
+                fingerprint_template,
+                fp_id,
+                visit_date
+            )
+            VALUES (%s,%s,%s,%s,%s,CURDATE())
+            ON DUPLICATE KEY UPDATE
+                full_name=VALUES(full_name),
+                phone_number=VALUES(phone_number),
+                fingerprint_template=VALUES(fingerprint_template),
+                fp_id=VALUES(fp_id)
+            """,
+            (
+                data["id"],
+                data["full_name"],
+                data["phone_number"],
+                data["fingerprint_template"],
+                data["fp_id"]
+            )
+        )
+
+        socketio.emit("walkin_update")
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+
+        print("SYNC WALKIN ERROR:", e)
+
+        return jsonify({"success": False}), 500
+    
+@app.route("/api/delete_walkin", methods=["POST"])
+def delete_walkin_cloud_api():
+
+    try:
+
+        data = request.get_json()
+
+        execute_query(
+            "DELETE FROM walkins WHERE id=%s",
+            (data["user_id"],)
+        )
+
+        execute_query(
+            "DELETE FROM fp_templates WHERE user_id=%s",
+            (data["user_id"],)
+        )
+
+        socketio.emit("walkin_update")
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("DELETE WALKIN ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
+    
+@app.route("/api/sync_payment", methods=["POST"])
+def sync_payment():
+
+    try:
+
+        data = request.get_json()
+
+        execute_query(
+            """
+            INSERT INTO payments
+            (user_id, payment_type, amount, paid_at)
+            VALUES (%s,%s,%s,NOW())
+            """,
+            (
+                data["user_id"],
+                data["payment_type"],
+                data["amount"]
+            )
+        )
+
+        socketio.emit("payment_update")
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+
+        print("SYNC PAYMENT ERROR:", e)
+
+        return jsonify({"success": False}), 500
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)

@@ -12,6 +12,10 @@ import shutil
 import system_state
 import time
 
+import requests
+import threading
+
+CLOUD_API = "https://smartgym-api-ia2e.onrender.com"
 
 # ==============================
 # ADD MEMBER
@@ -24,6 +28,77 @@ face_cascade = cv2.CascadeClassifier(
     "haarcascade_frontalface_default.xml"
 )
 
+# ==============================
+# CLOUD SYNC
+# ==============================
+def sync_member_cloud(member_data):
+
+    try:
+
+        requests.post(
+            f"{CLOUD_API}/api/sync_member",
+            json=member_data,
+            timeout=3
+        )
+
+        print("☁️ MEMBER SYNCED")
+
+    except Exception as e:
+
+        print("SYNC MEMBER ERROR:", e)
+
+
+def delete_member_cloud(user_id):
+
+    try:
+
+        requests.post(
+            f"{CLOUD_API}/api/delete_member",
+            json={
+                "user_id": user_id
+            },
+            timeout=3
+        )
+
+        print("☁️ MEMBER DELETED CLOUD")
+
+    except Exception as e:
+
+        print("DELETE CLOUD ERROR:", e)
+        
+def sync_walkin_cloud(walkin_data):
+
+    try:
+
+        requests.post(
+            f"{CLOUD_API}/api/sync_walkin",
+            json=walkin_data,
+            timeout=3
+        )
+
+        print("☁️ WALKIN SYNCED")
+
+    except Exception as e:
+
+        print("SYNC WALKIN ERROR:", e)
+
+
+def sync_payment_cloud(payment_data):
+
+    try:
+
+        requests.post(
+            f"{CLOUD_API}/api/sync_payment",
+            json=payment_data,
+            timeout=3
+        )
+
+        print("☁️ PAYMENT SYNCED")
+
+    except Exception as e:
+
+        print("SYNC PAYMENT ERROR:", e)
+        
 def add_member(in_fp, out_fp, ui):
 
     import os
@@ -197,6 +272,17 @@ def add_member(in_fp, out_fp, ui):
 )
 
     print(f"✅ Member {new_id} registered.")
+    
+    threading.Thread(
+        target=sync_member_cloud,
+        args=({
+            "id": new_id,
+            "full_name": full_name,
+            "phone_number": phone_number,
+            "fingerprint_template": hex_template
+        },),
+        daemon=True
+    ).start()
 
     # =========================
     # SUCCESS UI
@@ -286,6 +372,17 @@ def add_walkin(in_fp, out_fp, ui):
 
     print("Fingerprint linked automatically.")
     print("Walkin created:", walkin_id)
+    threading.Thread(
+        target=sync_walkin_cloud,
+        args=({
+            "id": walkin_id,
+            "full_name": full_name,
+            "phone_number": phone_number,
+            "fingerprint_template": hex_template,
+            "fp_id": fp_id
+        },),
+        daemon=True
+    ).start()
 
     # 🔥 RESUME SYSTEM
     system_state.system_paused = False
@@ -479,6 +576,16 @@ def process_payment():
         # DISPLAY RESULT
         # =========================
         print("\n✅ PAYMENT RECORDED")
+        
+        threading.Thread(
+            target=sync_payment_cloud,
+            args=({
+                "user_id": user_id,
+                "payment_type": membership_type.upper(),
+                "amount": 0
+            },),
+            daemon=True
+        ).start()
 
         print(f"Member ID: {user_id}")
         print(f"Type: {membership_type}")
@@ -511,6 +618,16 @@ def process_payment():
         
 
         print("Walkin marked as paid.")
+        
+        threading.Thread(
+            target=sync_payment_cloud,
+            args=({
+                "user_id": user_id,
+                "payment_type": "WALKIN",
+                "amount": 0
+            },),
+            daemon=True
+        ).start()
 
         locker = input("Will use locker? (yes/no): ")
 
@@ -737,6 +854,12 @@ def delete_member(in_fp, out_fp):
     )
 
     print(f"✅ Member {member_id} deleted.")
+    
+    threading.Thread(
+        target=delete_member_cloud,
+        args=(member_id,),
+        daemon=True
+    ).start()
 # ==============================
 # DELETE WALKIN
 # ==============================
@@ -787,6 +910,12 @@ def delete_walkin(in_fp, out_fp):
     )
 
     print(f"✅ Walkin {walkin_id} deleted.")
+    
+    threading.Thread(
+        target=delete_walkin_cloud,
+        args=(walkin_id,),
+        daemon=True
+    ).start()
 # ==============================
 # CLEAR FINGERPRINT
 # ==============================
