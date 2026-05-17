@@ -38,7 +38,7 @@ class OutFingerprint:
 
                 time.sleep(0.02)
 
-            print("📌 Finger detected")
+           
 
             # =========================
             # CONVERT + SEARCH

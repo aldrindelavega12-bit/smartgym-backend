@@ -125,7 +125,7 @@ class InFingerprint:
 
                 time.sleep(0.02)   # 🔥 faster polling
 
-            print("📌 Finger detected")
+            
 
             # =========================
             # CONVERT + SEARCH (NO DELAY)

@@ -1870,19 +1870,29 @@ def sync_member():
                 id,
                 full_name,
                 phone_number,
-                fingerprint_template
+                fingerprint_template,
+                membership_type,
+                membership_expires,
+                monthly_expires
             )
+            
             VALUES (%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
                 full_name=VALUES(full_name),
                 phone_number=VALUES(phone_number),
-                fingerprint_template=VALUES(fingerprint_template)
+                fingerprint_template=VALUES(fingerprint_template),
+                membership_type=VALUES(membership_type),
+                membership_expires=VALUES(membership_expires),
+                monthly_expires=VALUES(monthly_expires)
             """,
             (
                 data["id"],
                 data["full_name"],
                 data["phone_number"],
-                data["fingerprint_template"]
+                data.get("fingerprint_template"),
+                data.get("membership_type"),
+                data.get("membership_expires"),
+                data.get("monthly_expires")
             )
         )
 
