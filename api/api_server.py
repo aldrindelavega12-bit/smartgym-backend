@@ -1862,6 +1862,7 @@ def sync_member():
     try:
 
         data = request.get_json()
+        print("SYNC DATA:", data)
 
         execute_query(
             """
