@@ -1876,7 +1876,7 @@ def sync_member():
                 monthly_expires
             )
             
-            VALUES (%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
                 full_name=VALUES(full_name),
                 phone_number=VALUES(phone_number),
