@@ -50,21 +50,23 @@ def sync_member_cloud(member_data):
 
 def delete_member_cloud(user_id):
 
-    try:
+    for i in range(3):
 
-        requests.post(
-            f"{CLOUD_API}/api/delete_member",
-            json={
-                "user_id": user_id
-            },
-            timeout=10
-        )
+        try:
 
-        print("☁️ MEMBER DELETED CLOUD")
+            requests.post(
+                f"{CLOUD_API}/api/delete_member",
+                json={"user_id": user_id},
+                timeout=20
+            )
 
-    except Exception as e:
+            print("☁️ MEMBER DELETED CLOUD")
+            return
 
-        print("DELETE CLOUD ERROR:", e)
+        except Exception as e:
+
+            print(f"DELETE RETRY {i+1}:", e)
+            time.sleep(2)
         
 def delete_walkin_cloud(user_id):
 
@@ -199,7 +201,7 @@ def add_member(in_fp, out_fp, ui):
 
     captured = 0
 
-    while captured < 5:
+    while captured < 10:
 
         # ---------------------
         # WAIT FOR FRAME
@@ -226,7 +228,7 @@ def add_member(in_fp, out_fp, ui):
         # COUNTDOWN
         # ---------------------
         for i in [3, 2, 1]:
-            ui.set_status(f"CAPTURE {captured+1}/5 IN {i}")
+            ui.set_status(f"CAPTURE {captured+1}/10 IN {i}")
             start = time.time()
 
             while time.time() - start < 1:
@@ -313,7 +315,6 @@ def add_member(in_fp, out_fp, ui):
 
     ui.set_mode("ADMIN")
 
-    system_state.system_paused = False
 
 # ==============================
 # ADD WALKIN
@@ -406,7 +407,6 @@ def add_walkin(in_fp, out_fp, ui):
     ).start()
 
     # 🔥 RESUME SYSTEM
-    system_state.system_paused = False
 # ==============================
 # PAYMENT
 # ==============================

@@ -1917,6 +1917,11 @@ def delete_member_cloud_api():
     try:
 
         data = request.get_json()
+        
+        execute_query(
+            "DELETE FROM user_accounts WHERE user_id=%s",
+            (data["user_id"],)
+        )
 
         execute_query(
             "DELETE FROM members WHERE id=%s",
@@ -2044,8 +2049,7 @@ def sync_payment():
     
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
-    async_mode="threading"
+    cors_allowed_origins="*"
 )
         
 if __name__ == '__main__':
