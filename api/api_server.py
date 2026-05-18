@@ -1,3 +1,5 @@
+import eventlet
+eventlet.monkey_patch()
 import base64 
 import sys, os
 import sqlite3
