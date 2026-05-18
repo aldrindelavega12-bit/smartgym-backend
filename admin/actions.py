@@ -110,7 +110,7 @@ def sync_payment_cloud(payment_data):
         requests.post(
             f"{CLOUD_API}/api/sync_payment",
             json=payment_data,
-            timeout=3
+            timeout=5
         )
 
         print("☁️ PAYMENT SYNCED")
@@ -149,7 +149,7 @@ def add_member(in_fp, out_fp, ui):
 
     if fp_id is None:
         print("❌ Enrollment failed.")
-        system_state.system_paused = False
+ 
         return
 
     print(f"Fingerprint enrolled at position: {fp_id}")
@@ -200,8 +200,10 @@ def add_member(in_fp, out_fp, ui):
     )
 
     captured = 0
+    
+    TOTAL_CAPTURES = 10
 
-    while captured < 10:
+    while captured < TOTAL_CAPTURES:
 
         # ---------------------
         # WAIT FOR FRAME
@@ -228,7 +230,7 @@ def add_member(in_fp, out_fp, ui):
         # COUNTDOWN
         # ---------------------
         for i in [3, 2, 1]:
-            ui.set_status(f"CAPTURE {captured+1}/10 IN {i}")
+            ui.set_status(f"CAPTURE {captured+1}/{TOTAL_CAPTURES} IN {i}")
             start = time.time()
 
             while time.time() - start < 1:
@@ -266,8 +268,8 @@ def add_member(in_fp, out_fp, ui):
 
         captured += 1
 
-        ui.set_status(f"CAPTURED {captured}/5")
-        print(f"Captured {captured}/5 → {filename}")
+        ui.set_status(f"CAPTURED {captured}/{TOTAL_CAPTURES}")
+        print(f"Captured {captured}/{TOTAL_CAPTURES} → {filename}")
 
         time.sleep(0.5)
 
@@ -314,6 +316,8 @@ def add_member(in_fp, out_fp, ui):
     time.sleep(2)
 
     ui.set_mode("ADMIN")
+    ui.set_status("ADMIN MODE")
+    ui.set_name("")
 
 
 # ==============================
@@ -335,7 +339,7 @@ def add_walkin(in_fp, out_fp, ui):
 
     if fp_id is None:
         print("Enrollment failed")
-        system_state.system_paused = False   # 🔥 RESUME
+   # 🔥 RESUME
         return
 
     print("Fingerprint enrolled at position:", fp_id)
@@ -405,6 +409,10 @@ def add_walkin(in_fp, out_fp, ui):
         },),
         daemon=True
     ).start()
+    
+    ui.set_mode("ADMIN")
+    ui.set_status("ADMIN MODE")
+    ui.set_name("")
 
     # 🔥 RESUME SYSTEM
 # ==============================
@@ -774,8 +782,8 @@ def pay_locker_overtime():
         """
         SELECT locker_number, start_time, overtime_paid 
         FROM locker_sessions
-        WHERE user_id=%s 
-        AND status='overtime'
+        WHERE user_id=%s
+        AND end_time IS NULL
         AND overtime_paid=0
         ORDER BY start_time DESC
         LIMIT 1
@@ -792,14 +800,27 @@ def pay_locker_overtime():
 
     locker_number = locker["locker_number"]
     start_time = locker["start_time"]
-    overtime_paid = int(locker["overtime_paid"] or 0)
 
-    allowed_time = start_time + timedelta(hours=LOCKER_ALLOWED_HOURS)
+    allowed_time = start_time + timedelta(
+        hours=LOCKER_ALLOWED_HOURS
+    )
+
+    # =========================
+    # CHECK IF REALLY OVERTIME
+    # =========================
+    if datetime.now() <= allowed_time:
+        print("No overtime yet.")
+        return
 
     overtime_duration = datetime.now() - allowed_time
-    overtime_minutes = int(overtime_duration.total_seconds() / 60)
 
-    overtime_fee = math.ceil(overtime_minutes / 2)
+    overtime_minutes = int(
+        overtime_duration.total_seconds() / 60
+    )
+
+    overtime_fee = math.ceil(
+        overtime_minutes / 2
+    )
 
     print("\n--- LOCKER OVERTIME DETAILS ---")
     print(f"Locker Number : {locker_number}")
@@ -813,14 +834,33 @@ def pay_locker_overtime():
         print("Payment cancelled.")
         return
 
+    # =========================
+    # MARK AS PAID
+    # =========================
     execute_query(
-        "UPDATE locker_sessions SET overtime_paid=1 WHERE user_id=%s AND status='overtime'",
+        """
+        UPDATE locker_sessions
+        SET overtime_paid=1
+        WHERE user_id=%s
+        AND end_time IS NULL
+        """,
         (user_id,)
     )
 
+    # =========================
+    # SAVE PAYMENT
+    # =========================
     execute_query(
-        "INSERT INTO payments (user_id, payment_type, amount) VALUES (%s,%s,%s)",
-        (user_id, "LOCKER_OVERTIME", overtime_fee)
+        """
+        INSERT INTO payments
+        (user_id, payment_type, amount)
+        VALUES (%s,%s,%s)
+        """,
+        (
+            user_id,
+            "LOCKER_OVERTIME",
+            overtime_fee
+        )
     )
 
     print("Locker overtime payment recorded successfully.")

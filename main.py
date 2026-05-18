@@ -29,7 +29,7 @@ from datetime import datetime
 
 from api.api_server import socketio
 from sms_module.sms import send_sms
-from datetime import date
+from datetime import datetime, timedelta
 
 
 
@@ -424,29 +424,40 @@ def in_lane_loop(in_fp, face_recognizer, ui):
         time.sleep(0.3)
         
 def has_unpaid_overtime(user_id):
+
     try:
-        result = execute_query("""
-            SELECT status, overtime_paid
+
+        result = execute_query(
+            """
+            SELECT start_time, overtime_paid
             FROM locker_sessions
             WHERE user_id = %s
+            AND end_time IS NULL
             ORDER BY start_time DESC
             LIMIT 1
-        """, (user_id,), fetch=True)
+            """,
+            (user_id,),
+            fetch=True
+        )
 
         if not result:
             return False
 
-        # 👉 list yan, kunin first row
         row = result[0]
 
-        status = row["status"]
         paid = int(row["overtime_paid"] or 0)
 
-        print("DEBUG:", status, paid)  # optional
+        if paid == 1:
+            return False
 
-        return status == "overtime" and paid == 0
+        start_time = row["start_time"]
+
+        allowed_time = start_time + timedelta(hours=3)
+
+        return datetime.now() > allowed_time
 
     except Exception as e:
+
         print("[OVERTIME CHECK ERROR]", e)
         return False
         
@@ -548,13 +559,23 @@ def out_lane_loop(out_fp):
                 send_to_arduino("OUT:DENY:TIMEOUT")
 
         else:
-
+            
             reason = result["reason"]
 
-            print_access(full_name, user_type, "EXIT DENIED", reason)
+            display_reason = reason
+
+            if reason.startswith("OVERTIME"):
+                display_reason = "OVERTIME"
+
+            print_access(
+                full_name,
+                user_type,
+                "EXIT DENIED",
+                display_reason
+            )
 
             send_to_arduino(
-                f"OUT:DENY:{reason}"
+                f"OUT:DENY:{display_reason}"
             )
 
         time.sleep(0.3)
@@ -673,6 +694,7 @@ def main():
             ui.set_mode("ADMIN")
             ui.set_status("ADMIN MODE")
             ui.set_name("SYSTEM CONTROL")
+            send_to_arduino("SYSTEM:ADMIN_MODE")
 
             if verify_admin():
                 print("\n--- ADMIN MODE ---\n")
@@ -685,6 +707,8 @@ def main():
             ui.set_mode("NORMAL")
             ui.set_status("SCAN FINGERPRINT")
             ui.set_name("")
+            
+            send_to_arduino("SYSTEM:NORMAL_MODE")
 
             print("Returning to Auto Mode...\n")
 

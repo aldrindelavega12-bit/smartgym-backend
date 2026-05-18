@@ -2050,8 +2050,7 @@ def sync_payment():
     
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
-    async_mode="threading"
+    cors_allowed_origins="*"
 )
         
 if __name__ == '__main__':
