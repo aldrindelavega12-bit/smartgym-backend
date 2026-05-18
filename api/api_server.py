@@ -1,5 +1,4 @@
-import eventlet
-eventlet.monkey_patch()
+
 import base64 
 import sys, os
 import sqlite3
@@ -2051,7 +2050,8 @@ def sync_payment():
     
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*"
+    cors_allowed_origins="*",
+    async_mode="threading"
 )
         
 if __name__ == '__main__':
