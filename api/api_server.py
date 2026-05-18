@@ -17,6 +17,11 @@ from datetime import datetime
 app = Flask(__name__)
 
 CORS(app)
+    
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*"
+)
 
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
@@ -921,6 +926,8 @@ def get_alerts():
             
 @app.route("/api/notify/security", methods=["POST"])
 def notify_security():
+    
+    print("🔥 SECURITY ROUTE HIT")
 
     try:
         data = request.get_json()
@@ -2047,11 +2054,8 @@ def sync_payment():
         print("SYNC PAYMENT ERROR:", e)
 
         return jsonify({"success": False}), 500
-    
-socketio = SocketIO(
-    app,
-    cors_allowed_origins="*"
-)
+        
+
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
