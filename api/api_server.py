@@ -939,15 +939,11 @@ def notify_security():
         print(f"🚨 SECURITY ALERT: {event} | {lane}")
 
         # 🔥 REALTIME SEND TO WEBSITE
-        socketio.emit(
-            "security_alert",
-            {
-                "event": event,
-                "lane": lane,
-                "time": time_val
-            },
-            broadcast=True
-        )
+        socketio.emit("security_alert", {
+            "event": event,
+            "lane": lane,
+            "time": time_val
+        })
 
         return jsonify({"status": "ok"})
 
