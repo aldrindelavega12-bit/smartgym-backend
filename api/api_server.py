@@ -1380,7 +1380,11 @@ def current_lockers():
 
     try:
 
-        cursor = mysql.connection.cursor()
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
 
         cursor.execute("""
             SELECT locker_number,
@@ -1390,15 +1394,17 @@ def current_lockers():
 
         rows = cursor.fetchall()
 
+        conn.close()
+
         lockers = {}
 
         for r in rows:
 
-            locker = str(
-                r["locker_number"]
-            )
+            locker = str(r["locker_number"])
 
             status = r["status"]
+
+            print(locker, status)
 
             if status == "OCCUPIED":
 
@@ -1419,6 +1425,8 @@ def current_lockers():
         return jsonify(lockers)
 
     except Exception as e:
+
+        print("CURRENT LOCKER ERROR:", e)
 
         return jsonify({
             "error": str(e)
