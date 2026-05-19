@@ -1275,6 +1275,9 @@ def booked_slots():
         locker = request.args.get("locker")
         date = request.args.get("date")
 
+        print("LOCKER RECEIVED:", locker)
+        print("DATE RECEIVED:", date)
+
         conn = get_connection()
 
         cursor = conn.cursor(
@@ -1293,6 +1296,8 @@ def booked_slots():
         ))
 
         rows = cursor.fetchall()
+        
+        print("DB ROWS:", rows)
 
         slots = []
 
