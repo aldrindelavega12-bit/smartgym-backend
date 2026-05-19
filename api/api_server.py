@@ -1374,6 +1374,79 @@ def fully_booked_dates():
     finally:
 
         conn.close()
+        
+@app.route("/api/current_lockers")
+def current_lockers():
+
+    now = datetime.now()
+
+    current_date =
+        now.strftime("%Y-%m-%d")
+
+    current_time =
+        datetime.strptime(
+            now.strftime("%H:%M"),
+            "%H:%M"
+        )
+
+    conn = get_connection()
+
+    cursor = conn.cursor(
+        pymysql.cursors.DictCursor
+    )
+
+    cursor.execute("""
+        SELECT locker_number,
+               start_time,
+               end_time,
+               status
+        FROM locker_bookings
+        WHERE date=%s
+        AND status IN (
+            'PENDING',
+            'APPROVED'
+        )
+    """, (current_date,))
+
+    rows = cursor.fetchall()
+
+    lockers = {}
+
+    for r in rows:
+
+        locker =
+            r["locker_number"]
+
+        start =
+            datetime.strptime(
+                str(r["start_time"]),
+                "%H:%M"
+            )
+
+        end =
+            datetime.strptime(
+                str(r["end_time"]),
+                "%H:%M"
+            )
+
+        # 🔴 OVERTIME
+        if current_time > end:
+
+            lockers[locker] = "OVERTIME"
+
+        # 🔵 CURRENTLY IN USE
+        elif start <= current_time <= end:
+
+            lockers[locker] = "IN_USE"
+
+        # 🟡 FUTURE RESERVED
+        elif start > current_time:
+
+            if locker not in lockers:
+
+                lockers[locker] = "RESERVED"
+
+    return jsonify(lockers)
 
 @app.route("/api/update_booking", methods=["POST"])
 def update_booking():
