@@ -1380,35 +1380,13 @@ def current_lockers():
 
     try:
 
-        from zoneinfo import ZoneInfo
-
-        now = datetime.now(
-            ZoneInfo("Asia/Manila")
-        )
-
-        current_date = now.strftime(
-            "%Y-%m-%d"
-        )
-
-        current_time = datetime.strptime(
-            now.strftime("%H:%M:%S"),
-            "%H:%M:%S"
-        )
-
         cursor = mysql.connection.cursor()
 
         cursor.execute("""
-            SELECT locker_number,
-                   start_time,
-                   end_time,
-                   status
+            SELECT locker_number
             FROM bookings
-            WHERE date=%s
-            AND status IN (
-                'PENDING',
-                'APPROVED'
-            )
-        """, (current_date,))
+            WHERE status='PENDING'
+        """)
 
         rows = cursor.fetchall()
 
@@ -1420,37 +1398,11 @@ def current_lockers():
                 r["locker_number"]
             )
 
-            print("ROW:", r)
-
-            start = datetime.strptime(
-                str(r["start_time"]),
-                "%H:%M:%S"
-            )
-
-            end = datetime.strptime(
-                str(r["end_time"]),
-                "%H:%M:%S"
-            )
-
-            print(start, end)
-
-            if current_time > end:
-
-                lockers[locker] = "OVERTIME"
-
-            elif start <= current_time <= end:
-
-                lockers[locker] = "RESERVED"
-
-            else:
-
-                lockers[locker] = "AVAILABLE"
+            lockers[locker] = "RESERVED"
 
         return jsonify(lockers)
 
     except Exception as e:
-
-        print("ERROR:", e)
 
         return jsonify({
             "error": str(e)
