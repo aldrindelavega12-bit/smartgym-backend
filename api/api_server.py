@@ -1449,11 +1449,18 @@ def current_lockers():
 
 @app.route("/api/update_booking", methods=["POST"])
 def update_booking():
+
     data = request.json
 
     conn = get_connection()
-    cursor = conn.cursor()
 
+    cursor = conn.cursor(
+        pymysql.cursors.DictCursor
+    )
+
+    # =========================
+    # UPDATE BOOKING
+    # =========================
     cursor.execute("""
         UPDATE locker_bookings
         SET status=%s, reason=%s
@@ -1463,7 +1470,7 @@ def update_booking():
         data.get("reason"),
         data["id"]
     ))
-    
+
     # =========================
     # GET BOOKING INFO
     # =========================
@@ -1482,7 +1489,7 @@ def update_booking():
     booking = cursor.fetchone()
 
     # =========================
-    # ACCEPTED
+    # APPROVED
     # =========================
     if data["status"] == "APPROVED":
 
@@ -1500,11 +1507,11 @@ def update_booking():
 
         """, (
 
-            booking[0],
+            booking["user_id"],
 
             "BOOKING ACCEPTED",
 
-            f"Your booking for Locker {booking[1]} was accepted.",
+            f"Your booking for Locker {booking['locker_number']} was accepted.",
 
             "-"
 
@@ -1529,20 +1536,23 @@ def update_booking():
 
         """, (
 
-            booking[0],
+            booking["user_id"],
 
             "BOOKING REJECTED",
 
-            f"Your booking for Locker {booking[1]} was rejected.",
+            f"Your booking for Locker {booking['locker_number']} was rejected.",
 
             data.get("reason")
 
         ))
 
     conn.commit()
+
     conn.close()
 
-    return jsonify({"message": "updated"})
+    return jsonify({
+        "message": "updated"
+    })
 
 from datetime import timedelta
 
