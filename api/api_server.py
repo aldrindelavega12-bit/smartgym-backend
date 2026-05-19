@@ -2220,7 +2220,62 @@ def sync_payment():
 
         return jsonify({"success": False}), 500
         
+@app.route(
+    "/api/update_locker_status",
+    methods=["POST"]
+)
+def update_locker_status():
 
+    try:
+
+        data = request.json
+
+        locker_number = data.get(
+            "locker_number"
+        )
+
+        status = data.get(
+            "status"
+        )
+
+        conn = get_connection()
+
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE lockers
+            SET status=%s
+            WHERE locker_number=%s
+        """, (
+            status,
+            locker_number
+        ))
+
+        conn.commit()
+        conn.close()
+
+        print(
+            f"☁️ LOCKER {locker_number} → {status}"
+        )
+
+        socketio.emit(
+            "locker_update"
+        )
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print(
+            "UPDATE LOCKER STATUS ERROR:",
+            e
+        )
+
+        return jsonify({
+            "success": False
+        }), 500
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
