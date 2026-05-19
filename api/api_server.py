@@ -1904,8 +1904,8 @@ def sync_locker_start():
 
         user_id = data.get("user_id")
         locker_id = data.get("locker_id")
-        
-        # CLOSE OLD ACTIVE SESSION
+
+        # CLOSE OLD
         execute_query(
             """
             UPDATE locker_sessions
@@ -1917,6 +1917,7 @@ def sync_locker_start():
             (user_id,)
         )
 
+        # INSERT NEW
         execute_query(
             """
             INSERT INTO locker_sessions
@@ -1929,6 +1930,16 @@ def sync_locker_start():
             VALUES (%s,%s,NOW(),'active')
             """,
             (user_id, locker_id)
+        )
+
+        # 🔥 IMPORTANT
+        execute_query(
+            """
+            UPDATE lockers
+            SET status='OCCUPIED'
+            WHERE locker_number=%s
+            """,
+            (locker_id,)
         )
 
         socketio.emit("locker_update")
@@ -1954,6 +1965,25 @@ def sync_locker_end():
 
         user_id = data.get("user_id")
 
+        # GET LOCKER FIRST
+        result = execute_query(
+            """
+            SELECT locker_number
+            FROM locker_sessions
+            WHERE user_id=%s
+            AND end_time IS NULL
+            LIMIT 1
+            """,
+            (user_id,),
+            fetch=True
+        )
+
+        locker_no = None
+
+        if result:
+            locker_no = result[0]["locker_number"]
+
+        # END SESSION
         execute_query(
             """
             UPDATE locker_sessions
@@ -1964,6 +1994,18 @@ def sync_locker_end():
             """,
             (user_id,)
         )
+
+        # 🔥 RELEASE LOCKER
+        if locker_no:
+
+            execute_query(
+                """
+                UPDATE lockers
+                SET status='AVAILABLE'
+                WHERE locker_number=%s
+                """,
+                (locker_no,)
+            )
 
         socketio.emit("locker_update")
 
@@ -1978,7 +2020,7 @@ def sync_locker_end():
         return jsonify({
             "success": False
         }), 500
-
+    
 @app.route("/api/sync_member", methods=["POST"])
 def sync_member():
 
