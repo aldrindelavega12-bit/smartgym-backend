@@ -758,13 +758,24 @@ def get_lockers():
 
                 ls.user_id,
 
-                ls.start_time
+                ls.start_time,
+
+                COALESCE(
+                    m.full_name,
+                    w.full_name
+                ) AS full_name
 
             FROM lockers l
 
             LEFT JOIN locker_sessions ls
             ON l.locker_number = ls.locker_number
             AND ls.status IN ('active','overtime')
+
+            LEFT JOIN members m
+            ON ls.user_id = m.id
+
+            LEFT JOIN walkins w
+            ON ls.user_id = w.id
 
             ORDER BY l.locker_number ASC
 
@@ -776,8 +787,10 @@ def get_lockers():
 
         for row in rows:
 
-            user = row["user_id"] if row["user_id"] else "-"
+            # 🔥 NAME
+            name = row["full_name"] if row["full_name"] else "-"
 
+            # 🔥 TIME
             time_start = "-"
 
             if row["start_time"]:
@@ -788,7 +801,7 @@ def get_lockers():
 
                 "locker": row["locker_number"],
 
-                "name": user,
+                "name": name,
 
                 "time_start": time_start,
 
