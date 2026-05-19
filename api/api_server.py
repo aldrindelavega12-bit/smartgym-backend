@@ -1380,27 +1380,21 @@ def current_lockers():
 
     now = datetime.now()
 
-    current_date =
-        now.strftime("%Y-%m-%d")
+    current_date = now.strftime("%Y-%m-%d")
 
-    current_time =
-        datetime.strptime(
-            now.strftime("%H:%M"),
-            "%H:%M"
-        )
-
-    conn = get_connection()
-
-    cursor = conn.cursor(
-        pymysql.cursors.DictCursor
+    current_time = datetime.strptime(
+        now.strftime("%H:%M"),
+        "%H:%M"
     )
+
+    cursor = mysql.connection.cursor()
 
     cursor.execute("""
         SELECT locker_number,
                start_time,
                end_time,
                status
-        FROM locker_bookings
+        FROM bookings
         WHERE date=%s
         AND status IN (
             'PENDING',
@@ -1414,20 +1408,17 @@ def current_lockers():
 
     for r in rows:
 
-        locker =
-            r["locker_number"]
+        locker = r["locker_number"]
 
-        start =
-            datetime.strptime(
-                str(r["start_time"]),
-                "%H:%M"
-            )
+        start = datetime.strptime(
+            str(r["start_time"]),
+            "%H:%M"
+        )
 
-        end =
-            datetime.strptime(
-                str(r["end_time"]),
-                "%H:%M"
-            )
+        end = datetime.strptime(
+            str(r["end_time"]),
+            "%H:%M"
+        )
 
         # 🔴 OVERTIME
         if current_time > end:
