@@ -754,7 +754,20 @@ def get_lockers():
 
                 l.locker_number,
 
-                l.status,
+                CASE
+
+                    WHEN ls.status='overtime'
+                    THEN 'OVERTIME'
+
+                    WHEN ls.status='active'
+                    THEN 'IN_USE'
+
+                    WHEN l.status='RESERVED'
+                    THEN 'RESERVED'
+
+                    ELSE 'AVAILABLE'
+
+                END AS status,
 
                 ls.user_id,
 
@@ -762,7 +775,8 @@ def get_lockers():
 
                 COALESCE(
                     m.full_name,
-                    w.full_name
+                    w.full_name,
+                    ls.user_id
                 ) AS full_name
 
             FROM lockers l
