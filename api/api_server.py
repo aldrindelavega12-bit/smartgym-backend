@@ -739,42 +739,57 @@ from datetime import timedelta
 
 @app.route("/api/lockers", methods=["GET"])
 def get_lockers():
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        today = datetime.now().strftime("%Y-%m-%d")
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
 
         cursor.execute("""
-            SELECT 
-                ls.locker_number,
-                COALESCE(m.full_name, w.full_name) AS name,
-                ls.status,
-                ls.start_time
-            FROM locker_sessions ls
-            LEFT JOIN members m ON ls.user_id = m.id
-            LEFT JOIN walkins w ON ls.user_id = w.id
-            WHERE DATE(ls.start_time) = %s
-            AND ls.status IN ('active','overtime')   -- 🔥 IMPORTANT
-        """, (today,))
+            SELECT
+                locker_number,
+                status
+            FROM lockers
+            ORDER BY locker_number ASC
+        """)
 
         rows = cursor.fetchall()
 
         data = []
+
         for row in rows:
+
+            status = row["status"]
+
             data.append({
+
                 "locker": row["locker_number"],
-                "name": row["name"],
-                "status": row["status"].upper(),
-                "time_start": str(row["start_time"])
+
+                "name": "-",
+
+                "time_start": "-",
+
+                "status": status
+
             })
 
-        return jsonify({"data": data})
+        return jsonify({
+            "data": data
+        })
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+
+        print("LOCKER API ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        })
 
     finally:
+
         conn.close()
         
 @app.route("/api/locker_history")
