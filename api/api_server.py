@@ -1222,6 +1222,35 @@ def book_locker():
         ))
 
         conn.commit()
+        
+        # =========================
+        # ADMIN MESSAGE
+        # =========================
+        cursor.execute("""
+
+            INSERT INTO messages
+            (
+                user_id,
+                title,
+                message,
+                reason
+            )
+
+            VALUES (%s,%s,%s,%s)
+
+        """, (
+
+            "ADMIN",
+
+            "NEW BOOKING",
+
+            f"{user_id} booked Locker {locker} ({start_time} - {end_time})",
+
+            "-"
+
+        ))
+
+        conn.commit()
 
         return jsonify({
             "status": "success",
@@ -1237,6 +1266,49 @@ def book_locker():
             "message": str(e)
         })
     
+@app.route("/api/admin_messages")
+def admin_messages():
+
+    conn = get_connection()
+
+    cursor = conn.cursor(
+        pymysql.cursors.DictCursor
+    )
+
+    cursor.execute("""
+
+        SELECT
+
+            title,
+            message,
+            reason,
+
+            DATE_FORMAT(
+
+                CONVERT_TZ(
+                    created_at,
+                    '+00:00',
+                    '+08:00'
+                ),
+
+                '%%M %%d, %%Y %%h:%%i %%p'
+
+            ) AS created_at
+
+        FROM messages
+
+        WHERE user_id='ADMIN'
+
+        ORDER BY id DESC
+
+    """)
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return jsonify(rows)
+
 from datetime import timedelta
 
 @app.route("/api/bookings")
