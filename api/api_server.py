@@ -1378,74 +1378,83 @@ def fully_booked_dates():
 @app.route("/api/current_lockers")
 def current_lockers():
 
-    from zoneinfo import ZoneInfo
+    try:
 
-    now = datetime.now(
-        ZoneInfo("Asia/Manila")
-    )
+        from zoneinfo import ZoneInfo
 
-    current_date = now.strftime(
-        "%Y-%m-%d"
-    )
-
-    current_time = datetime.strptime(
-        now.strftime("%H:%M:%S"),
-        "%H:%M:%S"
-    )
-
-    cursor = mysql.connection.cursor()
-
-    cursor.execute("""
-        SELECT locker_number,
-               start_time,
-               end_time,
-               status
-        FROM bookings
-        WHERE date=%s
-        AND status IN (
-            'PENDING',
-            'APPROVED'
-        )
-    """, (current_date,))
-
-    rows = cursor.fetchall()
-
-    lockers = {}
-
-    for r in rows:
-
-        locker = str(
-            r["locker_number"]
+        now = datetime.now(
+            ZoneInfo("Asia/Manila")
         )
 
-        start = datetime.strptime(
-            str(r["start_time"]),
+        current_date = now.strftime(
+            "%Y-%m-%d"
+        )
+
+        current_time = datetime.strptime(
+            now.strftime("%H:%M:%S"),
             "%H:%M:%S"
         )
 
-        end = datetime.strptime(
-            str(r["end_time"]),
-            "%H:%M:%S"
-        )
+        cursor = mysql.connection.cursor()
 
-        # 🔴 OVERTIME
-        if current_time > end:
+        cursor.execute("""
+            SELECT locker_number,
+                   start_time,
+                   end_time,
+                   status
+            FROM bookings
+            WHERE date=%s
+            AND status IN (
+                'PENDING',
+                'APPROVED'
+            )
+        """, (current_date,))
 
-            lockers[locker] = "OVERTIME"
+        rows = cursor.fetchall()
 
-        # 🟡 RESERVED
-        elif start <= current_time <= end:
+        lockers = {}
 
-            lockers[locker] = "RESERVED"
+        for r in rows:
 
-        # 🔵 FUTURE RESERVED
-        elif start > current_time:
+            locker = str(
+                r["locker_number"]
+            )
 
-            if locker not in lockers:
+            print("ROW:", r)
+
+            start = datetime.strptime(
+                str(r["start_time"]),
+                "%H:%M:%S"
+            )
+
+            end = datetime.strptime(
+                str(r["end_time"]),
+                "%H:%M:%S"
+            )
+
+            print(start, end)
+
+            if current_time > end:
+
+                lockers[locker] = "OVERTIME"
+
+            elif start <= current_time <= end:
+
+                lockers[locker] = "RESERVED"
+
+            else:
 
                 lockers[locker] = "AVAILABLE"
 
-    return jsonify(lockers)
+        return jsonify(lockers)
+
+    except Exception as e:
+
+        print("ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 @app.route("/api/update_booking", methods=["POST"])
 def update_booking():
