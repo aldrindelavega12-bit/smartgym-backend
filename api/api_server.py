@@ -1300,16 +1300,25 @@ def booked_slots():
 
         slots = []
 
+        slots = []
+
         for r in rows:
 
-            # 🔥 PH TIME FORMAT
-            start = r["start_time"].strftime("%I:%M %p")
+            start = r["start_time"]
+            end = r["end_time"]
 
-            end = r["end_time"].strftime("%I:%M %p")
+            # 🔥 IF STRING
+            if isinstance(start, str):
+                start = datetime.strptime(start, "%H:%M")
 
-            slot = f"{start} - {end}"
+            if isinstance(end, str):
+                end = datetime.strptime(end, "%H:%M")
 
-            slots.append(slot)
+            # 🔥 FORMAT TO 12 HOURS
+            start_fmt = start.strftime("%I:%M %p").lstrip("0")
+            end_fmt = end.strftime("%I:%M %p").lstrip("0")
+
+    slots.append(f"{start_fmt} - {end_fmt}")
 
         print("BOOKED:", slots)
 
