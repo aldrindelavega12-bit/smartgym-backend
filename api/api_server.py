@@ -1389,8 +1389,8 @@ def current_lockers():
     )
 
     current_time = datetime.strptime(
-        now.strftime("%H:%M"),
-        "%H:%M"
+        now.strftime("%H:%M:%S"),
+        "%H:%M:%S"
     )
 
     cursor = mysql.connection.cursor()
@@ -1418,12 +1418,12 @@ def current_lockers():
 
         start = datetime.strptime(
             str(r["start_time"]),
-            "%H:%M"
+            "%H:%M:%S"
         )
 
         end = datetime.strptime(
             str(r["end_time"]),
-            "%H:%M"
+            "%H:%M:%S"
         )
 
         # 🔴 OVERTIME
