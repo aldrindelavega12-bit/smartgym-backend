@@ -1251,6 +1251,13 @@ def book_locker():
         ))
 
         conn.commit()
+        
+        socketio.emit(
+            "new_booking",
+            {
+                "message": "New booking received"
+            }
+        )
 
         return jsonify({
             "status": "success",
