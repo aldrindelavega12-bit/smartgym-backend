@@ -1451,6 +1451,7 @@ def current_lockers():
 def update_booking():
 
     data = request.json
+    print(data)
 
     conn = get_connection()
 
