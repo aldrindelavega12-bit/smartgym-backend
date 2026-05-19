@@ -1378,9 +1378,15 @@ def fully_booked_dates():
 @app.route("/api/current_lockers")
 def current_lockers():
 
-    now = datetime.now()
+    from zoneinfo import ZoneInfo
 
-    current_date = now.strftime("%Y-%m-%d")
+    now = datetime.now(
+        ZoneInfo("Asia/Manila")
+    )
+
+    current_date = now.strftime(
+        "%Y-%m-%d"
+    )
 
     current_time = datetime.strptime(
         now.strftime("%H:%M"),
@@ -1425,17 +1431,17 @@ def current_lockers():
 
             lockers[locker] = "OVERTIME"
 
-        # 🔵 CURRENTLY IN USE
+        # 🟡 RESERVED (ongoing reserved time)
         elif start <= current_time <= end:
 
-            lockers[locker] = "IN_USE"
+            lockers[locker] = "RESERVED"
 
-        # 🟡 FUTURE RESERVED
+        # 🔵 FUTURE RESERVED
         elif start > current_time:
 
             if locker not in lockers:
 
-                lockers[locker] = "RESERVED"
+                lockers[locker] = "AVAILABLE"
 
     return jsonify(lockers)
 
