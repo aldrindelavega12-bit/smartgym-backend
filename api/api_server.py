@@ -1383,9 +1383,9 @@ def current_lockers():
         cursor = mysql.connection.cursor()
 
         cursor.execute("""
-            SELECT locker_number
-            FROM bookings
-            WHERE status='PENDING'
+            SELECT locker_number,
+                   status
+            FROM lockers
         """)
 
         rows = cursor.fetchall()
@@ -1398,7 +1398,23 @@ def current_lockers():
                 r["locker_number"]
             )
 
-            lockers[locker] = "RESERVED"
+            status = r["status"]
+
+            if status == "OCCUPIED":
+
+                lockers[locker] = "IN_USE"
+
+            elif status == "RESERVED":
+
+                lockers[locker] = "RESERVED"
+
+            elif status == "OVERTIME":
+
+                lockers[locker] = "OVERTIME"
+
+            else:
+
+                lockers[locker] = "AVAILABLE"
 
         return jsonify(lockers)
 
