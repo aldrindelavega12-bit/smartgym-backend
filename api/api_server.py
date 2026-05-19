@@ -749,11 +749,25 @@ def get_lockers():
         )
 
         cursor.execute("""
+
             SELECT
-                locker_number,
-                status
-            FROM lockers
-            ORDER BY locker_number ASC
+
+                l.locker_number,
+
+                l.status,
+
+                ls.user_id,
+
+                ls.start_time
+
+            FROM lockers l
+
+            LEFT JOIN locker_sessions ls
+            ON l.locker_number = ls.locker_number
+            AND ls.status IN ('active','overtime')
+
+            ORDER BY l.locker_number ASC
+
         """)
 
         rows = cursor.fetchall()
@@ -762,17 +776,23 @@ def get_lockers():
 
         for row in rows:
 
-            status = row["status"]
+            user = row["user_id"] if row["user_id"] else "-"
+
+            time_start = "-"
+
+            if row["start_time"]:
+
+                time_start = row["start_time"].strftime("%I:%M %p")
 
             data.append({
 
                 "locker": row["locker_number"],
 
-                "name": "-",
+                "name": user,
 
-                "time_start": "-",
+                "time_start": time_start,
 
-                "status": status
+                "status": row["status"]
 
             })
 
