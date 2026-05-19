@@ -1463,6 +1463,81 @@ def update_booking():
         data.get("reason"),
         data["id"]
     ))
+    
+    # =========================
+    # GET BOOKING INFO
+    # =========================
+    cursor.execute("""
+
+        SELECT
+            user_id,
+            locker_number
+
+        FROM locker_bookings
+
+        WHERE id=%s
+
+    """, (data["id"],))
+
+    booking = cursor.fetchone()
+
+    # =========================
+    # ACCEPTED
+    # =========================
+    if data["status"] == "APPROVED":
+
+        cursor.execute("""
+
+            INSERT INTO messages
+            (
+                user_id,
+                title,
+                message,
+                reason
+            )
+
+            VALUES (%s,%s,%s,%s)
+
+        """, (
+
+            booking[0],
+
+            "BOOKING ACCEPTED",
+
+            f"Your booking for Locker {booking[1]} was accepted.",
+
+            "-"
+
+        ))
+
+    # =========================
+    # REJECTED
+    # =========================
+    elif data["status"] == "REJECTED":
+
+        cursor.execute("""
+
+            INSERT INTO messages
+            (
+                user_id,
+                title,
+                message,
+                reason
+            )
+
+            VALUES (%s,%s,%s,%s)
+
+        """, (
+
+            booking[0],
+
+            "BOOKING REJECTED",
+
+            f"Your booking for Locker {booking[1]} was rejected.",
+
+            data.get("reason")
+
+        ))
 
     conn.commit()
     conn.close()
@@ -2291,6 +2366,44 @@ def update_locker_status():
         return jsonify({
             "success": False
         }), 500
+    
+@app.route("/api/messages/<user_id>")
+def get_messages(user_id):
+
+    conn = get_connection()
+
+    cursor = conn.cursor(
+        pymysql.cursors.DictCursor
+    )
+
+    cursor.execute("""
+
+        SELECT
+
+            title,
+
+            message,
+
+            reason,
+
+            DATE_FORMAT(
+                created_at,
+                '%%M %%d, %%Y %%h:%%i %%p'
+            ) AS created_at
+
+        FROM messages
+
+        WHERE user_id = %s
+
+        ORDER BY id DESC
+
+    """, (user_id,))
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return jsonify(rows)
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
