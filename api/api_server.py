@@ -1318,7 +1318,7 @@ def booked_slots():
             start_fmt = start.strftime("%I:%M %p").lstrip("0")
             end_fmt = end.strftime("%I:%M %p").lstrip("0")
 
-    slots.append(f"{start_fmt} - {end_fmt}")
+            slots.append(f"{start_fmt} - {end_fmt}")
 
         print("BOOKED:", slots)
 
