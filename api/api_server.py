@@ -1197,16 +1197,23 @@ def get_bookings():
             # =========================
             # FIX DATE
             # =========================
-            if b.get("date"):
+            if b.get("start_time"):
 
-                b["date"] = str(b["date"])
+                b["start_time"] = (
+                    datetime.combine(
+                        datetime.today(),
+                        b["start_time"]
+                    )
+                ).strftime("%I:%M %p")
 
-            # =========================
-            # FIX CREATED_AT
-            # =========================
-            if b.get("created_at"):
+            if b.get("end_time"):
 
-                b["created_at"] = str(b["created_at"])
+                b["end_time"] = (
+                    datetime.combine(
+                        datetime.today(),
+                        b["end_time"]
+                    )
+                ).strftime("%I:%M %p")
 
             # =========================
             # FIX TIMEDELTA
