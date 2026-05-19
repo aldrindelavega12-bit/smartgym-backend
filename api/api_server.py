@@ -1094,19 +1094,7 @@ def book_locker():
         start_time = data.get("start_time")
         end_time = data.get("end_time")
         
-        # 🔥 FIX GMT TO PH TIME
-        start_dt = datetime.strptime(
-            start_time,
-            "%H:%M"
-        ) + timedelta(hours=8)
-
-        end_dt = datetime.strptime(
-            end_time,
-            "%H:%M"
-        ) + timedelta(hours=8)
-
-        start_time = start_dt.strftime("%H:%M")
-        end_time = end_dt.strftime("%H:%M")
+        
 
         # =========================
         # VALIDATE
