@@ -372,8 +372,12 @@ def overtime():
     execute_query("""
         UPDATE locker_sessions
         SET status = 'overtime'
-        WHERE locker_number = %s AND status = 'active'
+        WHERE locker_number = %s
+        AND status = 'active'
     """, (locker_id,))
+
+    # 🔥 REALTIME UPDATE
+    socketio.emit("locker_update")
 
     print("⚠️ OVERTIME:", locker_id)
 
@@ -1604,6 +1608,62 @@ def login():
     finally:
         if conn:
             conn.close()
+            
+@app.route("/api/change_password", methods=["POST"])
+def change_password():
+
+    try:
+
+        data = request.get_json()
+
+        username = data.get("username")
+        old_password = data.get("old_password")
+        new_password = data.get("new_password")
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT *
+            FROM user_accounts
+            WHERE username=%s
+            AND password=%s
+        """, (
+            username,
+            old_password
+        ))
+
+        user = cursor.fetchone()
+
+        if not user:
+
+            return jsonify({
+                "status": "error",
+                "message": "Wrong username or password"
+            })
+
+        cursor.execute("""
+            UPDATE user_accounts
+            SET password=%s
+            WHERE username=%s
+        """, (
+            new_password,
+            username
+        ))
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Password updated"
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        })
             
 @app.route("/api/membership/<user_id>")
 def get_membership(user_id):
