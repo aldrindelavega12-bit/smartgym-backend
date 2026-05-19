@@ -2431,8 +2431,15 @@ def get_messages(user_id):
             reason,
 
             DATE_FORMAT(
-                created_at,
+
+                CONVERT_TZ(
+                    created_at,
+                    '+00:00',
+                    '+08:00'
+                ),
+
                 '%%M %%d, %%Y %%h:%%i %%p'
+
             ) AS created_at
 
         FROM messages
