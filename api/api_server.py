@@ -1303,17 +1303,10 @@ def booked_slots():
 
         for r in rows:
 
-            # 🔥 KEEP ORIGINAL FORMAT
-            start = str(r["start_time"]).strip().upper()
-            end = str(r["end_time"]).strip().upper()
+            # 🔥 PH TIME FORMAT
+            start = r["start_time"].strftime("%I:%M %p")
 
-
-            # FIX MYSQL TIME
-            if len(start) > 8:
-                start = start[:8]
-
-            if len(end) > 8:
-                end = end[:8]
+            end = r["end_time"].strftime("%I:%M %p")
 
             slot = f"{start} - {end}"
 
