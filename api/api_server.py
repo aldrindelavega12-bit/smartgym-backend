@@ -1201,20 +1201,16 @@ def get_bookings():
             # =========================
             if b.get("start_time"):
 
-                b["start_time"] = (
-                    datetime.combine(
-                        datetime.today(),
-                        b["start_time"]
-                    )
+                b["start_time"] = datetime.strptime(
+                    str(b["start_time"]),
+                    "%H:%M:%S"
                 ).strftime("%I:%M %p")
 
             if b.get("end_time"):
 
-                b["end_time"] = (
-                    datetime.combine(
-                        datetime.today(),
-                        b["end_time"]
-                    )
+                b["end_time"] = datetime.strptime(
+                    str(b["end_time"]),
+                    "%H:%M:%S"
                 ).strftime("%I:%M %p")
 
             # =========================
