@@ -1450,110 +1450,143 @@ def current_lockers():
 @app.route("/api/update_booking", methods=["POST"])
 def update_booking():
 
-    data = request.json
-    print(data)
+    try:
 
-    conn = get_connection()
+        data = request.json
 
-    cursor = conn.cursor(
-        pymysql.cursors.DictCursor
-    )
+        print("UPDATE DATA:", data)
 
-    # =========================
-    # UPDATE BOOKING
-    # =========================
-    cursor.execute("""
-        UPDATE locker_bookings
-        SET status=%s, reason=%s
-        WHERE id=%s
-    """, (
-        data["status"],
-        data.get("reason"),
-        data["id"]
-    ))
+        conn = get_connection()
 
-    # =========================
-    # GET BOOKING INFO
-    # =========================
-    cursor.execute("""
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
 
-        SELECT
-            user_id,
-            locker_number
-
-        FROM locker_bookings
-
-        WHERE id=%s
-
-    """, (data["id"],))
-
-    booking = cursor.fetchone()
-
-    # =========================
-    # APPROVED
-    # =========================
-    if data["status"] == "APPROVED":
-
+        # =========================
+        # UPDATE BOOKING
+        # =========================
         cursor.execute("""
 
-            INSERT INTO messages
-            (
-                user_id,
-                title,
-                message,
-                reason
-            )
+            UPDATE locker_bookings
 
-            VALUES (%s,%s,%s,%s)
+            SET status=%s,
+                reason=%s
+
+            WHERE id=%s
 
         """, (
 
-            booking["user_id"],
-
-            "BOOKING ACCEPTED",
-
-            f"Your booking for Locker {booking['locker_number']} was accepted.",
-
-            "-"
+            data["status"],
+            data.get("reason"),
+            data["id"]
 
         ))
 
-    # =========================
-    # REJECTED
-    # =========================
-    elif data["status"] == "REJECTED":
-
+        # =========================
+        # GET BOOKING INFO
+        # =========================
         cursor.execute("""
 
-            INSERT INTO messages
-            (
+            SELECT
                 user_id,
-                title,
-                message,
-                reason
-            )
+                locker_number
 
-            VALUES (%s,%s,%s,%s)
+            FROM locker_bookings
 
-        """, (
+            WHERE id=%s
 
-            booking["user_id"],
+        """, (data["id"],))
 
-            "BOOKING REJECTED",
+        booking = cursor.fetchone()
 
-            f"Your booking for Locker {booking['locker_number']} was rejected.",
+        print("BOOKING:", booking)
 
-            data.get("reason")
+        # =========================
+        # APPROVED
+        # =========================
+        if data["status"] == "APPROVED":
 
-        ))
+            print("INSERTING APPROVED MESSAGE")
 
-    conn.commit()
+            cursor.execute("""
 
-    conn.close()
+                INSERT INTO messages
+                (
+                    user_id,
+                    title,
+                    message,
+                    reason
+                )
 
-    return jsonify({
-        "message": "updated"
-    })
+                VALUES (%s,%s,%s,%s)
+
+            """, (
+
+                booking["user_id"],
+
+                "BOOKING ACCEPTED",
+
+                f"Your booking for Locker {booking['locker_number']} was accepted.",
+
+                "-"
+
+            ))
+
+            print("APPROVED MESSAGE INSERTED")
+
+        # =========================
+        # REJECTED / DECLINED
+        # =========================
+        elif data["status"] in ["REJECTED", "DECLINED"]:
+
+            print("INSERTING REJECTED MESSAGE")
+
+            cursor.execute("""
+
+                INSERT INTO messages
+                (
+                    user_id,
+                    title,
+                    message,
+                    reason
+                )
+
+                VALUES (%s,%s,%s,%s)
+
+            """, (
+
+                booking["user_id"],
+
+                "BOOKING REJECTED",
+
+                f"Your booking for Locker {booking['locker_number']} was rejected.",
+
+                data.get("reason") or "No reason provided"
+
+            ))
+
+            print("REJECTED MESSAGE INSERTED")
+
+        # =========================
+        # COMMIT
+        # =========================
+        conn.commit()
+
+        print("DATABASE COMMIT SUCCESS")
+
+        conn.close()
+
+        return jsonify({
+            "message": "updated"
+        })
+
+    except Exception as e:
+
+        print("UPDATE BOOKING ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 from datetime import timedelta
 
