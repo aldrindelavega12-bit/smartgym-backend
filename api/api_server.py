@@ -1201,17 +1201,11 @@ def get_bookings():
             # =========================
             if b.get("start_time"):
 
-                b["start_time"] = datetime.strptime(
-                    str(b["start_time"]),
-                    "%H:%M"
-                ).strftime("%I:%M %p")
+                b["start_time"] = str(b["start_time"])
 
             if b.get("end_time"):
 
-                b["end_time"] = datetime.strptime(
-                    str(b["end_time"]),
-                    "%H:%M"
-                ).strftime("%I:%M %p")
+                b["end_time"] = str(b["end_time"])
 
             # =========================
             # FIX TIMEDELTA
