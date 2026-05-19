@@ -1414,7 +1414,9 @@ def current_lockers():
 
     for r in rows:
 
-        locker = r["locker_number"]
+        locker = str(
+            r["locker_number"]
+        )
 
         start = datetime.strptime(
             str(r["start_time"]),
@@ -1431,7 +1433,7 @@ def current_lockers():
 
             lockers[locker] = "OVERTIME"
 
-        # 🟡 RESERVED (ongoing reserved time)
+        # 🟡 RESERVED
         elif start <= current_time <= end:
 
             lockers[locker] = "RESERVED"
