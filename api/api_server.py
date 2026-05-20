@@ -2592,21 +2592,13 @@ def get_messages(user_id):
         SELECT
 
             title,
-
             message,
-
             reason,
+            is_read,
 
             DATE_FORMAT(
-
-                CONVERT_TZ(
-                    created_at,
-                    '+00:00',
-                    '+08:00'
-                ),
-
-                '%%M %%d, %%Y %%h:%%i %%p'
-
+                CONVERT_TZ(created_at, '+00:00', '+08:00'),
+                '%M %d, %Y %h:%i %p'
             ) AS created_at
 
         FROM messages
@@ -2655,6 +2647,43 @@ def member_active_locker(user_id):
             "success": False,
             "error": str(e)
         }), 500
+    
+@app.route("/api/messages_count/<user_id>")
+def messages_count(user_id):
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    cursor.execute("""
+        SELECT COUNT(*) AS count
+        FROM messages
+        WHERE user_id=%s
+        AND is_read=0
+    """, (user_id,))
+
+    row = cursor.fetchone()
+
+    conn.close()
+
+    return jsonify(row)
+
+
+@app.route("/api/messages_read/<user_id>", methods=["POST"])
+def messages_read(user_id):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE messages
+        SET is_read=1
+        WHERE user_id=%s
+    """, (user_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status":"success"})
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
