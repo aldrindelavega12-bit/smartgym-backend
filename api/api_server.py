@@ -1244,12 +1244,11 @@ def book_locker():
 
             "NEW BOOKING",
 
-            f"{user_id} booked Locker {locker} ({start_time} - {end_time})",
+            f"{user_id} booked Locker {locker} ({format_time(start_time)} - {format_time(end_time)})",
 
             "-"
 
         ))
-
         conn.commit()
         
         socketio.emit(
@@ -1291,15 +1290,8 @@ def admin_messages():
             reason,
 
             DATE_FORMAT(
-
-                CONVERT_TZ(
-                    created_at,
-                    '+00:00',
-                    '+08:00'
-                ),
-
-                '%%M %%d, %%Y %%h:%%i %%p'
-
+                created_at,
+                '%M %d, %Y %h:%i %p'
             ) AS created_at
 
         FROM messages
@@ -1399,13 +1391,12 @@ def get_bookings():
 # ==============================
 # FORMAT TIME
 # ==============================
-def format_time(time_str):
+def format_time(t):
 
     return datetime.strptime(
-        time_str,
+        t,
         "%H:%M"
-    ).strftime("%I:%M %p").upper().strip()
-
+    ).strftime("%I:%M %p")
 
 @app.route("/api/booked_slots")
 def booked_slots():
@@ -2284,6 +2275,40 @@ def sync_locker_end():
     except Exception as e:
 
         print("SYNC LOCKER END ERROR:", e)
+
+        return jsonify({
+            "success": False
+        }), 500
+    
+@app.route("/api/sync_locker_overtime", methods=["POST"])
+def sync_locker_overtime():
+
+    try:
+        data = request.get_json()
+
+        locker_id = data.get("locker_id")
+
+        execute_query(
+            """
+            UPDATE locker_sessions
+            SET status='overtime'
+            WHERE locker_number=%s
+            AND end_time IS NULL
+            """,
+            (locker_id,)
+        )
+
+        socketio.emit("locker_update")
+
+        print("☁️ CLOUD OVERTIME:", locker_id)
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        print("SYNC LOCKER OVERTIME ERROR:", e)
 
         return jsonify({
             "success": False

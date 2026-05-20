@@ -50,11 +50,12 @@ class FaceRecognizer:
                 best_match = label
 
         # 🔥 tighter threshold (better accuracy)
-        if best_match is not None and 60 <= best_conf <= 200:
+        if best_match is not None and 50 <= best_conf <= 100:
 
             user_id = self.labels.get(str(best_match))
 
             if user_id:
+                print(f"[FACE VERIFIED] user_id={user_id} confidence={best_conf:.2f}")
                 return user_id
 
         return None
