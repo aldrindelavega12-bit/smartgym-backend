@@ -2298,6 +2298,16 @@ def sync_locker_overtime():
             (locker_id,)
         )
 
+        # 🔥 KULANG MO ITO
+        execute_query(
+            """
+            UPDATE lockers
+            SET status='OVERTIME'
+            WHERE locker_number=%s
+            """,
+            (locker_id,)
+        )
+
         socketio.emit("locker_update")
 
         print("☁️ CLOUD OVERTIME:", locker_id)
