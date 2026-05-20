@@ -2582,15 +2582,12 @@ def update_locker_status():
 def get_messages(user_id):
 
     conn = get_connection()
-
-    cursor = conn.cursor(
-        pymysql.cursors.DictCursor
-    )
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
 
     cursor.execute("""
 
         SELECT
-
+            id,
             title,
             message,
             reason,
