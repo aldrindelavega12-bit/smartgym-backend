@@ -2616,6 +2616,39 @@ def get_messages(user_id):
     conn.close()
 
     return jsonify(rows)
+
+@app.route("/api/member_active_locker/<user_id>", methods=["GET"])
+def member_active_locker(user_id):
+    try:
+        row = execute_query(
+            """
+            SELECT locker_number
+            FROM locker_sessions
+            WHERE user_id=%s
+            AND end_time IS NULL
+            ORDER BY start_time DESC
+            LIMIT 1
+            """,
+            (user_id,),
+            fetchone=True
+        )
+
+        if row:
+            return jsonify({
+                "success": True,
+                "locker": row["locker_number"]
+            })
+
+        return jsonify({
+            "success": True,
+            "locker": None
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
