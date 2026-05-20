@@ -581,19 +581,25 @@ def get_active_locker():
     cursor.execute("""
         SELECT locker_number 
         FROM locker_sessions
-        WHERE user_id=%s AND status='active'
+        WHERE user_id=%s 
+        AND status IN ('active', 'overtime')
+        ORDER BY start_time DESC
+        LIMIT 1
     """, (user_id,))
 
     result = cursor.fetchone()
 
+    cursor.close()
+    conn.close()
+
     if result:
         return jsonify({
-            "locker_number": result[0]
+            "locker_number": result["locker_number"]
         }), 200
-    else:
-        return jsonify({
-            "locker_number": None
-        }), 200
+
+    return jsonify({
+        "locker_number": None
+    }), 200
 
 @app.route("/api/check_overtime/<user_id>", methods=["GET"])
 def check_overtime(user_id):
