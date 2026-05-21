@@ -2101,28 +2101,41 @@ from flask_socketio import SocketIO
 
 @app.route("/api/notify/priority", methods=["POST"])
 def notify_priority():
-    data = request.json
+    try:
+        data = request.json
 
-    locker = data.get("locker")
-    message = data.get("message")
-    time_str = data.get("time")
+        locker = data.get("locker")
+        message = data.get("message")
+        time_str = data.get("time")
 
-    payload = {
-        "type": "PRIORITY",
-        "locker": locker,
-        "time": time_str,
-        "message": message
-    }
+        execute_query(
+            """
+            INSERT INTO messages
+            (user_id, title, message, reason)
+            VALUES (%s,%s,%s,%s)
+            """,
+            (
+                "ADMIN",
+                "PRIORITY LANE ALERT",
+                message,
+                f"Reserved time: {time_str}"
+            )
+        )
 
-    print(f"[PRIORITY ALERT] Locker {locker}")
+        socketio.emit("new_message")
+        socketio.emit("priority_alert", {
+            "locker": locker,
+            "time": time_str,
+            "message": message
+        })
 
-    # 🔥 SEND TO FRONTEND
-    socketio.emit("priority_alert", payload)
+        print("[PRIORITY SAVED TO MESSAGES]")
 
-    return jsonify({"success": True})
+        return jsonify({"success": True})
 
-#SYNC
-
+    except Exception as e:
+        print("PRIORITY ERROR:", e)
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/api/sync_attendance", methods=["POST"])
 def sync_attendance():
@@ -2708,17 +2721,87 @@ def messages_read(user_id):
 
     conn = get_connection()
     cursor = conn.cursor()
-
+    
     cursor.execute("""
-        UPDATE messages
-        SET is_read=1
-        WHERE user_id=%s
+
+        SELECT
+            id,
+            user_id,
+            title,
+            message,
+            reason,
+            is_read,
+
+            DATE_FORMAT(
+                CONVERT_TZ(created_at, '+00:00', '+08:00'),
+                '%%M %%d, %%Y %%h:%%i %%p'
+            ) AS created_at
+
+        FROM messages
+
+        WHERE user_id = %s
+
+        ORDER BY id DESC
+
     """, (user_id,))
+        
 
     conn.commit()
     conn.close()
 
     return jsonify({"status":"success"})
+    
+@app.route("/api/messages_read_single/<int:msg_id>", methods=["POST"])
+def messages_read_single(msg_id):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE messages
+        SET is_read = 1
+        WHERE id = %s
+    """, (msg_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success"})
+
+
+@app.route("/api/messages_unread_single/<int:msg_id>", methods=["POST"])
+def messages_unread_single(msg_id):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE messages
+        SET is_read = 0
+        WHERE id = %s
+    """, (msg_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success"})
+
+
+@app.route("/api/messages_delete/<int:msg_id>", methods=["DELETE"])
+def messages_delete(msg_id):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM messages
+        WHERE id = %s
+    """, (msg_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success"})
         
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
