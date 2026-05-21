@@ -41,6 +41,13 @@ system_running = True
 pending_face_user = None
 admin_requested = False
 recognition_enabled = True
+
+FP_COOLDOWN = 2
+FACE_COOLDOWN = 2
+
+last_in_fp_scan = 0
+last_out_fp_scan = 0
+last_face_scan = 0
 # =========================
 # ADMIN PASSWORD VERIFICATION
 # =========================
@@ -217,6 +224,8 @@ def check_membership_status(user_id, full_name, phone):
 # IN THREAD (Entry Lane)
 # =========================
 def in_lane_loop(in_fp, face_recognizer, ui):
+    
+    global last_in_fp_scan, last_face_scan
 
     while system_state.system_running:
 
@@ -230,7 +239,16 @@ def in_lane_loop(in_fp, face_recognizer, ui):
         ui.set_status("")
         ui.set_name("")
 
+        now = time.time()
+
+        if now - last_in_fp_scan < FP_COOLDOWN:
+            time.sleep(0.1)
+            continue
+
         fp_id = in_fp.verify()
+
+        if fp_id is not None:
+            last_in_fp_scan = time.time()
 
         if fp_id is None:
             time.sleep(0.1)
@@ -259,23 +277,27 @@ def in_lane_loop(in_fp, face_recognizer, ui):
             # FACE VERIFICATION (FIXED)
             # =========================
 
-            print("[IN] Starting face verification...")
+            # =========================
+            # FACE VERIFICATION (RE-FACTORED)
+            # =========================
 
+            print("[IN] Starting face verification...")
             ui.set_status("LOOK AT CAMERA")
 
             start = time.time()
             face_ok = False
+            spoof_detected = False
+            mismatch_detected = False
 
             while True:
-
-                # 🔥 OPTIONAL TIMEOUT (10 seconds)
+                # 10 seconds timeout
                 if time.time() - start > 10:
                     break
 
                 if system_state.system_paused:
                     break
 
-                # 🔥 GET FRAME FROM UI (SAFE)
+                # GET FRAME FROM UI
                 with ui.frame_lock:
                     frame = None if ui.frame is None else ui.frame.copy()
 
@@ -283,45 +305,65 @@ def in_lane_loop(in_fp, face_recognizer, ui):
                     time.sleep(0.05)
                     continue
 
-                # 🔥 RECOGNIZE (PASS FRAME)
+                now = time.time()
+
+                if now - last_face_scan < FACE_COOLDOWN:
+                    time.sleep(0.1)
+                    continue
+
                 face_user = face_recognizer.recognize(frame)
 
-                # -------------------------
-                # NO FACE → CONTINUE
-                # -------------------------
+                if face_user is not None:
+                    last_face_scan = time.time()
+                
+                if face_user == "SPOOF":
+                    spoof_detected = True
+                    break
+
                 if face_user is None:
                     ui.set_status("NO FACE DETECTED")
                     time.sleep(0.1)
                     continue
 
-                # -------------------------
-                # MATCH
-                # -------------------------
-                if face_user == user_id:
-                    ui.set_status("FACE VERIFIED")
-                    face_ok = True
-                    break
+                # Kung may nakitang mukha ang recognizer
+                if isinstance(face_user, dict):
+                    detected_user = face_user["user_id"]
+                    confidence = face_user["confidence"]
 
-                # -------------------------
-                # WRONG FACE
-                # -------------------------
-                else:
-                    ui.set_status("FACE NOT MATCH")
-                    time.sleep(0.5)
+                    # LBPH ACCEPTANCE THRESHOLD: Mas mababa sa 100.0 ay katanggap-tanggap kadalasan
+                    if detected_user == user_id and confidence <= 100.0:
+                        ui.set_status("FACE VERIFIED")
+                        print(f"[SUCCESS] Face verified with confidence: {confidence:.2f}")
+                        face_ok = True
+                        break
+                    else:
+                        # Nakita ng system ang mukha, pero hindi tugma sa fingerprint user o masyadong mataas ang score (distansya)
+                        print(f"[DEBUG] Verification failed. Expected: {user_id}, Got: {detected_user}, Conf: {confidence:.2f}")
+                        mismatch_detected = True
+                        face_ok = False
+                        # Patuloy lang mag-scan hangga't hindi nag-ta-timeout para bigyan ng chance ang user
+                        time.sleep(0.2)
+                        continue
 
             # =========================
-            # RESULT
+            # RESULT PROCESSING
             # =========================
+
+            if face_user == "SPOOF":
+                spoof_detected = True
+                face_ok = False
+                ui.set_status("PICTURE DETECTED")
+                print_access(full_name, user_type, "ACCESS DENIED", "Picture detected")
+                send_to_arduino("IN:DENY:PICTURE")
+                time.sleep(1.0)
+                continue
 
             if not face_ok:
-
                 reason = "Face Mismatch"
-
+                ui.set_status("FACE MISMATCH")
                 print_access(full_name, user_type, "ACCESS DENIED", reason)
-
                 send_to_arduino("IN:DENY:FACE_MISMATCH")
-
-                time.sleep(0.3)
+                time.sleep(1.0)
                 continue
 
             else:
@@ -465,6 +507,7 @@ def has_unpaid_overtime(user_id):
 # OUT THREAD (Exit Lane)
 # =========================
 def out_lane_loop(out_fp):
+    global last_out_fp_scan
 
     while system_state.system_running:
 
@@ -472,7 +515,16 @@ def out_lane_loop(out_fp):
             time.sleep(0.2)
             continue
 
+        now = time.time()
+
+        if now - last_out_fp_scan < FP_COOLDOWN:
+            time.sleep(0.1)
+            continue
+
         fp_id = out_fp.verify()
+
+        if fp_id is not None:
+            last_out_fp_scan = time.time()
 
         if fp_id is None:
             time.sleep(0.1)

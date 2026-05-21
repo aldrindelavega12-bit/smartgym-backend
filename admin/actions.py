@@ -274,7 +274,7 @@ def add_member(in_fp, out_fp, ui):
         time.sleep(0.5)
 
     print("✅ Face capture complete.")
-    train_faces()
+    
 
     # =========================
     # SAVE MEMBER
@@ -292,6 +292,8 @@ def add_member(in_fp, out_fp, ui):
     "INSERT INTO fp_templates (user_id, fp_id, template) VALUES (%s,%s,%s)",
     (new_id, fp_id, hex_template)
 )
+    # 🔥 RETRAIN FACE MODEL AFTER SAVE
+    train_faces()
 
     print(f"✅ Member {new_id} registered.")
     
@@ -939,6 +941,9 @@ def delete_member(in_fp, out_fp):
 
     if os.path.exists(face_path):
         shutil.rmtree(face_path)
+
+    # 🔥 RETRAIN FACE MODEL AFTER DELETE
+    train_faces()
 
     execute_query(
         "DELETE FROM members WHERE id=%s",

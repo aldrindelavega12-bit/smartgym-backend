@@ -36,7 +36,8 @@ def train_faces():
     print("🚀 TRAINING FACE MODEL")
     print("===================================")
 
-    for member_id in os.listdir(dataset_path):
+    
+    for member_id in sorted(os.listdir(dataset_path)):
 
         member_folder = os.path.join(dataset_path, member_id)
 
@@ -47,7 +48,7 @@ def train_faces():
 
         label_map[current_label] = member_id
 
-        for image_name in os.listdir(member_folder):
+        for image_name in sorted(os.listdir(member_folder)):
 
             image_path = os.path.join(member_folder, image_name)
 
@@ -57,6 +58,8 @@ def train_faces():
             if img is None:
                 print(f"[WARNING] Skipped invalid image: {image_path}")
                 continue
+            
+            img = cv2.resize(img, (100, 100))
 
             faces.append(img)
             labels.append(current_label)

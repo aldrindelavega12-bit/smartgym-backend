@@ -156,17 +156,59 @@ def get_face_labels():
     
 @app.route("/api/face_version")
 def face_version():
-    return {"version": 1}
+    try:
+        model_path = "/home/thesis_group6/smart_gym_turnstile/biometrics/face/lbph_model.yml"
+        labels_path = "/home/thesis_group6/smart_gym_turnstile/biometrics/face/labels.json"
 
-from flask import request, jsonify
-import mysql.connector
+        model_time = os.path.getmtime(model_path) if os.path.exists(model_path) else 0
+        labels_time = os.path.getmtime(labels_path) if os.path.exists(labels_path) else 0
 
-# DB_CONFIG = {
-#     "host": "127.0.0.1",
-#     "user": "smartgym",
-#     "password": "smartgym123",
-#     "database": "smart_gym_db"
-# }
+        version = int(max(model_time, labels_time))
+
+        return jsonify({
+            "version": version
+        })
+
+    except Exception as e:
+        return jsonify({
+            "version": 0,
+            "error": str(e)
+        }), 500
+    
+from flask import send_file, jsonify
+import os
+import zipfile
+import tempfile
+
+@app.route("/api/get_face_images")
+def get_face_images():
+    try:
+        FACE_DATASET_DIR = "/home/thesis_group6/smart_gym_turnstile/datasets/faces"
+
+        if not os.path.exists(FACE_DATASET_DIR):
+            return jsonify({"success": False, "message": "Face dataset not found"}), 404
+
+        temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        temp_zip.close()
+
+        with zipfile.ZipFile(temp_zip.name, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(FACE_DATASET_DIR):
+                for file in files:
+                    if file.lower().endswith((".jpg", ".jpeg", ".png")):
+                        full_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(full_path, FACE_DATASET_DIR)
+                        zipf.write(full_path, rel_path)
+
+        return send_file(
+            temp_zip.name,
+            as_attachment=True,
+            download_name="face_images.zip",
+            mimetype="application/zip"
+        )
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/start_locker', methods=['POST'])
 def start_locker():
     try:

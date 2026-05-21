@@ -161,7 +161,7 @@ class InFingerprint:
             else:
                 print("❌ LOW CONFIDENCE")
 
-                send_to_arduino("OUT:DENY:NOT_LINKED")
+                send_to_arduino("IN:DENY:NOT_LINKED")
 
                 return None
 
