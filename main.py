@@ -331,7 +331,7 @@ def in_lane_loop(in_fp, face_recognizer, ui):
                     confidence = face_user["confidence"]
 
                     # LBPH ACCEPTANCE THRESHOLD: Mas mababa sa 100.0 ay katanggap-tanggap kadalasan
-                    if detected_user == user_id and confidence <= 100.0:
+                    if detected_user == user_id and confidence <= 120.0:
                         ui.set_status("FACE VERIFIED")
                         print(f"[SUCCESS] Face verified with confidence: {confidence:.2f}")
                         face_ok = True
@@ -468,10 +468,9 @@ def in_lane_loop(in_fp, face_recognizer, ui):
 def has_unpaid_overtime(user_id):
 
     try:
-
         result = execute_query(
             """
-            SELECT start_time, overtime_paid
+            SELECT status, overtime_paid
             FROM locker_sessions
             WHERE user_id = %s
             AND end_time IS NULL
@@ -487,19 +486,15 @@ def has_unpaid_overtime(user_id):
 
         row = result[0]
 
+        status = str(row["status"]).lower()
         paid = int(row["overtime_paid"] or 0)
 
-        if paid == 1:
-            return False
+        if status == "overtime" and paid == 0:
+            return True
 
-        start_time = row["start_time"]
-
-        allowed_time = start_time + timedelta(hours=3)
-
-        return datetime.now() > allowed_time
+        return False
 
     except Exception as e:
-
         print("[OVERTIME CHECK ERROR]", e)
         return False
         
@@ -543,6 +538,19 @@ def out_lane_loop(out_fp):
 
         user_type = "Member" if user_id.upper().startswith("M") else "Walkin"
         current_time = datetime.now().strftime("%I:%M %p")
+        
+        
+        # =========================
+        # 🔥 NEW: CHECK OVERTIME
+        # =========================
+        if has_unpaid_overtime(user_id):
+
+            print_access(full_name, user_type, "EXIT DENIED", "OVERTIME UNPAID")
+
+            send_to_arduino("OUT:DENY:OVERTIME")
+
+            time.sleep(0.3)
+            continue
 
         # =========================
         # 🔥 CHECK ACTIVE LOCKER
@@ -555,17 +563,7 @@ def out_lane_loop(out_fp):
             time.sleep(0.3)
             continue
 
-        # =========================
-        # 🔥 NEW: CHECK OVERTIME
-        # =========================
-        if has_unpaid_overtime(user_id):
-
-            print_access(full_name, user_type, "EXIT DENIED", "OVERTIME UNPAID")
-
-            send_to_arduino("OUT:DENY:OVERTIME")
-
-            time.sleep(0.3)
-            continue
+        
 
         # =========================
         # PROCESS EXIT (UPDATED)

@@ -1,15 +1,37 @@
 import cv2
 import json
 import time
+import os
 
 class FaceRecognizer:
 
     def __init__(self):
         self.model = cv2.face.LBPHFaceRecognizer_create()
-        self.model.read("biometrics/face/lbph_model.yml")
+        self.model_ready = False
 
-        with open("biometrics/face/labels.json", "r") as f:
-            self.labels = json.load(f)
+        model_path = "biometrics/face/lbph_model.yml"
+        labels_path = "biometrics/face/labels.json"
+
+        if os.path.exists(model_path):
+            try:
+                self.model.read(model_path)
+                self.model_ready = True
+                print("[FACE] Model loaded successfully.")
+            except Exception as e:
+                print("[FACE WARNING] Failed to load model:", e)
+        else:
+            print("[FACE WARNING] No lbph_model.yml found. Face recognition disabled.")
+
+        if os.path.exists(labels_path):
+            try:
+                with open(labels_path, "r") as f:
+                    self.labels = json.load(f)
+            except Exception as e:
+                print("[FACE WARNING] Failed to load labels:", e)
+                self.labels = {}
+        else:
+            self.labels = {}
+            print("[FACE WARNING] No labels.json found. Face recognition disabled.")
 
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -90,6 +112,11 @@ class FaceRecognizer:
             print("🚨 [SPOOF DETECTED] This is a printed picture or screen!")
             self.reset_scan()
             return "SPOOF" # Ibabalik ang "SPOOF" string para basahin ng main.py
+        
+        if not self.model_ready or not self.labels:
+            print("[FACE WARNING] No face model/labels available.")
+            self.reset_scan()
+            return None
 
         try:
             label, confidence = self.model.predict(face_img_resized)

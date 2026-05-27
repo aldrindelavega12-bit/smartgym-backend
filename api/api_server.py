@@ -1,4 +1,3 @@
-
 import base64 
 import sys, os
 import sqlite3
@@ -418,10 +417,15 @@ def overtime():
         AND status = 'active'
     """, (locker_id,))
 
-    # 🔥 REALTIME UPDATE
+    execute_query("""
+        UPDATE lockers
+        SET status = 'OVERTIME'
+        WHERE locker_number = %s
+    """, (locker_id,))
+
     socketio.emit("locker_update")
 
-    print("⚠️ OVERTIME:", locker_id)
+    print("⚠️ LOCAL OVERTIME:", locker_id)
 
     return jsonify({"success": True})
 
@@ -2637,7 +2641,10 @@ def update_locker_status():
 def get_messages(user_id):
 
     conn = get_connection()
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    cursor = conn.cursor(
+        pymysql.cursors.DictCursor
+    )
 
     cursor.execute("""
 
@@ -2647,7 +2654,16 @@ def get_messages(user_id):
             title,
             message,
             reason,
-            created_at
+            is_read,
+
+            DATE_FORMAT(
+                CONVERT_TZ(
+                    created_at,
+                    '+00:00',
+                    '+08:00'
+                ),
+                '%%a, %%d %%b %%Y %%h:%%i:%s %%p'
+            ) AS created_at
 
         FROM messages
 
