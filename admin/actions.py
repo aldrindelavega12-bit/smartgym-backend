@@ -260,8 +260,18 @@ def add_member(in_fp, out_fp, ui):
         faces = sorted(faces, key=lambda x: x[2]*x[3], reverse=True)
         (x,y,w,h) = faces[0]
 
-        face_img = gray[y:y+h, x:x+w]
-        face_img = cv2.resize(face_img, (100,100))
+        padding = int(w * 0.25)
+
+        x1 = max(0, x - padding)
+        y1 = max(0, y - padding)
+        x2 = min(gray.shape[1], x + w + padding)
+        y2 = min(gray.shape[0], y + h + padding)
+
+        face_img = gray[y1:y2, x1:x2]
+
+        face_img = cv2.equalizeHist(face_img)
+
+        face_img = cv2.resize(face_img, (200, 200))
 
         filename = os.path.join(save_path, f"{captured+1}.jpg")
         cv2.imwrite(filename, face_img)
@@ -270,6 +280,7 @@ def add_member(in_fp, out_fp, ui):
 
         ui.set_status(f"CAPTURED {captured}/{TOTAL_CAPTURES}")
         print(f"Captured {captured}/{TOTAL_CAPTURES} → {filename}")
+        print("Saved Face Shape:", face_img.shape)
 
         time.sleep(0.5)
 

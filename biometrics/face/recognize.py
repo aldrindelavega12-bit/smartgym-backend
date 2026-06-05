@@ -102,8 +102,18 @@ class FaceRecognizer:
             return None
 
         # Kunin ang mismong rehiyon ng mukha
-        face_img = gray[y:y+h, x:x+w]
-        face_img_resized = cv2.resize(face_img, (100, 100))
+        padding = 20
+
+        x1 = max(0, x - padding)
+        y1 = max(0, y - padding)
+        x2 = min(gray.shape[1], x + w + padding)
+        y2 = min(gray.shape[0], y + h + padding)
+
+        face_img = gray[y1:y2, x1:x2]
+
+        face_img = cv2.equalizeHist(face_img)
+
+        face_img_resized = cv2.resize(face_img, (200, 200))
 
         # =====================================
         # 🔥 CRITICAL ANTI-SPOOFING STEP

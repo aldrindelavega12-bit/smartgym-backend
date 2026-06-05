@@ -14,7 +14,7 @@ GPIO.setup(IR_OUT, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 TAILGATE_TIME = 3
 DEBOUNCE = 0.3
 
-API_URL = "http://192.168.1.19:5001"
+API_URL = "http://192.168.100.242:5001"
 
 # ================= STATE =================
 scan_active_in = False

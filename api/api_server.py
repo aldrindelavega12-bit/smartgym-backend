@@ -2662,7 +2662,7 @@ def get_messages(user_id):
                     '+00:00',
                     '+08:00'
                 ),
-                '%%a, %%d %%b %%Y %%h:%%i:%s %%p'
+                '%%a, %%d %%b %%Y %%h:%%i %%p'
             ) AS created_at
 
         FROM messages
@@ -2737,30 +2737,12 @@ def messages_read(user_id):
 
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-
-        SELECT
-            id,
-            user_id,
-            title,
-            message,
-            reason,
-            is_read,
-
-            DATE_FORMAT(
-                CONVERT_TZ(created_at, '+00:00', '+08:00'),
-                '%%M %%d, %%Y %%h:%%i %%p'
-            ) AS created_at
-
-        FROM messages
-
+        UPDATE messages
+        SET is_read = 1
         WHERE user_id = %s
-
-        ORDER BY id DESC
-
     """, (user_id,))
-        
 
     conn.commit()
     conn.close()

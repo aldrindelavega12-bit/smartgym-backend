@@ -2,7 +2,7 @@ import cv2
 import os
 import time
 
-def capture_faces(picam2, member_id, samples=5):
+def capture_faces(picam2, member_id, samples=10):
 
     # 🔥 FIX: absolute + safe path
     dataset_path = os.path.abspath("datasets/faces")
@@ -99,9 +99,9 @@ def capture_faces(picam2, member_id, samples=5):
 
             faces = face_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.05,
-                minNeighbors=3,
-                minSize=(30, 30)
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(100, 100)
             )
 
             if len(faces) > 0:
@@ -125,8 +125,28 @@ def capture_faces(picam2, member_id, samples=5):
         # =========================
         # CAPTURE (SAFE SAVE)
         # =========================
-        face_img = gray[y:y+h, x:x+w]
-        face_img = cv2.resize(face_img, (100,100))
+        # =========================
+        # CAPTURE (SAFE SAVE)
+        # =========================
+
+        # =========================
+        # CAPTURE (FULL FACE)
+        # =========================
+
+        padding = int(w * 0.25)  # 25% padding
+
+        x1 = max(0, x - padding)
+        y1 = max(0, y - padding)
+        x2 = min(gray.shape[1], x + w + padding)
+        y2 = min(gray.shape[0], y + h + padding)
+
+        face_img = gray[y1:y2, x1:x2]
+
+        # normalize lighting
+        face_img = cv2.equalizeHist(face_img)
+
+        # mas mataas resolution
+        face_img = cv2.resize(face_img, (200, 200))
 
         count += 1
 
