@@ -2802,22 +2802,35 @@ def messages_delete(msg_id):
     conn.close()
 
     return jsonify({"status": "success"})
+
+import os
+
 @app.route("/api/get_face_encodings", methods=["GET"])
 def get_face_encodings():
 
     api_key = request.headers.get("X-API-KEY")
 
     if api_key != API_KEY:
-        return jsonify({"error": "Unauthorized"}), 401
+        return jsonify({"error":"Unauthorized"}), 401
 
-    path = "biometrics/face/encodings.pkl"
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    path = os.path.join(
+        base_dir,
+        "biometrics",
+        "face",
+        "encodings.pkl"
+    )
+
+    print("[ENCODINGS PATH]", path)
 
     if not os.path.exists(path):
-        return jsonify({"error": "encodings not found"}), 404
+        return jsonify({"error":"encodings not found"}), 404
 
     return send_file(
         path,
         as_attachment=True
-    )        
+    )
+    
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
