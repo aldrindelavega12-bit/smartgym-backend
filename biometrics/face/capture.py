@@ -122,30 +122,30 @@ def capture_faces(picam2, member_id, samples=10):
                 countdown -= 1
                 start_time = time.time()
 
-        # =========================
-        # CAPTURE (SAFE SAVE)
-        # =========================
-        # =========================
-        # CAPTURE (SAFE SAVE)
-        # =========================
+        
 
         # =========================
         # CAPTURE (FULL FACE)
         # =========================
 
-        padding = int(w * 0.25)  # 25% padding
+        padding = int(w * 0.25)
 
         x1 = max(0, x - padding)
         y1 = max(0, y - padding)
-        x2 = min(gray.shape[1], x + w + padding)
-        y2 = min(gray.shape[0], y + h + padding)
+        x2 = min(frame.shape[1], x + w + padding)
+        y2 = min(frame.shape[0], y + h + padding)
 
-        face_img = gray[y1:y2, x1:x2]
+        face_img = frame[y1:y2, x1:x2]
 
-        # normalize lighting
-        face_img = cv2.equalizeHist(face_img)
+        h, w = face_img.shape[:2]
 
-        # mas mataas resolution
+        print("\n====================")
+        print("FACE SHAPE:", face_img.shape)
+        print("CENTER PIXEL:", face_img[h//2, w//2])
+        print("====================\n")
+
+        cv2.imwrite("full_frame.jpg", frame)
+
         face_img = cv2.resize(face_img, (200, 200))
 
         count += 1
@@ -164,6 +164,7 @@ def capture_faces(picam2, member_id, samples=10):
         flash[:] = 255
         cv2.imshow("Face Enrollment", flash)
         cv2.waitKey(100)
+        cv2.imwrite("full_frame.jpg", frame)
 
     cv2.destroyWindow("Face Enrollment")
 

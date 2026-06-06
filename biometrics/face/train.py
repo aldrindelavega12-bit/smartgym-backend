@@ -1,90 +1,65 @@
 import os
 import cv2
-import numpy as np
-import json
-
+import pickle
+import face_recognition
 
 def train_faces():
 
-    dataset_path = "datasets/faces"
-    model_path = "biometrics/face/lbph_model.yml"
-    labels_path = "biometrics/face/labels.json"
+    ENCODINGS_FILE = "biometrics/face/encodings.pkl"
+    DATASET = "datasets/faces"
 
-    os.makedirs("biometrics/face", exist_ok=True)
+    known_encodings = []
+    known_ids = []
 
-    if not os.path.exists(dataset_path):
-        print("[ERROR] Dataset folder not found:", dataset_path)
-        return
+    for member_id in sorted(os.listdir(DATASET)):
 
-    try:
-        recognizer = cv2.face.LBPHFaceRecognizer_create()
-    except AttributeError:
-        print("[ERROR] OpenCV face module not found")
-        print("👉 Install: pip install opencv-contrib-python")
-        return
+        folder = os.path.join(DATASET, member_id)
 
-    faces = []
-    labels = []
-
-    label_map = {}
-    current_label = 0
-
-    print("===================================")
-    print("🚀 TRAINING FACE MODEL")
-    print("===================================")
-
-    for member_id in sorted(os.listdir(dataset_path)):
-
-        member_folder = os.path.join(dataset_path, member_id)
-
-        if not os.path.isdir(member_folder):
+        if not os.path.isdir(folder):
             continue
 
-        print(f"[INFO] Processing: {member_id}")
+        print("Processing", member_id)
 
-        label_map[current_label] = member_id
+        for img_name in os.listdir(folder):
 
-        for image_name in sorted(os.listdir(member_folder)):
+            path = os.path.join(folder, img_name)
 
-            image_path = os.path.join(member_folder, image_name)
+            image = cv2.imread(path)
 
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-
-            if img is None:
-                print(f"[WARNING] Invalid image: {image_path}")
+            if image is None:
                 continue
 
-            # Normalize lighting
-            img = cv2.equalizeHist(img)
+            rgb = cv2.cvtColor(
+                image,
+                cv2.COLOR_BGR2RGB
+            )
 
-            # Standard size
-            img = cv2.resize(img, (200, 200))
+            encodings = face_recognition.face_encodings(rgb)
 
-            faces.append(img)
-            labels.append(current_label)
+            if len(encodings) == 0:
+                print("SKIPPED:", path)
+                continue
 
-        current_label += 1
+            print("ENCODED:", path)
 
-    if len(faces) == 0:
-        print("\n[ERROR] No face data found.")
-        return
+            known_encodings.append(
+                encodings[0]
+            )
 
-    print(f"\n[INFO] Total images: {len(faces)}")
-    print("[INFO] Training model...")
+            known_ids.append(
+                member_id
+            )
 
-    recognizer.train(faces, np.array(labels))
+    data = {
+        "encodings": known_encodings,
+        "ids": known_ids
+    }
 
-    recognizer.save(model_path)
+    with open(ENCODINGS_FILE, "wb") as f:
+        pickle.dump(data, f)
 
-    with open(labels_path, "w") as f:
-        json.dump(label_map, f)
-
-    print("\n===================================")
-    print("✅ TRAINING COMPLETE")
-    print("===================================")
-    print(f"📁 Model  : {model_path}")
-    print(f"🏷 Labels : {labels_path}")
-    print("===================================\n")
+    print("DONE")
+    print("TOTAL:", len(known_ids))
 
 
 if __name__ == "__main__":

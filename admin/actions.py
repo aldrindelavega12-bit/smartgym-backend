@@ -260,16 +260,28 @@ def add_member(in_fp, out_fp, ui):
         faces = sorted(faces, key=lambda x: x[2]*x[3], reverse=True)
         (x,y,w,h) = faces[0]
 
-        padding = int(w * 0.25)
+        padding = int(w * 0.45)
 
         x1 = max(0, x - padding)
         y1 = max(0, y - padding)
         x2 = min(gray.shape[1], x + w + padding)
         y2 = min(gray.shape[0], y + h + padding)
 
-        face_img = gray[y1:y2, x1:x2]
+        face_img = frame[y1:y2, x1:x2]
 
-        face_img = cv2.equalizeHist(face_img)
+        print("FACE SHAPE:", face_img.shape)
+
+        h, w = face_img.shape[:2]
+        print("CENTER PIXEL:", face_img[h//2, w//2])
+        gray_face = cv2.cvtColor(
+            face_img,
+            cv2.COLOR_BGR2GRAY
+        )
+
+        print(
+            "STD =",
+    round(gray_face.std(),2)
+)
 
         face_img = cv2.resize(face_img, (200, 200))
 
