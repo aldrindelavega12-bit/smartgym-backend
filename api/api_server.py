@@ -2831,6 +2831,43 @@ def get_face_encodings():
         path,
         as_attachment=True
     )
+@app.route("/api/message_read/<int:id>", methods=["POST"])
+def message_read(id):
+
+    execute_query("""
+        UPDATE messages
+        SET is_read = 1
+        WHERE id = %s
+    """, (id,))
+
+    return jsonify({
+        "success": True
+    })
+    
+@app.route("/api/message_unread/<int:id>", methods=["POST"])
+def message_unread(id):
+
+    execute_query("""
+        UPDATE messages
+        SET is_read = 0
+        WHERE id = %s
+    """, (id,))
+
+    return jsonify({
+        "success": True
+    })
+    
+@app.route("/api/delete_message/<int:id>", methods=["DELETE"])
+def delete_message(id):
+
+    execute_query("""
+        DELETE FROM messages
+        WHERE id = %s
+    """, (id,))
+
+    return jsonify({
+        "success": True
+    })
     
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)

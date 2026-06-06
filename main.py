@@ -42,6 +42,7 @@ pending_face_user = None
 admin_requested = False
 recognition_enabled = True
 
+face_recognizer = None
 FP_COOLDOWN = 2
 FACE_COOLDOWN = 2
 
@@ -682,6 +683,7 @@ def print_access(name, user_type, status, reason=None):
 # =========================
 
 def main():
+    global face_recognizer
 
     print("\n" + "="*35)
     print(" SMART GYM TURNSTILE SYSTEM")
@@ -715,7 +717,7 @@ def main():
 
     camera_manager.shared_camera = picam2
 
-    face_recognizer = FaceRecognizer()
+    from biometrics.face.recognize import face_recognizer
 
     # -------------------------
     # Start Lane Threads

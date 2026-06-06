@@ -316,8 +316,14 @@ def add_member(in_fp, out_fp, ui):
     (new_id, fp_id, hex_template)
 )
     # 🔥 RETRAIN FACE MODEL AFTER SAVE
+    from biometrics.face.recognize import face_recognizer
+
     train_faces()
 
+    face_recognizer.load_model()
+
+    print("[FACE] Reload successful")
+    
     print(f"✅ Member {new_id} registered.")
     
     threading.Thread(
@@ -967,7 +973,13 @@ def delete_member(in_fp, out_fp):
         shutil.rmtree(face_path)
 
     # 🔥 RETRAIN FACE MODEL AFTER DELETE
+    from biometrics.face.recognize import face_recognizer
+
     train_faces()
+
+    face_recognizer.load_model()
+
+    print("[FACE] Reload successful")
 
     execute_query(
         "DELETE FROM members WHERE id=%s",

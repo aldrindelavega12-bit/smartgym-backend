@@ -4,12 +4,13 @@ import numpy as np
 import face_recognition
 import os
 
-
 class FaceRecognizer:
 
     def __init__(self):
-
         self.data = None
+        self.load_model()
+
+    def load_model(self):
 
         encoding_file = "biometrics/face/encodings.pkl"
 
@@ -18,10 +19,11 @@ class FaceRecognizer:
             with open(encoding_file, "rb") as f:
                 self.data = pickle.load(f)
 
-            print("[FACE] DLIB encodings loaded.")
+            print("[FACE] DLIB encodings reloaded ✔")
 
         else:
 
+            self.data = None
             print("[FACE WARNING] encodings.pkl not found")
 
     def recognize(self, frame):
@@ -80,3 +82,4 @@ class FaceRecognizer:
                 }
 
         return None
+face_recognizer = FaceRecognizer()
