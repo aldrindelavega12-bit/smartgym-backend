@@ -744,8 +744,9 @@ def process_payment():
 
             execute_query(
                 """
-                INSERT INTO locker_sessions (user_id, locker_number, start_time, status)
-                VALUES (%s,%s,NOW(),'reserved')
+                INSERT INTO locker_sessions
+                (user_id, locker_number, start_time, status)
+                VALUES (%s,%s,NOW(),'active')
                 """,
                 (user_id, selected)
             )        

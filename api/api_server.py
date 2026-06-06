@@ -487,9 +487,11 @@ def get_members():
 def get_locker(user_id):
 
     result = execute_query("""
-        SELECT locker_number 
+        SELECT locker_number
         FROM locker_sessions
-        WHERE user_id=%s AND end_time IS NULL
+        WHERE user_id=%s
+        AND status IN ('reserved','active','overtime')
+        AND end_time IS NULL
         LIMIT 1
     """, (user_id,), fetch=True)
 

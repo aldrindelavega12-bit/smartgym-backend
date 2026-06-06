@@ -112,7 +112,11 @@ def check_membership_status(user_id, full_name, phone):
     from sms_module.sms import send_sms
 
     result = execute_query("""
-        SELECT monthly_expires, membership_expires, last_sms_sent
+        SELECT
+            membership_type,
+            monthly_expires,
+            membership_expires,
+            last_sms_sent
         FROM members
         WHERE id = %s
     """, (user_id,), fetch=True)
@@ -122,6 +126,9 @@ def check_membership_status(user_id, full_name, phone):
 
     row = result[0]
     today = date.today()
+    membership_type = (
+        row["membership_type"] or ""
+    ).lower()
 
     # =========================
     # FORMAT NUMBER
@@ -172,7 +179,10 @@ def check_membership_status(user_id, full_name, phone):
     # =========================
     # SEND REMINDERS
     # =========================
-    if monthly_days <= 3:
+    if (
+        "monthly" in membership_type
+        and monthly_days <= 3
+    ):
 
         # avoid spam
         if row.get("last_sms_sent") != today:
