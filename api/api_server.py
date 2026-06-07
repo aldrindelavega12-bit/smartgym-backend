@@ -1339,9 +1339,11 @@ def admin_messages():
 
         SELECT
 
+            id,
             title,
             message,
             reason,
+            is_read,
 
             DATE_FORMAT(
                 CONVERT_TZ(created_at, '+00:00', '+08:00'),
