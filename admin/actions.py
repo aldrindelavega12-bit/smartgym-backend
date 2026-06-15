@@ -260,7 +260,7 @@ def add_member(in_fp, out_fp, ui):
         faces = sorted(faces, key=lambda x: x[2]*x[3], reverse=True)
         (x,y,w,h) = faces[0]
 
-        padding = int(w * 0.45)
+        padding = 0
 
         x1 = max(0, x - padding)
         y1 = max(0, y - padding)
@@ -280,12 +280,36 @@ def add_member(in_fp, out_fp, ui):
 
         print(
             "STD =",
-    round(gray_face.std(),2)
-)
+            round(gray_face.std(),2)
+        )
 
-        face_img = cv2.resize(face_img, (200, 200))
+#         face_img = cv2.resize(face_img, (200, 200))
 
-        filename = os.path.join(save_path, f"{captured+1}.jpg")
+        import face_recognition
+
+        test_rgb = cv2.cvtColor(
+            face_img,
+            cv2.COLOR_BGR2RGB
+        )
+
+        faces_found = len(
+            face_recognition.face_locations(
+                test_rgb,
+                model="hog"
+            )
+        )
+
+        print("FACES FOUND:", faces_found)
+
+        if faces_found == 0:
+            print("❌ INVALID FACE - NOT SAVED")
+            continue
+
+        filename = os.path.join(
+            save_path,
+            f"{captured+1}.jpg"
+        )
+
         cv2.imwrite(filename, face_img)
 
         captured += 1
@@ -293,7 +317,7 @@ def add_member(in_fp, out_fp, ui):
         ui.set_status(f"CAPTURED {captured}/{TOTAL_CAPTURES}")
         print(f"Captured {captured}/{TOTAL_CAPTURES} → {filename}")
         print("Saved Face Shape:", face_img.shape)
-
+        
         time.sleep(0.5)
 
     print("✅ Face capture complete.")
@@ -806,17 +830,20 @@ def pay_locker_overtime():
     from datetime import datetime, timedelta
     import math
 
-    LOCKER_ALLOWED_HOURS = 3
 
     user_id = input("Enter User ID (Member or Walkin): ").upper()
 
     locker = execute_query(
         """
-        SELECT locker_number, start_time, overtime_paid 
+        SELECT locker_number,
+               start_time,
+               overtime_paid,
+               status
         FROM locker_sessions
         WHERE user_id=%s
         AND end_time IS NULL
         AND overtime_paid=0
+        AND status='overtime'
         ORDER BY start_time DESC
         LIMIT 1
         """,
@@ -833,16 +860,17 @@ def pay_locker_overtime():
     locker_number = locker["locker_number"]
     start_time = locker["start_time"]
 
+    LOCKER_ALLOWED_MINUTES = 180
+
     allowed_time = start_time + timedelta(
-        hours=LOCKER_ALLOWED_HOURS
+        minutes=LOCKER_ALLOWED_MINUTES
     )
 
-    # =========================
-    # CHECK IF REALLY OVERTIME
-    # =========================
-    if datetime.now() <= allowed_time:
-        print("No overtime yet.")
-        return
+    overtime_duration = max(
+        datetime.now() - allowed_time,
+        timedelta(seconds=0)
+    )
+    
 
     overtime_duration = datetime.now() - allowed_time
 

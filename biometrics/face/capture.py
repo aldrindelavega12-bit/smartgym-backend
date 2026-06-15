@@ -104,8 +104,19 @@ def capture_faces(picam2, member_id, samples=10):
                 minSize=(100, 100)
             )
 
-            if len(faces) > 0:
-                (x,y,w,h) = faces[0]
+            faces = sorted(
+                faces,
+                key=lambda f: f[2] * f[3],
+                reverse=True
+            )
+
+            (x,y,w,h) = faces[0]
+            
+            
+            if w > 250:
+                ui.set_status("MOVE BACK")
+                time.sleep(0.2)
+                continue
                 cv2.rectangle(display, (x,y), (x+w,y+h), (0,255,0), 2)
 
                 cv2.putText(display, str(countdown),

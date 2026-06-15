@@ -85,7 +85,7 @@ def get_user_info_by_fp(fp_id):
 
 import requests
 
-API_URL = "http://192.168.1.19:5001"
+API_URL = "http://192.168.100.242:5001"
 
 def notify_attendance():
     try:
@@ -644,7 +644,7 @@ def out_lane_loop(out_fp):
 def has_active_locker(user_id):
     try:
         r = requests.get(
-            "http://192.168.1.19:5001/api/check_locker",
+            "http://192.168.100.242:5001/api/check_locker",
             params={"user_id": user_id},
             headers={"X-API-KEY": "GYM_MASTER_2026"},
             timeout=1

@@ -750,6 +750,58 @@ def get_attendance():
     finally:
         conn.close()
         
+@app.route("/api/create_staff_account",
+           methods=["POST"])
+def create_staff_account():
+
+    data = request.json
+
+    fullname = data["fullname"]
+    username = data["username"]
+    password = data["password"]
+    role = data["role"]
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if role == "staff":
+        prefix = "S"
+    else:
+        prefix = "T"
+
+    cursor.execute("""
+        SELECT COUNT(*) total
+        FROM user_accounts
+        WHERE role=%s
+    """,(role,))
+
+    total = cursor.fetchone()[0] + 1
+
+    user_id = f"{prefix}{total:04d}"
+
+    cursor.execute("""
+        INSERT INTO user_accounts
+        (
+            user_id,
+            username,
+            password,
+            role
+        )
+        VALUES(%s,%s,%s,%s)
+    """,(
+        user_id,
+        username,
+        password,
+        role
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status":"success"
+    })
+        
 @app.route("/api/attendance_summary", methods=["GET"])
 def attendance_summary():
     try:
