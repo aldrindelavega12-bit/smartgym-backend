@@ -842,6 +842,25 @@ def staff_accounts():
 
     return jsonify(rows)
 
+@app.route("/api/delete_staff/<user_id>",
+           methods=["DELETE"])
+def delete_staff(user_id):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM user_accounts
+        WHERE user_id=%s
+    """,(user_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status":"success"
+    })
+
 @app.route("/api/attendance_summary", methods=["GET"])
 def attendance_summary():
     try:
