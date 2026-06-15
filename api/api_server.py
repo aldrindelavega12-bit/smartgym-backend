@@ -818,6 +818,28 @@ def create_staff_account():
             "message":str(e)
         }),500
         
+@app.route("/api/staff_accounts")
+def staff_accounts():
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    cursor.execute("""
+        SELECT
+            user_id,
+            username,
+            role
+        FROM user_accounts
+        WHERE role IN ('staff','trainer')
+        ORDER BY id DESC
+    """)
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return jsonify(rows)
+
 @app.route("/api/attendance_summary", methods=["GET"])
 def attendance_summary():
     try:
