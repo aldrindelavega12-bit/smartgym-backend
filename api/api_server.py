@@ -791,13 +791,15 @@ def create_staff_account():
             INSERT INTO user_accounts
             (
                 user_id,
+                fullname,
                 username,
                 password,
                 role
             )
-            VALUES(%s,%s,%s,%s)
+            VALUES(%s,%s,%s,%s,%s)
         """,(
             user_id,
+            fullname,
             username,
             password,
             role
@@ -827,11 +829,11 @@ def staff_accounts():
     cursor.execute("""
         SELECT
             user_id,
+            fullname,
             username,
             role
         FROM user_accounts
         WHERE role IN ('staff','trainer')
-        ORDER BY id DESC
     """)
 
     rows = cursor.fetchall()
