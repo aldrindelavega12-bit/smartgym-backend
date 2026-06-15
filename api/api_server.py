@@ -754,53 +754,69 @@ def get_attendance():
            methods=["POST"])
 def create_staff_account():
 
-    data = request.json
+    try:
 
-    fullname = data["fullname"]
-    username = data["username"]
-    password = data["password"]
-    role = data["role"]
+        data = request.json
 
-    conn = get_connection()
-    cursor = conn.cursor()
+        print(data)
 
-    if role == "staff":
-        prefix = "S"
-    else:
-        prefix = "T"
+        fullname = data["fullname"]
+        username = data["username"]
+        password = data["password"]
+        role = data["role"]
 
-    cursor.execute("""
-        SELECT COUNT(*) total
-        FROM user_accounts
-        WHERE role=%s
-    """,(role,))
+        conn = get_connection()
+        cursor = conn.cursor()
 
-    total = cursor.fetchone()[0] + 1
+        if role == "staff":
+            prefix = "S"
+        else:
+            prefix = "T"
 
-    user_id = f"{prefix}{total:04d}"
+        cursor.execute("""
+            SELECT COUNT(*) total
+            FROM user_accounts
+            WHERE role=%s
+        """,(role,))
 
-    cursor.execute("""
-        INSERT INTO user_accounts
-        (
+        row = cursor.fetchone()
+
+        print("ROW =", row)
+
+        total = row[0] + 1
+
+        user_id = f"{prefix}{total:04d}"
+
+        cursor.execute("""
+            INSERT INTO user_accounts
+            (
+                user_id,
+                username,
+                password,
+                role
+            )
+            VALUES(%s,%s,%s,%s)
+        """,(
             user_id,
             username,
             password,
             role
-        )
-        VALUES(%s,%s,%s,%s)
-    """,(
-        user_id,
-        username,
-        password,
-        role
-    ))
+        ))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
-    return jsonify({
-        "status":"success"
-    })
+        return jsonify({
+            "status":"success"
+        })
+
+    except Exception as e:
+
+        print("ERROR:", e)
+
+        return jsonify({
+            "status":"error",
+            "message":str(e)
+        }),500
         
 @app.route("/api/attendance_summary", methods=["GET"])
 def attendance_summary():
