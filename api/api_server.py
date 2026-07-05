@@ -412,6 +412,86 @@ def get_user_accounts():
 
         cursor.close()
         conn.close()
+        
+@app.route("/api/pre_member/profile", methods=["PUT"])
+def update_pre_member_profile():
+
+    try:
+
+        data = request.get_json()
+
+        account_id = data["id"]
+        fullname = data["fullname"]
+        username = data["username"]
+        phone = data["phone_number"]
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+
+            UPDATE user_accounts
+
+            SET
+
+                fullname=%s,
+
+                username=%s
+
+            WHERE id=%s
+
+        """,(
+
+            fullname,
+
+            username,
+
+            account_id
+
+        ))
+
+        cursor.execute("""
+
+            UPDATE pending_members
+
+            SET
+
+                phone_number=%s
+
+            WHERE account_id=%s
+
+        """,(
+
+            phone,
+
+            account_id
+
+        ))
+
+        conn.commit()
+
+        return jsonify({
+
+            "status":"success",
+
+            "message":"Profile updated."
+
+        })
+
+    except Exception as e:
+
+        return jsonify({
+
+            "status":"error",
+
+            "message":str(e)
+
+        })
+
+    finally:
+
+        cursor.close()
+        conn.close()
 #--------OLD-----------
         
 from config.settings import DB_CONFIG
