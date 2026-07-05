@@ -2426,8 +2426,11 @@ def account_status():
         
 @app.route("/api/login", methods=["POST"])
 def login():
+
     conn = None
+
     try:
+
         data = request.get_json()
 
         username = data.get("username")
@@ -2436,56 +2439,66 @@ def login():
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # ✅ PURE LOGIN (NO JOIN)
         cursor.execute("""
+
             SELECT
-                id,
-                user_id,
-                fullname,
-                username,
-                role
-            FROM user_accounts
-            WHERE username=%s
-            AND password=%s
+
+                ua.id,
+                ua.user_id,
+                ua.fullname,
+                ua.username,
+                ua.role,
+                pm.phone_number
+
+            FROM user_accounts ua
+
+            LEFT JOIN pending_members pm
+            ON ua.id = pm.account_id
+
+            WHERE ua.username=%s
+            AND ua.password=%s
+
         """, (username, password))
+
         user = cursor.fetchone()
 
         if not user:
+
             return jsonify({
-                "status": "error",
-                "message": "Invalid login"
+
+                "status":"error",
+                "message":"Invalid login"
+
             })
 
-        # ✅ OPTIONAL: get full name if MEMBER
-        full_name = user["fullname"]
-        
         return jsonify({
 
             "status":"success",
 
             "user":{
 
-                "id": row["id"],
-
-                "name": row["fullname"],
-
-                "username": row["username"],
-
-                "phone_number": row["phone_number"],
-
-                "role": row["role"]
+                "id": user["id"],
+                "user_id": user["user_id"],
+                "name": user["fullname"],
+                "username": user["username"],
+                "phone_number": user["phone_number"],
+                "role": user["role"]
 
             }
 
         })
-                        
+
     except Exception as e:
+
         return jsonify({
-            "status": "error",
-            "message": str(e)
+
+            "status":"error",
+            "message":str(e)
+
         })
 
     finally:
+
         if conn:
             conn.close()
             
