@@ -493,6 +493,45 @@ def update_pre_member_profile():
 
         cursor.close()
         conn.close()
+        
+@app.route("/api/check_account/<int:account_id>")
+def check_account(account_id):
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    cursor.execute("""
+        SELECT
+            id,
+            user_id,
+            fullname,
+            username,
+            role
+        FROM user_accounts
+        WHERE id=%s
+    """, (account_id,))
+
+    user = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    if not user:
+        return jsonify({
+            "status":"error"
+        }),404
+
+    return jsonify({
+        "status":"success",
+        "role":user["role"],
+        "user":{
+            "id":user["id"],
+            "user_id":user["user_id"],
+            "name":user["fullname"],
+            "username":user["username"],
+            "role":user["role"]
+        }
+    })
 #--------OLD-----------
         
 from config.settings import DB_CONFIG
