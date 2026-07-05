@@ -697,7 +697,8 @@ def main():
     in_fp = InFingerprint()
     out_fp = OutFingerprint()
 
-    init_serial("/dev/ttyACM0", 115200)
+#     init_serial("/dev/ttyACM0", 115200)
+
 
     # -------------------------
     # Initialize Camera
@@ -734,10 +735,10 @@ def main():
         daemon=True
     ).start()
         # 🔥 START BYPASS MONITOR
-    threading.Thread(
-        target=monitor_bypass,
-        daemon=True
-    ).start()
+#     threading.Thread(
+#         target=monitor_bypass,
+#         daemon=True
+#     ).start()
 
     # -------------------------
     # Main Loop

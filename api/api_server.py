@@ -24,7 +24,269 @@ socketio = SocketIO(
 
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
+# ----------------ENROLLMENT-------------
 
+@app.route("/api/locker_overtime/<user_id>", methods=["GET"])
+def api_get_locker_overtime(user_id):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+
+        cursor.execute("""
+            SELECT
+
+                ls.user_id,
+
+                COALESCE(
+                    m.full_name,
+                    w.full_name
+                ) AS full_name,
+
+                ls.locker_number,
+
+                ls.start_time,
+
+                ls.overtime_paid,
+
+                ls.status,
+
+                GREATEST(
+
+                    TIMESTAMPDIFF(
+
+                        MINUTE,
+
+                        DATE_ADD(ls.start_time, INTERVAL 3 HOUR),
+
+                        NOW()
+
+                    ),
+
+                    0
+
+                ) AS overtime_minutes
+
+            FROM locker_sessions ls
+
+            LEFT JOIN members m
+                ON ls.user_id = m.id
+
+            LEFT JOIN walkins w
+                ON ls.user_id = w.id
+
+            WHERE
+
+                ls.user_id=%s
+
+                AND ls.status='active'
+
+                AND ls.overtime_paid=0
+
+            LIMIT 1
+
+        """, (user_id,))
+
+        row = cursor.fetchone()
+
+        if not row:
+
+            return jsonify({
+
+                "success": False
+
+            })
+
+        import math
+
+        overtime_fee = math.ceil(row[6] / 2)   # PHP 1 per minute
+
+        locker = {
+
+            "user_id": row[0],
+
+            "full_name": row[1],
+
+            "locker_number": row[2],
+
+            "start_time": str(row[3]),
+
+            "overtime_paid": row[4],
+
+            "status": row[5],
+
+            "overtime_minutes": row[6],
+
+            "overtime_fee": overtime_fee
+
+        }
+
+        return jsonify({
+
+            "success": True,
+
+            "locker": locker
+
+        })
+
+    except Exception as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        })
+
+    finally:
+
+        cursor.close()
+        connection.close()
+
+
+
+
+#--------NEW------
+
+@app.route("/api/register", methods=["POST"])
+def register():
+
+    conn = None
+
+    try:
+
+        data = request.get_json()
+
+        fullname = data.get("fullname")
+        phone_number = data.get("phone_number")
+        username = data.get("username")
+        password = data.get("password")
+
+        # ===========================
+        # BASIC VALIDATION
+        # ===========================
+        if not all([
+            fullname,
+            phone_number,
+            username,
+            password
+        ]):
+
+            return jsonify({
+                "status": "error",
+                "message": "Please complete all fields."
+            })
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # ===========================
+        # CHECK DUPLICATE USERNAME
+        # ===========================
+        cursor.execute(
+            """
+            SELECT id
+            FROM user_accounts
+            WHERE username=%s
+            """,
+            (username,)
+        )
+
+        if cursor.fetchone():
+
+            return jsonify({
+                "status": "error",
+                "message": "Username already exists."
+            })
+
+        # ===========================
+        # INSERT ACCOUNT
+        # ===========================
+        cursor.execute(
+            """
+            INSERT INTO user_accounts(
+
+                user_id,
+                fullname,
+                username,
+                password,
+                role
+
+            )
+
+            VALUES(
+
+                NULL,
+                %s,
+                %s,
+                %s,
+                'member'
+
+            )
+            """,
+            (
+                fullname,
+                username,
+                password
+            )
+        )
+
+        account_id = cursor.lastrowid
+
+        # ===========================
+        # INSERT PENDING MEMBER
+        # ===========================
+        cursor.execute(
+            """
+            INSERT INTO pending_members(
+
+                account_id,
+                full_name,
+                phone_number
+
+            )
+
+            VALUES(%s,%s,%s)
+            """,
+            (
+                account_id,
+                fullname,
+                phone_number
+            )
+        )
+
+        conn.commit()
+
+        return jsonify({
+
+            "status": "success",
+
+            "message": "Registration submitted."
+
+        })
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        })
+
+    finally:
+
+        if conn:
+            conn.close()
+
+#--------OLD-----------
+        
 from config.settings import DB_CONFIG
 import pymysql
 
