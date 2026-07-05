@@ -222,7 +222,7 @@ def register():
                 %s,
                 %s,
                 %s,
-                'member'
+                'pre_member'
 
             )
             """,
@@ -349,6 +349,63 @@ def pending_members():
             "status": "error",
             "message": str(e)
 
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+        
+        
+@app.route("/api/user_accounts", methods=["GET"])
+def get_user_accounts():
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            SELECT
+                id,
+                user_id,
+                fullname,
+                username,
+                password,
+                role,
+                created_at
+            FROM user_accounts
+            ORDER BY id ASC
+        """)
+
+        rows = cursor.fetchall()
+
+        data = []
+
+        for row in rows:
+
+            data.append({
+
+                "id": row[0],
+                "user_id": row[1],
+                "fullname": row[2],
+                "username": row[3],
+                "password": row[4],
+                "role": row[5],
+                "created_at": row[6]
+
+            })
+
+        return jsonify({
+            "status": "success",
+            "data": data
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
         }), 500
 
     finally:
@@ -2381,11 +2438,16 @@ def login():
 
         # ✅ PURE LOGIN (NO JOIN)
         cursor.execute("""
-            SELECT user_id, username, role
+            SELECT
+                id,
+                user_id,
+                fullname,
+                username,
+                role
             FROM user_accounts
-            WHERE username=%s AND password=%s
+            WHERE username=%s
+            AND password=%s
         """, (username, password))
-
         user = cursor.fetchone()
 
         if not user:
@@ -2395,13 +2457,8 @@ def login():
             })
 
         # ✅ OPTIONAL: get full name if MEMBER
-        full_name = user["username"]
-
-        if user["role"] == "member":
-            cursor.execute("SELECT full_name FROM members WHERE id=%s", (user["user_id"],))
-            m = cursor.fetchone()
-            if m:
-                full_name = m["full_name"]
+        full_name = user["fullname"]
+                
 
         return jsonify({
             "status": "success",
