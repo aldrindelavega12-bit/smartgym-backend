@@ -300,6 +300,7 @@ def register():
         if conn:
             conn.close()
             
+
 @app.route("/api/pending_members", methods=["GET"])
 def pending_members():
 
@@ -316,24 +317,44 @@ def pending_members():
                 created_at
             FROM pending_members
             WHERE status='PENDING'
-            ORDER BY created_at
+            ORDER BY created_at ASC
         """)
+
+        rows = cursor.fetchall()
+
+        data = []
+
+        for row in rows:
+
+            data.append({
+
+                "account_id": row[0],
+                "full_name": row[1],
+                "phone_number": row[2],
+                "created_at": row[3]
+
+            })
 
         return jsonify({
 
             "status": "success",
-
-            "data": cursor.fetchall()
+            "data": data
 
         })
+
+    except Exception as e:
+
+        return jsonify({
+
+            "status": "error",
+            "message": str(e)
+
+        }), 500
 
     finally:
 
         cursor.close()
         conn.close()
-            
-
-
 #--------OLD-----------
         
 from config.settings import DB_CONFIG
