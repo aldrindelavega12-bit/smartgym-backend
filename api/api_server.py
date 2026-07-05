@@ -449,21 +449,22 @@ def update_pre_member_profile():
             account_id
 
         ))
-
+        
         cursor.execute("""
 
             UPDATE pending_members
 
             SET
 
+                full_name=%s,
                 phone_number=%s
 
             WHERE account_id=%s
 
         """,(
 
+            fullname,
             phone,
-
             account_id
 
         ))
