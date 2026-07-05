@@ -1,6 +1,9 @@
 import requests
 import time
+
+from sync.user_account_sync import sync_user_accounts
 from sync.cloud_sync import sync_pending_members
+
 
 def start_cloud_worker():
 
@@ -10,6 +13,10 @@ def start_cloud_worker():
 
         try:
 
+            # Sync accounts first
+            sync_user_accounts()
+
+            # Then sync pending registrations
             sync_pending_members()
 
         except requests.exceptions.RequestException:

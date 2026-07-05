@@ -2458,17 +2458,27 @@ def login():
 
         # ✅ OPTIONAL: get full name if MEMBER
         full_name = user["fullname"]
-                
-
+        
         return jsonify({
-            "status": "success",
-            "user": {
-                "id": user["user_id"],
-                "name": full_name,
-                "role": user["role"]
-            }
-        })
 
+            "status":"success",
+
+            "user":{
+
+                "id": row["id"],
+
+                "name": row["fullname"],
+
+                "username": row["username"],
+
+                "phone_number": row["phone_number"],
+
+                "role": row["role"]
+
+            }
+
+        })
+                        
     except Exception as e:
         return jsonify({
             "status": "error",
