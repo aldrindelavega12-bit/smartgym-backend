@@ -149,7 +149,7 @@ def api_get_locker_overtime(user_id):
 
 
 #--------NEW------
-
+from sync.sync_sender import send_event
 @app.route("/api/register", methods=["POST"])
 def register():
 
@@ -258,6 +258,21 @@ def register():
         )
 
         conn.commit()
+        send_event(
+
+            "PENDING_MEMBER_CREATED",
+
+            {
+
+                "account_id": account_id,
+
+                "full_name": fullname,
+
+                "phone_number": phone_number
+
+            }
+
+        )
 
         return jsonify({
 
@@ -284,6 +299,42 @@ def register():
 
         if conn:
             conn.close()
+            
+@app.route("/api/pending_members", methods=["GET"])
+def get_pending_members():
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+
+        cursor.execute("""
+            SELECT
+                account_id,
+                full_name,
+                phone_number,
+                status,
+                created_at
+            FROM pending_members
+            WHERE status='PENDING'
+            ORDER BY created_at ASC
+        """)
+
+        data = cursor.fetchall()
+
+        return jsonify(data)
+
+    except Exception as e:
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
 
 #--------OLD-----------
         
