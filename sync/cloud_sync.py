@@ -23,7 +23,7 @@ def sync_pending_members():
     cursor = connection.cursor()
 
     inserted = 0
-
+    updated = 0
     skipped = 0
 
     try:
@@ -33,7 +33,10 @@ def sync_pending_members():
             cursor.execute(
 
                 """
-                SELECT id
+                SELECT
+
+                    full_name,
+                    phone_number
 
                 FROM pending_members
 
@@ -48,45 +51,95 @@ def sync_pending_members():
 
             )
 
-            if cursor.fetchone():
+            existing = cursor.fetchone()
 
-                skipped += 1
+            # =========================
+            # NEW RECORD
+            # =========================
 
-                continue
+            if not existing:
 
-            cursor.execute(
+                cursor.execute(
 
-                """
-                INSERT INTO pending_members(
+                    """
+                    INSERT INTO pending_members(
 
-                    account_id,
-                    full_name,
-                    phone_number,
-                    status
+                        account_id,
+                        full_name,
+                        phone_number,
+                        status
+
+                    )
+
+                    VALUES(
+
+                        %s,
+                        %s,
+                        %s,
+                        'PENDING'
+
+                    )
+                    """,
+
+                    (
+
+                        row["account_id"],
+                        row["full_name"],
+                        row["phone_number"]
+
+                    )
 
                 )
 
-                VALUES(
+                inserted += 1
 
-                    %s,
-                    %s,
-                    %s,
-                    'PENDING'
+            # =========================
+            # EXISTING RECORD
+            # =========================
 
-                )
-                """,
+            else:
 
-                (
+                current_name = existing[0]
+                current_phone = existing[1]
 
-                    row["account_id"],
-                    row["full_name"],
-                    row["phone_number"]
+                if (
 
-                )
+                    current_name != row["full_name"]
 
-            )
+                    or
 
-            inserted += 1
+                    current_phone != row["phone_number"]
+
+                ):
+
+                    cursor.execute(
+
+                        """
+                        UPDATE pending_members
+
+                        SET
+
+                            full_name=%s,
+                            phone_number=%s
+
+                        WHERE account_id=%s
+                        """,
+
+                        (
+
+                            row["full_name"],
+                            row["phone_number"],
+                            row["account_id"]
+
+                        )
+
+                    )
+
+                    updated += 1
+
+                else:
+
+                    skipped += 1
 
         connection.commit()
 
@@ -95,7 +148,7 @@ def sync_pending_members():
         print("========== CLOUD SYNC ==========")
 
         print(f"Inserted : {inserted}")
-
+        print(f"Updated  : {updated}")
         print(f"Skipped  : {skipped}")
 
         print("===============================")

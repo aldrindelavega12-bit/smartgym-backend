@@ -532,6 +532,127 @@ def check_account(account_id):
             "role":user["role"]
         }
     })
+
+@app.route("/api/local/pending_members", methods=["GET"])
+def local_pending_members():
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+
+            SELECT
+
+                account_id,
+                full_name,
+                phone_number,
+                status
+
+            FROM pending_members
+
+            WHERE status='PENDING'
+
+            ORDER BY full_name ASC
+
+        """)
+
+        rows = cursor.fetchall()
+
+        return jsonify({
+
+            "status": "success",
+            "data": rows
+
+        })
+
+    except Exception as e:
+
+        return jsonify({
+
+            "status": "error",
+            "message": str(e)
+
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+        
+@app.route("/api/local/pending_completed", methods=["POST"])
+def pending_completed():
+
+    data = request.get_json()
+
+    account_id = data["account_id"]
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+
+        UPDATE pending_members
+
+        SET status='COMPLETED'
+
+        WHERE account_id=%s
+
+    """, (account_id,))
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "success": True
+    })
+
+@app.route("/api/local/activate_member", methods=["POST"])
+def activate_member():
+
+    data = request.get_json()
+
+    account_id = data["account_id"]
+    member_id = data["member_id"]
+
+    print("ACCOUNT_ID =", account_id)
+    print("MEMBER_ID  =", member_id)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE user_accounts
+        SET
+            user_id=%s,
+            role='member'
+        WHERE id=%s
+    """, (member_id, account_id))
+
+    print("ROWS UPDATED =", cursor.rowcount)
+
+    conn.commit()
+
+    cursor.execute("""
+        SELECT
+            id,
+            user_id,
+            role
+        FROM user_accounts
+        WHERE id=%s
+    """, (account_id,))
+
+    print("AFTER UPDATE =", cursor.fetchone())
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "success": True
+    })
+
 #--------OLD-----------
         
 from config.settings import DB_CONFIG
