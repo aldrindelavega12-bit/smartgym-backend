@@ -608,7 +608,6 @@ def pending_completed():
     return jsonify({
         "success": True
     })
-
 @app.route("/api/local/activate_member", methods=["POST"])
 def activate_member():
 
@@ -617,9 +616,10 @@ def activate_member():
     account_id = data["account_id"]
     member_id = data["member_id"]
 
-    print("ACCOUNT_ID =", account_id)
-    print("MEMBER_ID  =", member_id)
+    print("ACCOUNT_ID:", account_id)
+    print("MEMBER_ID :", member_id)
 
+    # ===== CREATE CONNECTION =====
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -631,20 +631,17 @@ def activate_member():
         WHERE id=%s
     """, (member_id, account_id))
 
-    print("ROWS UPDATED =", cursor.rowcount)
+    print("ROWS UPDATED:", cursor.rowcount)
 
     conn.commit()
 
     cursor.execute("""
-        SELECT
-            id,
-            user_id,
-            role
+        SELECT id,user_id,role
         FROM user_accounts
         WHERE id=%s
     """, (account_id,))
 
-    print("AFTER UPDATE =", cursor.fetchone())
+    print("AFTER UPDATE:", cursor.fetchone())
 
     cursor.close()
     conn.close()
