@@ -140,6 +140,17 @@ def handle_member_deleted(payload):
         # DELETE FACE DATASET
         # ==========================
         remove_face_package(member_id)
+        # ==========================
+        # DELETE USER ACCOUNT
+        # ==========================
+        print("DELETE USER ACCOUNT:", member_id)
+        cursor.execute(
+            """
+            DELETE FROM user_accounts
+            WHERE user_id=%s
+            """,
+            (member_id,)
+        )
         connection.commit()
 
         return {
