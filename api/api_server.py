@@ -608,6 +608,7 @@ def pending_completed():
     return jsonify({
         "success": True
     })
+
 @app.route("/api/local/activate_member", methods=["POST"])
 def activate_member():
 
@@ -616,13 +617,35 @@ def activate_member():
     account_id = data["account_id"]
     member_id = data["member_id"]
 
+    print("\n========== ACTIVATE MEMBER ==========")
     print("ACCOUNT_ID:", account_id)
     print("MEMBER_ID :", member_id)
 
-    # ===== CREATE CONNECTION =====
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Database information
+    cursor.execute("""
+        SELECT
+            @@hostname,
+            @@port,
+            DATABASE(),
+            @@socket
+    """)
+    print("CONNECTED TO:", cursor.fetchone())
+
+    # Before update
+    cursor.execute("""
+        SELECT
+            id,
+            user_id,
+            role
+        FROM user_accounts
+        WHERE id=%s
+    """, (account_id,))
+    print("BEFORE UPDATE:", cursor.fetchone())
+
+    # Update
     cursor.execute("""
         UPDATE user_accounts
         SET
@@ -635,12 +658,15 @@ def activate_member():
 
     conn.commit()
 
+    # After update
     cursor.execute("""
-        SELECT id,user_id,role
+        SELECT
+            id,
+            user_id,
+            role
         FROM user_accounts
         WHERE id=%s
     """, (account_id,))
-
     print("AFTER UPDATE:", cursor.fetchone())
 
     cursor.close()
@@ -649,7 +675,88 @@ def activate_member():
     return jsonify({
         "success": True
     })
+@app.route("/api/activate_member", methods=["POST"])
+def activate_member_cloud():
+    data = request.get_json()
 
+    account_id = data["account_id"]
+    member_id = data["member_id"]
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            UPDATE user_accounts
+            SET
+                user_id=%s,
+                role='member'
+            WHERE id=%s
+        """, (member_id, account_id))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Account activated."
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+        
+@app.route("/api/pending_completed", methods=["POST"])
+def pending_completed_cloud():
+
+    data = request.get_json()
+
+    account_id = data["account_id"]
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+
+            UPDATE pending_members
+
+            SET status='COMPLETED'
+
+            WHERE account_id=%s
+
+        """,(account_id,))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }),500
+
+    finally:
+
+        cursor.close()
+        conn.close()
 #--------OLD-----------
         
 from config.settings import DB_CONFIG
