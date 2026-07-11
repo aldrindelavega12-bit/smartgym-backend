@@ -152,7 +152,10 @@ def api_get_locker_overtime(user_id):
 @app.route("/api/delete_member", methods=["POST"])
 def delete_member():
 
+    print("DELETE MEMBER API CALLED")
+
     data = request.get_json()
+    print(data)
 
     member_id = data["member_id"]
 
@@ -161,19 +164,27 @@ def delete_member():
 
     try:
 
-        # Delete account
+        print("Deleting user_account...")
+
         cursor.execute("""
             DELETE FROM user_accounts
             WHERE user_id=%s
         """, (member_id,))
 
-        # Delete member table (kung meron sa Railway)
+        print("Rows:", cursor.rowcount)
+
+        print("Deleting member...")
+
         cursor.execute("""
             DELETE FROM members
             WHERE id=%s
         """, (member_id,))
 
+        print("Rows:", cursor.rowcount)
+
         conn.commit()
+
+        print("COMMIT DONE")
 
         return jsonify({
             "success": True,
@@ -182,18 +193,19 @@ def delete_member():
 
     except Exception as e:
 
+        print("ERROR:", e)
+
         conn.rollback()
 
         return jsonify({
             "success": False,
             "error": str(e)
-        }),500
+        }), 500
 
     finally:
 
         cursor.close()
         conn.close()
-        
 #from sync.sync_sender import send_event
 @app.route("/api/register", methods=["POST"])
 def register():

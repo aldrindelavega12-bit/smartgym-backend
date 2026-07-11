@@ -69,7 +69,7 @@ def start_server():
 
     app.run(
         host="0.0.0.0",
-        port=5003,
+        port=5002,
         debug=False,
         use_reloader=False
     )
