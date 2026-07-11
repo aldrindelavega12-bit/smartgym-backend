@@ -145,7 +145,62 @@ def api_get_locker_overtime(user_id):
         cursor.close()
         connection.close()
 
+@app.route("/api/payment_updated", methods=["POST"])
+def payment_updated():
 
+    data = request.get_json()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+
+            UPDATE members
+
+            SET
+
+                membership_type=%s,
+                membership_expires=%s,
+                monthly_expires=%s
+
+            WHERE id=%s
+
+        """, (
+
+            data["membership_type"],
+            data["membership_expires"],
+            data["monthly_expires"],
+            data["member_id"]
+
+        ))
+
+        conn.commit()
+
+        return jsonify({
+
+            "success": True,
+            "message": "Payment synchronized."
+
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+
+            "success": False,
+            "error": str(e)
+
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+        
 @app.route("/api/member_created", methods=["POST"])
 def member_created():
 
