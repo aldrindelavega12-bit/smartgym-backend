@@ -146,7 +146,86 @@ def api_get_locker_overtime(user_id):
         connection.close()
 
 
+@app.route("/api/member_created", methods=["POST"])
+def member_created():
 
+    data = request.get_json()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            INSERT INTO members(
+
+                id,
+                full_name,
+                fingerprint_template,
+                phone_number,
+                membership_type,
+                membership_expires,
+                monthly_expires
+
+            )
+
+            VALUES(
+
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+
+            )
+
+            ON DUPLICATE KEY UPDATE
+
+                full_name=VALUES(full_name),
+                fingerprint_template=VALUES(fingerprint_template),
+                phone_number=VALUES(phone_number),
+                membership_type=VALUES(membership_type),
+                membership_expires=VALUES(membership_expires),
+                monthly_expires=VALUES(monthly_expires)
+
+        """, (
+
+            data["member_id"],
+            data["full_name"],
+            data["fp_template"],
+            data["phone_number"],
+            data.get("membership_type"),
+            data.get("membership_expires"),
+            data.get("monthly_expires")
+
+        ))
+
+        conn.commit()
+
+        return jsonify({
+
+            "success": True,
+            "message": "Member synchronized."
+
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+
+            "success": False,
+            "error": str(e)
+
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
 
 #--------NEW------
 @app.route("/api/delete_member", methods=["POST"])
