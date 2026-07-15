@@ -12,7 +12,8 @@ from db.connection import execute_query
 import mysql.connector
 from flask_socketio import SocketIO
 from datetime import datetime
-
+import bcrypt
+import requests
 app = Flask(__name__)
 
 CORS(app)
@@ -24,7 +25,216 @@ socketio = SocketIO(
 
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
+RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # ----------------ENROLLMENT-------------
+
+@app.route(
+    "/api/sync_account",
+    methods=["POST"]
+)
+def sync_account():
+
+    try:
+
+        data = request.get_json()
+
+        execute_query(
+            """
+            INSERT INTO user_accounts
+            (
+                user_id,
+                username,
+                password,
+                role,
+                fullname
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+
+            ON DUPLICATE KEY UPDATE
+
+                username = VALUES(username),
+
+                password = VALUES(password),
+
+                role = VALUES(role),
+
+                fullname = VALUES(fullname)
+            """,
+
+            (
+
+                data["user_id"],
+
+                data["username"],
+
+                data["password"],
+
+                data["role"],
+
+                data["fullname"]
+
+            )
+
+        )
+
+        return jsonify({
+
+            "success": True
+
+        })
+
+    except Exception as e:
+
+        print(e)
+
+        return jsonify({
+
+            "success": False,
+
+            "error": str(e)
+
+        }),500
+
+@app.route(
+    "/api/create-member-account",
+    methods=["POST"]
+)
+def create_member_account():
+
+    data = request.json
+
+    username = data["username"]
+    password = data["password"]
+    user_id = data["user_id"]
+    fullname = data["fullname"]
+    existing = execute_query(
+        """
+        SELECT id
+        FROM user_accounts
+        WHERE username=%s
+        """,
+        (username,),
+        fetch=True
+    )
+
+    if existing:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": "Username already exists."
+
+        })
+    hashed_password = bcrypt.hashpw(
+        password.encode(),
+        bcrypt.gensalt()
+    ).decode()
+    
+    execute_query(
+        """
+        INSERT INTO user_accounts
+        (
+            user_id,
+            username,
+            password,
+            role,
+            fullname
+        )
+        VALUES
+        (
+            %s,
+            %s,
+            %s,
+            'member',
+            %s
+        )
+        """,
+        (
+            user_id,
+            username,
+            hashed_password,
+            fullname
+        )
+    )
+
+    # =========================
+    # SYNC TO RENDER
+    # =========================
+    try:
+
+        response = requests.post(
+
+            f"{RENDER_API}/api/sync_account",
+
+            json={
+
+                "user_id": user_id,
+
+                "username": username,
+
+                "password": hashed_password,
+
+                "fullname": fullname,
+
+                "role": "member"
+
+            },
+
+            timeout=10
+
+        )
+        print("STATUS:", response.status_code)
+        print("TEXT:", response.text)
+
+
+    except Exception as e:
+
+        print("[RENDER ERROR]", e)
+
+    return jsonify({
+
+        "success": True,
+
+        "message": "Member account created successfully."
+
+    })
+
+@app.route(
+    "/api/members/without-account",
+    methods=["GET"]
+)
+def members_without_account():
+
+    query = """
+        SELECT
+            m.id,
+            m.full_name,
+            m.phone_number
+        FROM members m
+        LEFT JOIN user_accounts ua
+            ON ua.user_id = m.id
+        WHERE ua.user_id IS NULL
+        ORDER BY m.full_name
+    """
+
+    members = execute_query(
+        query,
+        fetch=True
+    )
+
+    return jsonify({
+        "success": True,
+        "data": members
+    })
 
 @app.route("/api/locker_overtime/<user_id>", methods=["GET"])
 def api_get_locker_overtime(user_id):
