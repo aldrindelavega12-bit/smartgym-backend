@@ -111,10 +111,14 @@ def create_member_account():
 
     data = request.json
 
-    username = data["username"]
+    username = data["username"].strip()
     password = data["password"]
     user_id = data["user_id"]
     fullname = data["fullname"]
+
+    # ==========================
+    # CHECK DUPLICATE USERNAME
+    # ==========================
     existing = execute_query(
         """
         SELECT id
@@ -134,11 +138,18 @@ def create_member_account():
             "message": "Username already exists."
 
         })
+
+    # ==========================
+    # HASH PASSWORD
+    # ==========================
     hashed_password = bcrypt.hashpw(
         password.encode(),
         bcrypt.gensalt()
     ).decode()
-    
+
+    # ==========================
+    # SAVE TO TURNSTILE DATABASE
+    # ==========================
     execute_query(
         """
         INSERT INTO user_accounts
@@ -154,7 +165,7 @@ def create_member_account():
             %s,
             %s,
             %s,
-            'member',
+            %s,
             %s
         )
         """,
@@ -162,13 +173,14 @@ def create_member_account():
             user_id,
             username,
             hashed_password,
+            "member",
             fullname
         )
     )
 
-    # =========================
-    # SYNC TO RENDER
-    # =========================
+    # ==========================
+    # SYNC TO RENDER / RAILWAY
+    # ==========================
     try:
 
         response = requests.post(
@@ -178,28 +190,29 @@ def create_member_account():
             json={
 
                 "user_id": user_id,
-
                 "username": username,
-
                 "password": hashed_password,
-
-                "fullname": fullname,
-
-                "role": "member"
+                "role": "member",
+                "fullname": fullname
 
             },
 
-            timeout=10
+            timeout=15
 
         )
-        print("STATUS:", response.status_code)
-        print("TEXT:", response.text)
 
+        print("========== RENDER ==========")
+        print("STATUS :", response.status_code)
+        print("TEXT   :", response.text)
+        print("============================")
 
     except Exception as e:
 
-        print("[RENDER ERROR]", e)
+        print("[RENDER ERROR]", str(e))
 
+    # ==========================
+    # SUCCESS
+    # ==========================
     return jsonify({
 
         "success": True,
@@ -207,6 +220,7 @@ def create_member_account():
         "message": "Member account created successfully."
 
     })
+
 
 @app.route(
     "/api/members/without-account",
