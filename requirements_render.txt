@@ -6,3 +6,5 @@ eventlet==0.41.0
 pymysql
 mysql-connector-python
 python-dotenv
+passlib
+bcrypt
