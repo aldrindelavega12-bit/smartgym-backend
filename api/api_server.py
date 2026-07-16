@@ -3284,8 +3284,11 @@ def login():
 
         if conn:
             conn.close()
+            
 @app.route("/api/change_password", methods=["POST"])
 def change_password():
+
+    conn = None
 
     try:
 
@@ -3298,15 +3301,15 @@ def change_password():
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        cursor.execute("""
-            SELECT *
+        # Get account
+        cursor.execute(
+            """
+            SELECT password
             FROM user_accounts
             WHERE username=%s
-            AND password=%s
-        """, (
-            username,
-            old_password
-        ))
+            """,
+            (username,)
+        )
 
         user = cursor.fetchone()
 
@@ -3314,32 +3317,100 @@ def change_password():
 
             return jsonify({
                 "status": "error",
-                "message": "Wrong username or password"
+                "message": "Invalid username or password"
             })
 
-        cursor.execute("""
+        stored_password = user["password"]
+
+        # Verify old password
+        if stored_password.startswith("$2"):
+
+            valid = bcrypt.checkpw(
+                old_password.encode(),
+                stored_password.encode()
+            )
+
+        else:
+
+            valid = (stored_password == old_password)
+
+        if not valid:
+
+            return jsonify({
+                "status": "error",
+                "message": "Invalid username or password"
+            })
+
+        # Hash new password
+        new_hash = bcrypt.hashpw(
+            new_password.encode(),
+            bcrypt.gensalt()
+        ).decode()
+
+        # Update local database
+        cursor.execute(
+            """
             UPDATE user_accounts
             SET password=%s
             WHERE username=%s
-        """, (
-            new_password,
-            username
-        ))
+            """,
+            (
+                new_hash,
+                username
+            )
+        )
 
         conn.commit()
 
+        # Sync to Railway
+        try:
+
+            requests.post(
+
+                f"{RENDER_API}/api/sync_account",
+
+                json={
+
+                    "user_id": None,
+                    "username": username,
+                    "password": new_hash,
+                    "role": None,
+                    "fullname": None
+
+                },
+
+                timeout=10
+
+            )
+
+        except Exception as e:
+
+            print("[RENDER ERROR]", e)
+
         return jsonify({
+
             "status": "success",
-            "message": "Password updated"
+
+            "message": "Password updated successfully."
+
         })
 
     except Exception as e:
 
         return jsonify({
+
             "status": "error",
+
             "message": str(e)
+
         })
-            
+
+    finally:
+
+        if conn:
+
+            conn.close()
+
 @app.route("/api/membership/<user_id>")
 def get_membership(user_id):
 
