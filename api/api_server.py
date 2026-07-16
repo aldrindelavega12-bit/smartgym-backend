@@ -3207,6 +3207,7 @@ def login():
                 ua.user_id,
                 ua.fullname,
                 ua.username,
+                ua.password,
                 ua.role,
                 pm.phone_number
 
@@ -3216,20 +3217,42 @@ def login():
             ON ua.id = pm.account_id
 
             WHERE ua.username=%s
-            AND ua.password=%s
 
-        """, (username, password))
+        """, (username,))
 
         user = cursor.fetchone()
 
         if not user:
 
             return jsonify({
-
-                "status":"error",
-                "message":"Invalid login"
-
+                "status": "error",
+                "message": "Invalid login"
             })
+
+        stored_password = user["password"]
+
+        # bcrypt password
+        if stored_password.startswith("$2"):
+
+            if not bcrypt.checkpw(
+                password.encode(),
+                stored_password.encode()
+            ):
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid login"
+                })
+
+        # plain password (old accounts)
+        else:
+
+            if stored_password != password:
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid login"
+                })
 
         return jsonify({
 
@@ -3261,7 +3284,6 @@ def login():
 
         if conn:
             conn.close()
-            
 @app.route("/api/change_password", methods=["POST"])
 def change_password():
 
