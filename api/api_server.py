@@ -35,14 +35,15 @@ def activate_account():
     data = request.get_json()
 
     token = data.get("token")
+    username = data.get("username")
     password = data.get("password")
 
-    if not token or not password:
+    if not token or not username or not password:
 
         return jsonify({
 
             "success": False,
-            "message": "Token and password are required."
+            "message": "Username and password are required."
 
         }), 400
 
@@ -51,10 +52,14 @@ def activate_account():
 
     try:
 
-        # Check activation token
+        # ============================
+        # CHECK ACTIVATION TOKEN
+        # ============================
+
         cursor.execute("""
 
             SELECT
+
                 a.member_id,
                 a.status,
                 m.full_name
@@ -90,17 +95,48 @@ def activate_account():
 
             }), 400
 
+        # ============================
+        # CHECK USERNAME
+        # ============================
+
+        cursor.execute("""
+
+            SELECT id
+
+            FROM user_accounts
+
+            WHERE username = %s
+
+            LIMIT 1
+
+        """, (username,))
+
+        if cursor.fetchone():
+
+            return jsonify({
+
+                "success": False,
+                "message": "Username already exists."
+
+            }), 400
+
+        # ============================
+        # CREATE ACCOUNT
+        # ============================
+
         hashed_password = generate_password_hash(password)
 
         cursor.execute("""
 
             INSERT INTO user_accounts
             (
+
                 user_id,
                 username,
                 password,
                 role,
                 fullname
+
             )
 
             VALUES (%s,%s,%s,%s,%s)
@@ -108,12 +144,16 @@ def activate_account():
         """, (
 
             activation["member_id"],
-            activation["member_id"],
+            username,
             hashed_password,
             "member",
             activation["full_name"]
 
         ))
+
+        # ============================
+        # MARK TOKEN AS USED
+        # ============================
 
         cursor.execute("""
 
