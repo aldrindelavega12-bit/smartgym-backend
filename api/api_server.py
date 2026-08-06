@@ -27,6 +27,7 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+
 @app.route("/api/activate_account", methods=["POST"])
 def activate_account():
 
@@ -44,15 +45,17 @@ def activate_account():
         })
 
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
 
     try:
 
+        # CHECK TOKEN
         cursor.execute("""
             SELECT member_id
-            FROM account_activations
+            FROM member_activation
             WHERE activation_token=%s
             AND status='PENDING'
+            LIMIT 1
         """, (token,))
 
         activation = cursor.fetchone()
@@ -66,7 +69,22 @@ def activate_account():
 
         member_id = activation["member_id"]
 
-        # Plain text password
+        # CHECK DUPLICATE USERNAME
+        cursor.execute("""
+            SELECT id
+            FROM user_accounts
+            WHERE username=%s
+            LIMIT 1
+        """, (username,))
+
+        if cursor.fetchone():
+
+            return jsonify({
+                "success": False,
+                "message": "Username already exists."
+            })
+
+        # UPDATE ACCOUNT
         cursor.execute("""
             UPDATE user_accounts
             SET
@@ -80,8 +98,9 @@ def activate_account():
             member_id
         ))
 
+        # MARK TOKEN USED
         cursor.execute("""
-            UPDATE account_activations
+            UPDATE member_activation
             SET status='USED'
             WHERE activation_token=%s
         """, (token,))
