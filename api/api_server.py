@@ -12,9 +12,8 @@ from db.connection import execute_query
 import mysql.connector
 from flask_socketio import SocketIO
 from datetime import datetime
-import bcrypt
 import requests
-from werkzeug.security import generate_password_hash
+
 app = Flask(__name__)
 
 CORS(app)
@@ -28,7 +27,6 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
-
 @app.route("/api/activate_account", methods=["POST"])
 def activate_account():
 
@@ -41,38 +39,20 @@ def activate_account():
     if not token or not username or not password:
 
         return jsonify({
-
             "success": False,
-            "message": "Username and password are required."
-
-        }), 400
+            "message": "Missing required fields."
+        })
 
     conn = get_connection()
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    cursor = conn.cursor()
 
     try:
 
-        # ============================
-        # CHECK ACTIVATION TOKEN
-        # ============================
-
         cursor.execute("""
-
-            SELECT
-
-                a.member_id,
-                a.status,
-                m.full_name
-
-            FROM member_activation a
-
-            JOIN members m
-                ON a.member_id = m.id
-
-            WHERE a.activation_token = %s
-
-            LIMIT 1
-
+            SELECT member_id
+            FROM account_activations
+            WHERE activation_token=%s
+            AND status='PENDING'
         """, (token,))
 
         activation = cursor.fetchone()
@@ -80,102 +60,37 @@ def activate_account():
         if not activation:
 
             return jsonify({
-
                 "success": False,
                 "message": "Invalid activation link."
+            })
 
-            }), 404
+        member_id = activation["member_id"]
 
-        if activation["status"] == "USED":
-
-            return jsonify({
-
-                "success": False,
-                "message": "This activation link has already been used."
-
-            }), 400
-
-        # ============================
-        # CHECK USERNAME
-        # ============================
-
+        # Plain text password
         cursor.execute("""
-
-            SELECT id
-
-            FROM user_accounts
-
-            WHERE username = %s
-
-            LIMIT 1
-
-        """, (username,))
-
-        if cursor.fetchone():
-
-            return jsonify({
-
-                "success": False,
-                "message": "Username already exists."
-
-            }), 400
-
-        # ============================
-        # CREATE ACCOUNT
-        # ============================
-
-        hashed_password = generate_password_hash(password)
-
-        cursor.execute("""
-
-            INSERT INTO user_accounts
-            (
-
-                user_id,
-                username,
-                password,
-                role,
-                fullname
-
-            )
-
-            VALUES (%s,%s,%s,%s,%s)
-
+            UPDATE user_accounts
+            SET
+                username=%s,
+                password=%s,
+                role='member'
+            WHERE user_id=%s
         """, (
-
-            activation["member_id"],
             username,
-            hashed_password,
-            "member",
-            activation["full_name"]
-
+            password,
+            member_id
         ))
 
-        # ============================
-        # MARK TOKEN AS USED
-        # ============================
-
         cursor.execute("""
-
-            UPDATE member_activation
-
-            SET
-
-                status='USED',
-
-                used_at=NOW()
-
+            UPDATE account_activations
+            SET status='USED'
             WHERE activation_token=%s
-
         """, (token,))
 
         conn.commit()
 
         return jsonify({
-
             "success": True,
             "message": "Account activated successfully."
-
         })
 
     except Exception as e:
@@ -183,11 +98,9 @@ def activate_account():
         conn.rollback()
 
         return jsonify({
-
             "success": False,
             "message": str(e)
-
-        }), 500
+        })
 
     finally:
 
@@ -488,6 +401,7 @@ def sync_account():
 
         }),500
 
+
 @app.route(
     "/api/create-member-account",
     methods=["POST"]
@@ -525,14 +439,6 @@ def create_member_account():
         })
 
     # ==========================
-    # HASH PASSWORD
-    # ==========================
-    hashed_password = bcrypt.hashpw(
-        password.encode(),
-        bcrypt.gensalt()
-    ).decode()
-
-    # ==========================
     # SAVE TO TURNSTILE DATABASE
     # ==========================
     execute_query(
@@ -557,7 +463,7 @@ def create_member_account():
         (
             user_id,
             username,
-            hashed_password,
+            password,
             "member",
             fullname
         )
@@ -576,7 +482,7 @@ def create_member_account():
 
                 "user_id": user_id,
                 "username": username,
-                "password": hashed_password,
+                "password": password,
                 "role": "member",
                 "fullname": fullname
 
@@ -605,7 +511,6 @@ def create_member_account():
         "message": "Member account created successfully."
 
     })
-
 
 @app.route(
     "/api/members/without-account",
@@ -3572,37 +3477,25 @@ def account_status():
 @app.route("/api/login", methods=["POST"])
 def login():
 
-    conn = None
+    data = request.get_json()
+
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
+    conn = get_connection()
+    cursor = conn.cursor()
 
     try:
 
-        data = request.get_json()
-
-        username = data.get("username")
-        password = data.get("password")
-
-        conn = get_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-
         cursor.execute("""
-
             SELECT
-
-                ua.id,
-                ua.user_id,
-                ua.fullname,
-                ua.username,
-                ua.password,
-                ua.role,
-                pm.phone_number
-
-            FROM user_accounts ua
-
-            LEFT JOIN pending_members pm
-            ON ua.id = pm.account_id
-
-            WHERE ua.username=%s
-
+                user_id,
+                fullname,
+                username,
+                password,
+                role
+            FROM user_accounts
+            WHERE username=%s
         """, (username,))
 
         user = cursor.fetchone()
@@ -3611,45 +3504,26 @@ def login():
 
             return jsonify({
                 "status": "error",
-                "message": "Invalid login"
+                "message": "Invalid username or password"
             })
 
-        stored_password = user["password"]
+        # Plain text password comparison
+        if user["password"] != password:
 
-        # bcrypt password
-        if stored_password.startswith("$2"):
-
-            if not bcrypt.checkpw(
-                password.encode(),
-                stored_password.encode()
-            ):
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid login"
-                })
-
-        # plain password (old accounts)
-        else:
-
-            if stored_password != password:
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid login"
-                })
+            return jsonify({
+                "status": "error",
+                "message": "Invalid username or password"
+            })
 
         return jsonify({
 
-            "status":"success",
+            "status": "success",
 
-            "user":{
+            "user": {
 
-                "id": user["id"],
                 "user_id": user["user_id"],
-                "name": user["fullname"],
+                "fullname": user["fullname"],
                 "username": user["username"],
-                "phone_number": user["phone_number"],
                 "role": user["role"]
 
             }
@@ -3660,141 +3534,82 @@ def login():
 
         return jsonify({
 
-            "status":"error",
-            "message":str(e)
-
-        })
-
-    finally:
-
-        if conn:
-            conn.close()
-            
-@app.route("/api/change_password", methods=["POST"])
-def change_password():
-
-    conn = None
-
-    try:
-
-        data = request.get_json()
-
-        username = data.get("username")
-        old_password = data.get("old_password")
-        new_password = data.get("new_password")
-
-        conn = get_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-        # Get account
-        cursor.execute(
-            """
-            SELECT password
-            FROM user_accounts
-            WHERE username=%s
-            """,
-            (username,)
-        )
-
-        user = cursor.fetchone()
-
-        if not user:
-
-            return jsonify({
-                "status": "error",
-                "message": "Invalid username or password"
-            })
-
-        stored_password = user["password"]
-
-        # Verify old password
-        if stored_password.startswith("$2"):
-
-            valid = bcrypt.checkpw(
-                old_password.encode(),
-                stored_password.encode()
-            )
-
-        else:
-
-            valid = (stored_password == old_password)
-
-        if not valid:
-
-            return jsonify({
-                "status": "error",
-                "message": "Invalid username or password"
-            })
-
-        # Hash new password
-        new_hash = bcrypt.hashpw(
-            new_password.encode(),
-            bcrypt.gensalt()
-        ).decode()
-
-        # Update local database
-        cursor.execute(
-            """
-            UPDATE user_accounts
-            SET password=%s
-            WHERE username=%s
-            """,
-            (
-                new_hash,
-                username
-            )
-        )
-
-        conn.commit()
-
-        # Sync to Railway
-        try:
-
-            requests.post(
-
-                f"{RENDER_API}/api/sync_account",
-
-                json={
-
-                    "user_id": None,
-                    "username": username,
-                    "password": new_hash,
-                    "role": None,
-                    "fullname": None
-
-                },
-
-                timeout=10
-
-            )
-
-        except Exception as e:
-
-            print("[RENDER ERROR]", e)
-
-        return jsonify({
-
-            "status": "success",
-
-            "message": "Password updated successfully."
-
-        })
-
-    except Exception as e:
-
-        return jsonify({
-
             "status": "error",
-
             "message": str(e)
 
         })
 
     finally:
 
-        if conn:
+        cursor.close()
+        conn.close()
+@app.route("/api/change_password", methods=["POST"])
+def change_password():
 
-            conn.close()
+    data = request.get_json()
+
+    user_id = data.get("user_id")
+    current_password = data.get("current_password")
+    new_password = data.get("new_password")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            SELECT password
+            FROM user_accounts
+            WHERE user_id=%s
+        """, (user_id,))
+
+        user = cursor.fetchone()
+
+        if not user:
+
+            return jsonify({
+                "success": False,
+                "message": "User not found."
+            })
+
+        # Plain text password check
+        if user["password"] != current_password:
+
+            return jsonify({
+                "success": False,
+                "message": "Current password is incorrect."
+            })
+
+        # Save new password (plain text)
+        cursor.execute("""
+            UPDATE user_accounts
+            SET password=%s
+            WHERE user_id=%s
+        """, (
+            new_password,
+            user_id
+        ))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Password changed successfully."
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+    finally:
+
+        cursor.close()
+        conn.close()
 
 @app.route("/api/membership/<user_id>")
 def get_membership(user_id):
