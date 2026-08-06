@@ -26,7 +26,7 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
-
+@app.route("/api/activate_account", methods=["POST"])
 def activate_account():
 
     data = request.get_json()
