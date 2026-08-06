@@ -17,7 +17,7 @@ from sync.walkin_handler import (
 from sync.locker_handler import (
     handle_locker_overtime_paid
 )
-
+from sync.activation_handler import handle_activation_created
 from sync.face_handler import handle_face_sync
 from sync.fp_handler import handle_fp_sync   # <-- ADD
 
@@ -39,9 +39,10 @@ HANDLERS = {
 
     "LOCKER_OVERTIME_PAID": handle_locker_overtime_paid,
 
-    "FP_SYNC": handle_fp_sync      # <-- ADD
-}
+    "FP_SYNC": handle_fp_sync,
 
+    "ACTIVATION_CREATED": handle_activation_created
+}
 
 def handle_event(event):
 

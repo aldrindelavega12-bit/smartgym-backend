@@ -26,7 +26,171 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
+
+
+@app.route("/api/activation/<token>", methods=["GET"])
+def check_activation(token):
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+
+        cursor.execute("""
+            SELECT
+
+                a.member_id,
+                a.status,
+                m.full_name
+
+            FROM member_activation a
+
+            JOIN members m
+                ON a.member_id = m.id
+
+            WHERE a.activation_token = %s
+
+            LIMIT 1
+        """, (token,))
+
+        activation = cursor.fetchone()
+
+        # Token not found
+        if not activation:
+
+            return jsonify({
+
+                "success": False,
+                "message": "Invalid activation link."
+
+            }), 404
+
+        # Already used
+        if activation["status"] == "USED":
+
+            return jsonify({
+
+                "success": False,
+                "message": "This activation link has already been used."
+
+            })
+
+        # Valid
+        return jsonify({
+
+            "success": True,
+
+            "member_id": activation["member_id"],
+
+            "full_name": activation["full_name"]
+
+        })
+
+    except Exception as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
+
+
+
+
+
+
+
 # ----------------ENROLLMENT-------------
+@app.route("/api/walkins", methods=["GET"])
+def get_walkins():
+
+    try:
+
+        walkins = execute_query(
+            """
+            SELECT *
+            FROM walkins
+            """,
+            fetch=True
+        )
+
+        return jsonify({
+
+            "walkins": walkins
+
+        })
+
+    except Exception as e:
+
+        return jsonify({
+
+            "error": str(e)
+
+        }), 500
+
+@app.route("/api/locker_member_version")
+def locker_member_version():
+
+    return jsonify({
+
+        "version": get_sync_version("members")
+
+    })
+
+
+@app.route("/api/locker_walkin_version")
+def locker_walkin_version():
+
+    return jsonify({
+
+        "version": get_sync_version("walkins")
+
+    })
+
+
+@app.route("/api/locker_fingerprint_version")
+def locker_fingerprint_version():
+
+    return jsonify({
+
+        "version": get_sync_version("fingerprints")
+
+    })
+
+
+@app.route("/api/locker_face_version")
+def locker_face_version():
+
+    return jsonify({
+
+        "version": get_sync_version("face")
+
+    })
+
+def get_sync_version(resource):
+
+    row = execute_query(
+        """
+        SELECT version
+        FROM sync_versions
+        WHERE resource=%s
+        """,
+        (resource,),
+        fetch=True
+    )
+
+    if not row:
+        return 0
+
+    return row[0]["version"]
 
 @app.route(
     "/api/sync_account",

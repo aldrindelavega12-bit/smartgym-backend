@@ -64,6 +64,18 @@ def handle_walkin_created(payload):
             )
 
         )
+        
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='walkins'
+        """)
+
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='fingerprints'
+        """)
 
         connection.commit()
 
@@ -122,6 +134,18 @@ def handle_walkin_payment_updated(payload):
 
             )
         )
+        
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='walkins'
+        """)
+
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='fingerprints'
+        """)
 
         connection.commit()
 

@@ -17,6 +17,21 @@ def handle_face_sync(event):
 
     # Install package
     install_face_package(save_path)
+    from db.connection import get_connection
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+    UPDATE sync_versions
+    SET version = version + 1
+    WHERE resource='face'
+    """)
+
+    connection.commit()
+
+    cursor.close()
+    connection.close()
 
     return {
 

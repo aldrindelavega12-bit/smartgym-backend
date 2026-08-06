@@ -72,6 +72,19 @@ def handle_member_created(payload):
         )
 
         connection.commit()
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='members'
+        """)
+
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='fingerprints'
+        """)
+
+        connection.commit()
 
         return {
             "success": True,
@@ -151,7 +164,19 @@ def handle_member_deleted(payload):
             """,
             (member_id,)
         )
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='members'
+        """)
+
+        cursor.execute("""
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='fingerprints'
+        """)
         connection.commit()
+        
 
         return {
             "success": True,
