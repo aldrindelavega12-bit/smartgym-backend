@@ -3510,9 +3510,10 @@ def login():
 
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
-
+    
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
 
     try:
 
@@ -3580,9 +3581,10 @@ def change_password():
     user_id = data.get("user_id")
     current_password = data.get("current_password")
     new_password = data.get("new_password")
-
+    
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
 
     try:
 
