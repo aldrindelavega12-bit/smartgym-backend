@@ -27,7 +27,61 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+@app.route("/api/activation_created", methods=["POST"])
+def activation_created():
 
+    data = request.get_json()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            INSERT INTO member_activation
+            (
+                member_id,
+                activation_token,
+                status
+            )
+            VALUES (%s,%s,%s)
+
+            ON DUPLICATE KEY UPDATE
+
+                activation_token=VALUES(activation_token),
+                status=VALUES(status)
+        """, (
+
+            data["member_id"],
+            data["activation_token"],
+            data.get("status", "PENDING")
+
+        ))
+
+        conn.commit()
+
+        return jsonify({
+
+            "success": True,
+            "message": "Activation synchronized."
+
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+
+            "success": False,
+            "error": str(e)
+
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
 @app.route("/api/activation/<token>", methods=["GET"])
 def check_activation(token):
 
