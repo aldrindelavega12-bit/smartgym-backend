@@ -14,6 +14,7 @@ from flask_socketio import SocketIO
 from datetime import datetime
 import bcrypt
 import requests
+from werkzeug.security import generate_password_hash
 app = Flask(__name__)
 
 CORS(app)
@@ -26,6 +27,132 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
+
+
+@app.route("/api/activate_account", methods=["POST"])
+def activate_account():
+
+    data = request.get_json()
+
+    token = data.get("token")
+    password = data.get("password")
+
+    if not token or not password:
+
+        return jsonify({
+
+            "success": False,
+            "message": "Token and password are required."
+
+        }), 400
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+
+        # Check activation token
+        cursor.execute("""
+
+            SELECT
+                a.member_id,
+                a.status,
+                m.full_name
+
+            FROM member_activation a
+
+            JOIN members m
+                ON a.member_id = m.id
+
+            WHERE a.activation_token = %s
+
+            LIMIT 1
+
+        """, (token,))
+
+        activation = cursor.fetchone()
+
+        if not activation:
+
+            return jsonify({
+
+                "success": False,
+                "message": "Invalid activation link."
+
+            }), 404
+
+        if activation["status"] == "USED":
+
+            return jsonify({
+
+                "success": False,
+                "message": "This activation link has already been used."
+
+            }), 400
+
+        hashed_password = generate_password_hash(password)
+
+        cursor.execute("""
+
+            INSERT INTO user_accounts
+            (
+                user_id,
+                username,
+                password,
+                role,
+                fullname
+            )
+
+            VALUES (%s,%s,%s,%s,%s)
+
+        """, (
+
+            activation["member_id"],
+            activation["member_id"],
+            hashed_password,
+            "member",
+            activation["full_name"]
+
+        ))
+
+        cursor.execute("""
+
+            UPDATE member_activation
+
+            SET
+
+                status='USED',
+
+                used_at=NOW()
+
+            WHERE activation_token=%s
+
+        """, (token,))
+
+        conn.commit()
+
+        return jsonify({
+
+            "success": True,
+            "message": "Account activated successfully."
+
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+
+            "success": False,
+            "message": str(e)
+
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
 
 @app.route("/api/activation_created", methods=["POST"])
 def activation_created():
