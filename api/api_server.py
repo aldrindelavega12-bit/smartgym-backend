@@ -1233,38 +1233,73 @@ def check_account(account_id):
     conn = get_connection()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-    cursor.execute("""
-        SELECT
-            id,
-            user_id,
-            fullname,
-            username,
-            role
-        FROM user_accounts
-        WHERE id=%s
-    """, (account_id,))
+    try:
 
-    user = cursor.fetchone()
+        cursor.execute("""
+            SELECT
+                ua.id,
+                ua.user_id,
+                ua.fullname,
+                ua.username,
+                ua.role,
+                pm.phone_number
 
-    cursor.close()
-    conn.close()
+            FROM user_accounts ua
 
-    if not user:
+            LEFT JOIN pending_members pm
+                ON ua.id = pm.account_id
+
+            WHERE ua.id=%s
+        """, (account_id,))
+
+        user = cursor.fetchone()
+
+        if not user:
+
+            return jsonify({
+                "status": "error"
+            }), 404
+
         return jsonify({
-            "status":"error"
-        }),404
 
-    return jsonify({
-        "status":"success",
-        "role":user["role"],
-        "user":{
-            "id":user["id"],
-            "user_id":user["user_id"],
-            "name":user["fullname"],
-            "username":user["username"],
-            "role":user["role"]
-        }
-    })       
+            "status": "success",
+
+            "role": user["role"],
+
+            "user": {
+
+                "id": user["id"],
+
+                "user_id": user["user_id"],
+
+                "name": user["fullname"],
+
+                "username": user["username"],
+
+                "phone_number": user["phone_number"],
+
+                "role": user["role"]
+
+            }
+
+        })
+
+    except Exception as e:
+
+        print("CHECK ACCOUNT ERROR:", e)
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()       
 
 @app.route("/api/local/pending_members", methods=["GET"])
 def local_pending_members():
