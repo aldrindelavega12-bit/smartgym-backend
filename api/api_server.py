@@ -1227,7 +1227,6 @@ def update_pre_member_profile():
 
         cursor.close()
         conn.close()
-        
 @app.route("/api/check_account/<int:account_id>")
 def check_account(account_id):
 
@@ -1265,7 +1264,7 @@ def check_account(account_id):
             "username":user["username"],
             "role":user["role"]
         }
-    })
+    })       
 
 @app.route("/api/local/pending_members", methods=["GET"])
 def local_pending_members():
