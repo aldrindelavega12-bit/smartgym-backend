@@ -3536,7 +3536,6 @@ def account_status():
     finally:
 
         conn.close()
-        
 @app.route("/api/login", methods=["POST"])
 def login():
 
@@ -3544,22 +3543,29 @@ def login():
 
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
-    
+
     conn = get_connection()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
-
 
     try:
 
         cursor.execute("""
             SELECT
-                user_id,
-                fullname,
-                username,
-                password,
-                role
-            FROM user_accounts
-            WHERE username=%s
+                ua.id,
+                ua.user_id,
+                ua.fullname,
+                ua.username,
+                ua.password,
+                ua.role,
+                pm.phone_number
+
+            FROM user_accounts ua
+
+            LEFT JOIN pending_members pm
+                ON ua.id = pm.account_id
+
+            WHERE ua.username=%s
+
         """, (username,))
 
         user = cursor.fetchone()
@@ -3585,9 +3591,20 @@ def login():
 
             "user": {
 
+                # IMPORTANT:
+                # user_accounts.id
+                # This is the account_id used by pre_member
+                "id": user["id"],
+
+                # This can be NULL while still pre_member
                 "user_id": user["user_id"],
+
                 "fullname": user["fullname"],
+
                 "username": user["username"],
+
+                "phone_number": user["phone_number"],
+
                 "role": user["role"]
 
             }
@@ -3596,17 +3613,20 @@ def login():
 
     except Exception as e:
 
+        print("LOGIN ERROR:", e)
+
         return jsonify({
 
             "status": "error",
             "message": str(e)
 
-        })
+        }), 500
 
     finally:
 
         cursor.close()
-        conn.close()
+        conn.close()        
+
 @app.route("/api/change_password", methods=["POST"])
 def change_password():
 
