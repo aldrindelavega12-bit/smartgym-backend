@@ -3626,27 +3626,25 @@ def login():
 
         cursor.close()
         conn.close()        
-
 @app.route("/api/change_password", methods=["POST"])
 def change_password():
 
     data = request.get_json()
 
-    user_id = data.get("user_id")
+    account_id = data.get("id")
     current_password = data.get("current_password")
     new_password = data.get("new_password")
-    
+
     conn = get_connection()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
-
 
     try:
 
         cursor.execute("""
             SELECT password
             FROM user_accounts
-            WHERE user_id=%s
-        """, (user_id,))
+            WHERE id=%s
+        """, (account_id,))
 
         user = cursor.fetchone()
 
@@ -3665,14 +3663,14 @@ def change_password():
                 "message": "Current password is incorrect."
             })
 
-        # Save new password (plain text)
+        # Save new password
         cursor.execute("""
             UPDATE user_accounts
             SET password=%s
-            WHERE user_id=%s
+            WHERE id=%s
         """, (
             new_password,
-            user_id
+            account_id
         ))
 
         conn.commit()
