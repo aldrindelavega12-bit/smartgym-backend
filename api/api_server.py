@@ -3625,7 +3625,8 @@ def login():
     finally:
 
         cursor.close()
-        conn.close()        
+        conn.close()       
+
 @app.route("/api/change_password", methods=["POST"])
 def change_password():
 
@@ -3649,21 +3650,17 @@ def change_password():
         user = cursor.fetchone()
 
         if not user:
-
             return jsonify({
                 "success": False,
                 "message": "User not found."
             })
 
-        # Plain text password check
         if user["password"] != current_password:
-
             return jsonify({
                 "success": False,
                 "message": "Current password is incorrect."
             })
 
-        # Save new password
         cursor.execute("""
             UPDATE user_accounts
             SET password=%s
@@ -3690,9 +3687,8 @@ def change_password():
         })
 
     finally:
-
         cursor.close()
-        conn.close()
+        conn.close() 
 
 @app.route("/api/membership/<user_id>")
 def get_membership(user_id):
