@@ -3632,9 +3632,9 @@ def change_password():
 
     data = request.get_json()
 
-    account_id = data.get("id")
-    current_password = data.get("current_password")
-    new_password = data.get("new_password")
+    username = data.get("username", "").strip()
+    current_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
 
     conn = get_connection()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
@@ -3642,32 +3642,36 @@ def change_password():
     try:
 
         cursor.execute("""
-            SELECT password
+            SELECT id, password
             FROM user_accounts
-            WHERE id=%s
-        """, (account_id,))
+            WHERE username=%s
+        """, (username,))
 
         user = cursor.fetchone()
 
         if not user:
+
             return jsonify({
                 "success": False,
                 "message": "User not found."
             })
 
+        # CHECK OLD PASSWORD
         if user["password"] != current_password:
+
             return jsonify({
                 "success": False,
-                "message": "Current password is incorrect."
+                "message": "Old password is incorrect."
             })
 
+        # UPDATE PASSWORD
         cursor.execute("""
             UPDATE user_accounts
             SET password=%s
             WHERE id=%s
         """, (
             new_password,
-            account_id
+            user["id"]
         ))
 
         conn.commit()
@@ -3681,15 +3685,17 @@ def change_password():
 
         conn.rollback()
 
+        print("CHANGE PASSWORD ERROR:", e)
+
         return jsonify({
             "success": False,
             "message": str(e)
-        })
+        }), 500
 
     finally:
-        cursor.close()
-        conn.close() 
 
+        cursor.close()
+        conn.close()
 @app.route("/api/membership/<user_id>")
 def get_membership(user_id):
 
