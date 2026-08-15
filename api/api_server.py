@@ -294,9 +294,10 @@ def send_password_reset_otp():
                 m.phone_number AS member_phone,
                 pm.phone_number AS pending_phone
             FROM user_accounts ua
-
+            
             LEFT JOIN members m
-                ON m.id = ua.user_id
+                ON m.id COLLATE utf8mb4_general_ci
+                = ua.user_id COLLATE utf8mb4_general_ci
 
             LEFT JOIN pending_members pm
                 ON pm.account_id = ua.id
