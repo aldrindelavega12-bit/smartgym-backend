@@ -2,41 +2,49 @@ import requests
 
 API_KEY = "edd6a658f3c25c564782b1447b1f753c"
 
+SEMAPHORE_URL = "https://semaphore.co/api/v4/messages"
+
+
 def send_sms(number, message):
+
     try:
 
         response = requests.post(
-            "https://semaphore.co/api/v4/messages",
+            SEMAPHORE_URL,
             data={
-                'apikey': API_KEY,
-                'number': number,
-                'message': message,
-                'sendername': 'SMARTGYM'
+                "apikey": API_KEY,
+                "number": number,
+                "message": message,
+                "sendername": "SMARTGYM"
             },
             timeout=15
         )
 
-        print("========== SEMAPHORE DEBUG ==========")
+        print("========== SEMAPHORE ==========")
         print("NUMBER:", number)
-        print("HTTP STATUS:", response.status_code)
+        print("STATUS:", response.status_code)
         print("RESPONSE:", response.text)
-        print("=====================================")
+        print("===============================")
+
+        if response.status_code != 200:
+            return False
 
         result = response.json()
 
-        if result and 'status' in result[0]:
-
-            if result[0]['status'] in ['Pending', 'Queued']:
-                print(f"✅ SMS sent to {number}")
-                return True
-
-            print("❌ Semaphore rejected:", result)
+        if not result:
             return False
 
-        print("❌ Unexpected Semaphore response:", result)
+        status = result[0].get("status")
+
+        if status in ["Pending", "Queued"]:
+            print(f"SMS accepted for {number}")
+            return True
+
+        print("SMS rejected:", result)
         return False
 
     except Exception as e:
 
-        print("🔥 SMS ERROR:", repr(e))
+        print("SMS ERROR:", repr(e))
+
         return False
