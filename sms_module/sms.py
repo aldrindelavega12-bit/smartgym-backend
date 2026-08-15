@@ -1,16 +1,12 @@
 import requests
+import traceback
 
 API_KEY = "edd6a658f3c25c564782b1447b1f753c"
 
-SEMAPHORE_URL = "https://semaphore.co/api/v4/messages"
-
-
 def send_sms(number, message):
-
     try:
-
         response = requests.post(
-            SEMAPHORE_URL,
+            "https://semaphore.co/api/v4/messages",
             data={
                 "apikey": API_KEY,
                 "number": number,
@@ -20,31 +16,19 @@ def send_sms(number, message):
             timeout=15
         )
 
-        print("========== SEMAPHORE ==========")
-        print("NUMBER:", number)
         print("STATUS:", response.status_code)
         print("RESPONSE:", response.text)
-        print("===============================")
-
-        if response.status_code != 200:
-            return False
 
         result = response.json()
 
-        if not result:
-            return False
+        if result and "status" in result[0]:
+            if result[0]["status"] in ["Pending", "Queued"]:
+                return True
 
-        status = result[0].get("status")
-
-        if status in ["Pending", "Queued"]:
-            print(f"SMS accepted for {number}")
-            return True
-
-        print("SMS rejected:", result)
+        print("SMS FAILED:", result)
         return False
 
     except Exception as e:
-
-        print("SMS ERROR:", repr(e))
-
+        print("🔥 SMS ERROR:", repr(e))
+        traceback.print_exc()
         return False
