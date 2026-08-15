@@ -5,7 +5,10 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from flask import send_file
 import json
-
+import random
+import hashlib
+from datetime import datetime, timedelta
+from sms_module.sms import send_sms
 # Path fix para mahanap ang 'db' folder sa root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db.connection import execute_query
@@ -27,6 +30,475 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 @app.route("/api/activate_account", methods=["POST"])
+
+def generate_otp():
+    return f"{random.randint(0, 999999):06d}"
+
+
+def hash_otp(otp):
+    return hashlib.sha256(
+        otp.encode("utf-8")
+    ).hexdigest()
+
+@app.route("/api/forgot-password/reset", methods=["POST"])
+def reset_password():
+
+    data = request.get_json() or {}
+
+    username = data.get("username", "").strip()
+    otp = data.get("otp", "").strip()
+    new_password = data.get("new_password", "")
+    confirm_password = data.get("confirm_password", "")
+
+    # =========================
+    # BASIC VALIDATION
+    # =========================
+
+    if not username:
+        return jsonify({
+            "success": False,
+            "message": "Username is required."
+        }), 400
+
+    if not otp:
+        return jsonify({
+            "success": False,
+            "message": "Verification code is required."
+        }), 400
+
+    if not new_password:
+        return jsonify({
+            "success": False,
+            "message": "New password is required."
+        }), 400
+
+    if new_password != confirm_password:
+        return jsonify({
+            "success": False,
+            "message": "Passwords do not match."
+        }), 400
+
+    if len(new_password) < 8:
+        return jsonify({
+            "success": False,
+            "message": "Password must be at least 8 characters."
+        }), 400
+
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+
+        # =========================
+        # FIND ACCOUNT
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                user_id,
+                username
+            FROM user_accounts
+            WHERE username = %s
+            LIMIT 1
+        """, (username,))
+
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({
+                "success": False,
+                "message": "Account not found."
+            }), 404
+
+
+        # =========================
+        # GET LATEST OTP
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                otp_hash,
+                expires_at,
+                attempts,
+                used
+            FROM password_reset_otps
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+        """, (user["user_id"],))
+
+        reset = cursor.fetchone()
+
+        if not reset:
+            return jsonify({
+                "success": False,
+                "message": "No verification code found."
+            }), 400
+
+
+        # =========================
+        # CHECK USED
+        # =========================
+
+        if reset["used"]:
+            return jsonify({
+                "success": False,
+                "message": "Verification code has already been used."
+            }), 400
+
+
+        # =========================
+        # CHECK EXPIRATION
+        # =========================
+
+        if datetime.now() > reset["expires_at"]:
+
+            cursor.execute("""
+                UPDATE password_reset_otps
+                SET used = 1
+                WHERE id = %s
+            """, (reset["id"],))
+
+            conn.commit()
+
+            return jsonify({
+                "success": False,
+                "message": "Verification code has expired."
+            }), 400
+
+
+        # =========================
+        # CHECK ATTEMPTS
+        # =========================
+
+        if reset["attempts"] >= 5:
+
+            cursor.execute("""
+                UPDATE password_reset_otps
+                SET used = 1
+                WHERE id = %s
+            """, (reset["id"],))
+
+            conn.commit()
+
+            return jsonify({
+                "success": False,
+                "message": "Too many attempts. Please request a new code."
+            }), 400
+
+
+        # =========================
+        # VERIFY OTP
+        # =========================
+
+        if hash_otp(otp) != reset["otp_hash"]:
+
+            cursor.execute("""
+                UPDATE password_reset_otps
+                SET attempts = attempts + 1
+                WHERE id = %s
+            """, (reset["id"],))
+
+            conn.commit()
+
+            return jsonify({
+                "success": False,
+                "message": "Invalid verification code."
+            }), 400
+
+
+        # =========================
+        # UPDATE PASSWORD
+        # =========================
+
+        cursor.execute("""
+            UPDATE user_accounts
+            SET password = %s
+            WHERE user_id = %s
+        """, (
+            new_password,
+            user["user_id"]
+        ))
+
+
+        # =========================
+        # MARK OTP USED
+        # =========================
+
+        cursor.execute("""
+            UPDATE password_reset_otps
+            SET used = 1
+            WHERE id = %s
+        """, (reset["id"],))
+
+
+        conn.commit()
+
+
+        return jsonify({
+            "success": True,
+            "message": "Password reset successfully."
+        })
+
+
+    except Exception as e:
+
+        conn.rollback()
+
+        print(
+            "RESET PASSWORD ERROR:",
+            e
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Server error."
+        }), 500
+
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
+@app.route("/api/forgot-password/send-otp", methods=["POST"])
+def send_password_reset_otp():
+
+    data = request.get_json() or {}
+
+    username = data.get("username", "").strip()
+    mobile = data.get("mobile", "").strip()
+
+    if not username or not mobile:
+        return jsonify({
+            "success": False,
+            "message": "Username and mobile number are required."
+        }), 400
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+
+        # =========================
+        # FIND ACCOUNT
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                ua.id,
+                ua.user_id,
+                ua.username,
+                m.phone_number AS member_phone,
+                pm.phone_number AS pending_phone
+            FROM user_accounts ua
+
+            LEFT JOIN members m
+                ON m.id = ua.user_id
+
+            LEFT JOIN pending_members pm
+                ON pm.account_id = ua.id
+
+            WHERE ua.username = %s
+
+            LIMIT 1
+        """, (username,))
+
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({
+                "success": False,
+                "message": "Account not found."
+            }), 404
+
+
+        # =========================
+        # GET REGISTERED MOBILE
+        # =========================
+
+        registered_mobile = (
+            user["member_phone"]
+            or user["pending_phone"]
+            or ""
+        ).strip()
+
+        if not registered_mobile:
+            return jsonify({
+                "success": False,
+                "message": "No registered mobile number found."
+            }), 400
+
+
+        # =========================
+        # NORMALIZE NUMBERS
+        # =========================
+
+        entered_mobile = (
+            mobile
+            .replace(" ", "")
+            .replace("-", "")
+        )
+
+        registered_mobile = (
+            registered_mobile
+            .replace(" ", "")
+            .replace("-", "")
+        )
+
+        if entered_mobile.startswith("09"):
+            entered_mobile = "+63" + entered_mobile[1:]
+
+        if registered_mobile.startswith("09"):
+            registered_mobile = "+63" + registered_mobile[1:]
+
+
+        # =========================
+        # CHECK MOBILE
+        # =========================
+
+        if entered_mobile != registered_mobile:
+
+            return jsonify({
+                "success": False,
+                "message": "Mobile number does not match our records."
+            }), 400
+
+
+        # =========================
+        # GENERATE OTP
+        # =========================
+
+        otp = generate_otp()
+
+        otp_hash = hash_otp(otp)
+
+        expires_at = (
+            datetime.now()
+            + timedelta(minutes=5)
+        )
+
+
+        # =========================
+        # INVALIDATE OLD OTP
+        # =========================
+
+        cursor.execute("""
+            UPDATE password_reset_otps
+
+            SET used = 1
+
+            WHERE user_id = %s
+              AND used = 0
+        """, (
+            user["user_id"],
+        ))
+
+
+        # =========================
+        # SAVE NEW OTP
+        # =========================
+
+        cursor.execute("""
+            INSERT INTO password_reset_otps
+            (
+                user_id,
+                otp_hash,
+                expires_at
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s
+            )
+        """, (
+            user["user_id"],
+            otp_hash,
+            expires_at
+        ))
+
+
+        # =========================
+        # SEND SMS
+        # =========================
+
+        message = (
+            f"SMART GYM: Your password reset "
+            f"verification code is {otp}. "
+            f"This code expires in 5 minutes."
+        )
+
+        sms_sent = send_sms(
+            registered_mobile,
+            message
+        )
+
+
+        if not sms_sent:
+
+            conn.rollback()
+
+            return jsonify({
+                "success": False,
+                "message": "Failed to send verification code."
+            }), 500
+
+
+        # =========================
+        # LOG SMS
+        # =========================
+
+        cursor.execute("""
+            INSERT INTO sms_logs
+            (
+                user_id,
+                sms_type
+            )
+
+            VALUES
+            (
+                %s,
+                %s
+            )
+        """, (
+            user["user_id"],
+            "PASSWORD_RESET"
+        ))
+
+
+        conn.commit()
+
+
+        return jsonify({
+            "success": True,
+            "message": "Verification code sent successfully."
+        })
+
+
+    except Exception as e:
+
+        conn.rollback()
+
+        print(
+            "FORGOT PASSWORD OTP ERROR:",
+            e
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Server error."
+        }), 500
+
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
 def activate_account():
 
     data = request.get_json()
