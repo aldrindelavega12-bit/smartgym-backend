@@ -4617,7 +4617,6 @@ def notify_priority():
     except Exception as e:
         print("PRIORITY ERROR:", e)
         return jsonify({"success": False, "error": str(e)}), 500
-
 @app.route("/api/sync_attendance", methods=["POST"])
 def sync_attendance():
 
@@ -4626,30 +4625,60 @@ def sync_attendance():
         data = request.get_json()
 
         user_id = data.get("user_id")
+        time_in = data.get("time_in")
+        status = data.get("status", "ACTIVE")
+
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "message": "user_id is required"
+            }), 400
+
+        # =====================================
+        # INSERT ACTUAL TURNSTILE ATTENDANCE
+        # =====================================
 
         execute_query(
             """
             INSERT INTO attendance_sessions
-            (user_id, time_in, status)
-            VALUES (%s, NOW(), 'ACTIVE')
+            (
+                user_id,
+                time_in,
+                status
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s
+            )
             """,
-            (user_id,)
+            (
+                user_id,
+                time_in if time_in else datetime.now(),
+                status
+            )
         )
 
         socketio.emit("attendance_update")
 
+        print(
+            f"☁️ ATTENDANCE SYNCED: {user_id} | {time_in}"
+        )
+
         return jsonify({
-            "success": True
+            "success": True,
+            "message": "Attendance synchronized."
         })
 
     except Exception as e:
 
-        print("SYNC ERROR:", e)
+        print("SYNC ATTENDANCE ERROR:", e)
 
         return jsonify({
-            "success": False
+            "success": False,
+            "message": str(e)
         }), 500
-
 @app.route("/api/sync_timeout", methods=["POST"])
 def sync_timeout():
 
@@ -4658,31 +4687,43 @@ def sync_timeout():
         data = request.get_json()
 
         user_id = data.get("user_id")
+        time_out = data.get("time_out")
+
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "message": "user_id is required"
+            }), 400
 
         execute_query(
             """
             UPDATE attendance_sessions
-            SET time_out = NOW(),
-                status='COMPLETED'
+            SET
+                time_out = %s,
+                status = 'COMPLETED'
             WHERE session_id = (
-
                 SELECT session_id
                 FROM (
-
                     SELECT session_id
                     FROM attendance_sessions
-                    WHERE user_id=%s
+                    WHERE user_id = %s
                     AND time_out IS NULL
                     ORDER BY session_id DESC
                     LIMIT 1
-
                 ) temp
             )
             """,
-            (user_id,)
+            (
+                time_out if time_out else datetime.now(),
+                user_id
+            )
         )
 
         socketio.emit("attendance_update")
+
+        print(
+            f"☁️ ATTENDANCE TIME-OUT SYNCED: {user_id} | {time_out}"
+        )
 
         return jsonify({
             "success": True
@@ -4693,9 +4734,10 @@ def sync_timeout():
         print("SYNC TIMEOUT ERROR:", e)
 
         return jsonify({
-            "success": False
+            "success": False,
+            "message": str(e)
         }), 500
-    
+
 @app.route("/api/sync_locker_start", methods=["POST"])
 def sync_locker_start():
 
