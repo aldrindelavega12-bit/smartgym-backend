@@ -31,6 +31,245 @@ API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 @app.route("/api/activate_account", methods=["POST"])
 
+
+@app.route("/api/member/profile", methods=["PUT"])
+def update_member_profile():
+
+    data = request.get_json() or {}
+
+    account_id = data.get("id")
+    username = data.get("username", "").strip()
+    phone_number = data.get("phone_number", "").strip()
+
+    current_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
+    confirm_password = data.get("confirm_password", "")
+
+    # =========================
+    # BASIC VALIDATION
+    # =========================
+
+    if not account_id:
+        return jsonify({
+            "success": False,
+            "message": "Account ID is required."
+        }), 400
+
+    if not username:
+        return jsonify({
+            "success": False,
+            "message": "Username is required."
+        }), 400
+
+    if not phone_number:
+        return jsonify({
+            "success": False,
+            "message": "Phone number is required."
+        }), 400
+
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+
+        # =========================
+        # GET MEMBER ACCOUNT
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                ua.id,
+                ua.user_id,
+                ua.username,
+                ua.password,
+                ua.role
+            FROM user_accounts ua
+            WHERE ua.id=%s
+            LIMIT 1
+        """, (account_id,))
+
+        account = cursor.fetchone()
+
+        if not account:
+            return jsonify({
+                "success": False,
+                "message": "Account not found."
+            }), 404
+
+        # =========================
+        # MUST BE MEMBER
+        # =========================
+
+        if account["role"] != "member":
+            return jsonify({
+                "success": False,
+                "message": "Member account required."
+            }), 403
+
+        member_id = account["user_id"]
+
+        # =========================
+        # CHECK USERNAME DUPLICATE
+        # =========================
+
+        cursor.execute("""
+            SELECT id
+            FROM user_accounts
+            WHERE username=%s
+            AND id<>%s
+            LIMIT 1
+        """, (
+            username,
+            account_id
+        ))
+
+        existing_username = cursor.fetchone()
+
+        if existing_username:
+            return jsonify({
+                "success": False,
+                "message": "Username already exists."
+            }), 409
+
+        # =========================
+        # PASSWORD CHANGE
+        # =========================
+
+        changing_password = bool(
+            current_password
+            or new_password
+            or confirm_password
+        )
+
+        if changing_password:
+
+            # All password fields required
+            if not current_password:
+                return jsonify({
+                    "success": False,
+                    "message": "Current password is required."
+                }), 400
+
+            if not new_password:
+                return jsonify({
+                    "success": False,
+                    "message": "New password is required."
+                }), 400
+
+            if not confirm_password:
+                return jsonify({
+                    "success": False,
+                    "message": "Please confirm your new password."
+                }), 400
+
+            # Check current password
+            if account["password"] != current_password:
+                return jsonify({
+                    "success": False,
+                    "message": "Current password is incorrect."
+                }), 400
+
+            # Check new password match
+            if new_password != confirm_password:
+                return jsonify({
+                    "success": False,
+                    "message": "New passwords do not match."
+                }), 400
+
+            # Minimum password length
+            if len(new_password) < 8:
+                return jsonify({
+                    "success": False,
+                    "message": "Password must be at least 8 characters."
+                }), 400
+
+        # =========================
+        # UPDATE USERNAME
+        # =========================
+
+        if changing_password:
+
+            cursor.execute("""
+                UPDATE user_accounts
+                SET
+                    username=%s,
+                    password=%s
+                WHERE id=%s
+            """, (
+                username,
+                new_password,
+                account_id
+            ))
+
+        else:
+
+            cursor.execute("""
+                UPDATE user_accounts
+                SET
+                    username=%s
+                WHERE id=%s
+            """, (
+                username,
+                account_id
+            ))
+
+        # =========================
+        # UPDATE PHONE NUMBER
+        # =========================
+
+        cursor.execute("""
+            UPDATE members
+            SET phone_number=%s
+            WHERE id=%s
+        """, (
+            phone_number,
+            member_id
+        ))
+
+        # =========================
+        # CHECK MEMBER EXISTS
+        # =========================
+
+        if cursor.rowcount == 0:
+
+            return jsonify({
+                "success": False,
+                "message": "Member record not found."
+            }), 404
+
+        conn.commit()
+
+        # =========================
+        # RETURN UPDATED DATA
+        # =========================
+
+        return jsonify({
+            "success": True,
+            "message": "Profile updated successfully.",
+            "user": {
+                "id": account_id,
+                "user_id": member_id,
+                "username": username,
+                "phone_number": phone_number
+            }
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        print("MEMBER PROFILE UPDATE ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to update profile."
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
 def generate_otp():
     return f"{random.randint(0, 999999):06d}"
 
