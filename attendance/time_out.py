@@ -28,24 +28,37 @@ def notify_website():
 
     except:
         pass
-
-def sync_timeout_cloud(user_id):
+def sync_timeout_cloud(user_id, time_out):
 
     try:
 
         response = requests.post(
             "https://smartgym-api-ia2e.onrender.com/api/sync_timeout",
             json={
-                "user_id": user_id
+                "user_id": user_id,
+                "time_out": time_out.strftime("%Y-%m-%d %H:%M:%S")
             },
             timeout=3
         )
 
-        print("☁️ TIMEOUT CLOUD:", response.status_code)
+        if response.status_code == 200:
+            print(
+                f"☁️ TIME-OUT SYNCED: "
+                f"{user_id} | {time_out}"
+            )
+        else:
+            print(
+                f"☁️ TIME-OUT SYNC FAILED: "
+                f"{response.status_code}"
+            )
 
     except Exception as e:
 
-        print("SYNC OUT ERROR:", e)
+        print(
+            "SYNC OUT ERROR:",
+            e
+        )
+
 # ==========================
 # CHECK ONLY (NO SAVE)
 # ==========================
@@ -209,6 +222,7 @@ def save_time_out(user_id):
     # ==========================
     threading.Thread(
         target=sync_timeout_cloud,
-        args=(user_id,),
+        args=(user_id, now),
         daemon=True
     ).start()
+   

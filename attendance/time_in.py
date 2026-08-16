@@ -19,24 +19,40 @@ def notify_website():
 # ==========================
 # CLOUD SYNC
 # ==========================
-def sync_attendance_cloud(user_id):
+# ==========================
+# CLOUD SYNC
+# ==========================
+def sync_attendance_cloud(user_id, time_in):
 
     try:
 
-        requests.post(
+        response = requests.post(
             "https://smartgym-api-ia2e.onrender.com/api/sync_attendance",
             json={
-                "user_id": user_id
+                "user_id": user_id,
+                "time_in": time_in.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": "ACTIVE"
             },
-            timeout=1
+            timeout=3
         )
 
-        print(f"☁️ CLOUD SYNC: {user_id}")
+        if response.status_code == 200:
+            print(
+                f"☁️ ATTENDANCE SYNCED: "
+                f"{user_id} | {time_in}"
+            )
+        else:
+            print(
+                f"☁️ ATTENDANCE SYNC FAILED: "
+                f"{response.status_code}"
+            )
 
     except Exception as e:
 
-        print("SYNC ERROR:", e)
-
+        print(
+            "SYNC ATTENDANCE ERROR:",
+            e
+        )
 
 # ==========================
 # CHECK ONLY (FAST VERSION)
@@ -204,7 +220,7 @@ def save_time_in(user_id):
     # ==========================
     threading.Thread(
         target=sync_attendance_cloud,
-        args=(user_id,),
+        args=(user_id, now),
         daemon=True
     ).start()
     
