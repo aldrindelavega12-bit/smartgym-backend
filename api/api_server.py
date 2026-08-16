@@ -73,7 +73,7 @@ def update_member_profile():
     try:
 
         # =========================
-        # GET MEMBER ACCOUNT
+        # GET ACCOUNT
         # =========================
 
         cursor.execute("""
@@ -109,6 +109,25 @@ def update_member_profile():
         member_id = account["user_id"]
 
         # =========================
+        # CHECK MEMBER EXISTS
+        # =========================
+
+        cursor.execute("""
+            SELECT id
+            FROM members
+            WHERE id=%s
+            LIMIT 1
+        """, (member_id,))
+
+        member = cursor.fetchone()
+
+        if not member:
+            return jsonify({
+                "success": False,
+                "message": "Member record not found."
+            }), 404
+
+        # =========================
         # CHECK USERNAME DUPLICATE
         # =========================
 
@@ -132,18 +151,17 @@ def update_member_profile():
             }), 409
 
         # =========================
-        # PASSWORD CHANGE
+        # PASSWORD CHANGE?
         # =========================
 
         changing_password = bool(
-            current_password
-            or new_password
-            or confirm_password
+            current_password or
+            new_password or
+            confirm_password
         )
 
         if changing_password:
 
-            # All password fields required
             if not current_password:
                 return jsonify({
                     "success": False,
@@ -162,21 +180,21 @@ def update_member_profile():
                     "message": "Please confirm your new password."
                 }), 400
 
-            # Check current password
+            # CURRENT PASSWORD
             if account["password"] != current_password:
                 return jsonify({
                     "success": False,
                     "message": "Current password is incorrect."
                 }), 400
 
-            # Check new password match
+            # CONFIRM PASSWORD
             if new_password != confirm_password:
                 return jsonify({
                     "success": False,
                     "message": "New passwords do not match."
                 }), 400
 
-            # Minimum password length
+            # MINIMUM LENGTH
             if len(new_password) < 8:
                 return jsonify({
                     "success": False,
@@ -205,8 +223,7 @@ def update_member_profile():
 
             cursor.execute("""
                 UPDATE user_accounts
-                SET
-                    username=%s
+                SET username=%s
                 WHERE id=%s
             """, (
                 username,
@@ -214,7 +231,7 @@ def update_member_profile():
             ))
 
         # =========================
-        # UPDATE PHONE NUMBER
+        # UPDATE PHONE
         # =========================
 
         cursor.execute("""
@@ -227,20 +244,13 @@ def update_member_profile():
         ))
 
         # =========================
-        # CHECK MEMBER EXISTS
+        # COMMIT
         # =========================
-
-        if cursor.rowcount == 0:
-
-            return jsonify({
-                "success": False,
-                "message": "Member record not found."
-            }), 404
 
         conn.commit()
 
         # =========================
-        # RETURN UPDATED DATA
+        # SUCCESS
         # =========================
 
         return jsonify({
@@ -252,7 +262,7 @@ def update_member_profile():
                 "username": username,
                 "phone_number": phone_number
             }
-        })
+        }), 200
 
     except Exception as e:
 
