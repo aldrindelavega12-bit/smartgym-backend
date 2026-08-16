@@ -31,7 +31,97 @@ API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 @app.route("/api/activate_account", methods=["POST"])
 
+@app.route("/api/member/attendance/<user_id>", methods=["GET"])
+def get_member_attendance(user_id):
 
+    conn = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        # =========================
+        # GET ALL ATTENDANCE DATES
+        # =========================
+
+        cursor.execute("""
+            SELECT DISTINCT
+                DATE(time_in) AS attendance_date
+            FROM attendance_sessions
+            WHERE user_id = %s
+            AND time_in IS NOT NULL
+            ORDER BY attendance_date ASC
+        """, (user_id,))
+
+        rows = cursor.fetchall()
+
+
+        # =========================
+        # FORMAT DATES
+        # =========================
+
+        dates = []
+
+        for row in rows:
+
+            attendance_date = row["attendance_date"]
+
+            if attendance_date:
+
+                dates.append(
+                    attendance_date.strftime(
+                        "%Y-%m-%d"
+                    )
+                )
+
+
+        # =========================
+        # TOTAL USES
+        # =========================
+
+        total = len(dates)
+
+
+        return jsonify({
+
+            "success": True,
+
+            "dates": dates,
+
+            "total": total
+
+        })
+
+
+    except Exception as e:
+
+        print(
+            "MEMBER ATTENDANCE ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "success": False,
+
+            "dates": [],
+
+            "total": 0,
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if conn:
+
+            conn.close()
 @app.route("/api/member/profile", methods=["PUT"])
 def update_member_profile():
 
