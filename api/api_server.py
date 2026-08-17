@@ -4365,22 +4365,18 @@ def login():
 			SELECT
 				ua.id,
 				ua.user_id,
-				m.full_name,
+				COALESCE(m.full_name, ua.fullname) AS fullname,
 				ua.username,
 				ua.password,
 				ua.role,
-				COALESCE(m.phone_number, pm.phone_number) AS phone_number
-
+				pm.phone_number
 			FROM user_accounts ua
-
 			LEFT JOIN members m
-				ON m.id = ua.user_id
-
+				ON m.id COLLATE utf8mb4_general_ci
+				= ua.user_id COLLATE utf8mb4_general_ci
 			LEFT JOIN pending_members pm
 				ON ua.id = pm.account_id
-
 			WHERE ua.username=%s
-
 		""", (username,))
 
         user = cursor.fetchone()
