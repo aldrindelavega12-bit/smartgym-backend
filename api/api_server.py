@@ -4362,23 +4362,26 @@ def login():
     try:
 
         cursor.execute("""
-            SELECT
-                ua.id,
-                ua.user_id,
-                ua.fullname,
-                ua.username,
-                ua.password,
-                ua.role,
-                pm.phone_number
+			SELECT
+				ua.id,
+				ua.user_id,
+				m.full_name,
+				ua.username,
+				ua.password,
+				ua.role,
+				COALESCE(m.phone_number, pm.phone_number) AS phone_number
 
-            FROM user_accounts ua
+			FROM user_accounts ua
 
-            LEFT JOIN pending_members pm
-                ON ua.id = pm.account_id
+			LEFT JOIN members m
+				ON m.id = ua.user_id
 
-            WHERE ua.username=%s
+			LEFT JOIN pending_members pm
+				ON ua.id = pm.account_id
 
-        """, (username,))
+			WHERE ua.username=%s
+
+		""", (username,))
 
         user = cursor.fetchone()
 
