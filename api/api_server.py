@@ -3000,69 +3000,184 @@ def get_connection():
 # ==============================
 # 📊 ATTENDANCE API (FIXED 🔥)
 # ==============================
-from flask import request
+# ==============================
+# 📊 ATTENDANCE API
+# ==============================
+from flask import request, jsonify
 from datetime import datetime
+import pymysql
+
 
 @app.route("/api/attendance", methods=["GET"])
 def get_attendance():
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # ===== GET DATE FROM FRONTEND =====
+    conn = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        # ==============================
+        # GET DATE
+        # ==============================
+
         date = request.args.get("date")
 
-        # default = today
         if not date:
             date = datetime.now().strftime("%Y-%m-%d")
 
-        # ===== QUERY WITH DATE FILTER =====
+
+        # ==============================
+        # ATTENDANCE QUERY
+        # ==============================
+
         cursor.execute("""
-            SELECT 
-                COALESCE(m.full_name, w.full_name) AS name,
-                CASE 
-                    WHEN m.id IS NOT NULL THEN 'member'
-                    ELSE 'walk-in'
+            SELECT
+
+                COALESCE(
+                    m.full_name,
+                    w.full_name
+                ) AS name,
+
+                CASE
+                    WHEN m.id IS NOT NULL
+                        THEN 'Member'
+
+                    WHEN w.id IS NOT NULL
+                        THEN 'Walk-in'
+
+                    ELSE '-'
                 END AS type,
+
                 a.user_id,
                 a.time_in,
                 a.time_out,
                 a.status
+
             FROM attendance_sessions a
-            LEFT JOIN members m 
-                ON a.user_id = m.id
+
+            LEFT JOIN members m
+                ON CONVERT(a.user_id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+                =
+                CONVERT(m.id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
             LEFT JOIN walkins w
-                ON a.user_id = w.id
-            WHERE DATE(a.time_in) = %s   -- 🔥 FILTER HERE
+                ON CONVERT(a.user_id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+                =
+                CONVERT(w.id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+            WHERE DATE(a.time_in) = %s
+
             ORDER BY a.time_in DESC
+
         """, (date,))
 
+
         rows = cursor.fetchall()
+
+
+        # ==============================
+        # FORMAT DATA
+        # ==============================
 
         data = []
 
         for row in rows:
 
-            # ===== FORMAT TIME (NO SECONDS) =====
-            time_in = row["time_in"].strftime("%I:%M %p") if row["time_in"] else "-"
-            time_out = row["time_out"].strftime("%I:%M %p") if row["time_out"] else "-"
+            # TIME IN
+            if row["time_in"]:
+
+                time_in = row["time_in"].strftime(
+                    "%I:%M %p"
+                )
+
+            else:
+
+                time_in = "-"
+
+
+            # TIME OUT
+            if row["time_out"]:
+
+                time_out = row["time_out"].strftime(
+                    "%I:%M %p"
+                )
+
+            else:
+
+                time_out = "-"
+
+
+            # REMARKS
+            if row["time_out"]:
+
+                remarks = "Completed"
+
+            else:
+
+                remarks = "Active"
+
 
             data.append({
-                "name": row["name"] if row["name"] else row["user_id"],
-                "type": row["type"],
-                "time_in": time_in,
-                "time_out": time_out,
-                "locker": "-",
-                "remarks": "Completed" if row["time_out"] else "Active"
+
+                "name":
+                    row["name"]
+                    if row["name"]
+                    else row["user_id"],
+
+                "type":
+                    row["type"],
+
+                "time_in":
+                    time_in,
+
+                "time_out":
+                    time_out,
+
+                "locker":
+                    "-",
+
+                "remarks":
+                    remarks
+
             })
 
-        return jsonify({"data": data})
+
+        # ==============================
+        # RESPONSE
+        # ==============================
+
+        return jsonify({
+            "data": data
+        })
+
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+
+        print(
+            "❌ ATTENDANCE API ERROR:",
+            e
+        )
+
+        return jsonify({
+            "error": str(e),
+            "data": []
+        }), 500
+
 
     finally:
-        conn.close()
+
+        if conn:
+
+            conn.close()
         
 @app.route("/api/create_staff_account",
            methods=["POST"])
