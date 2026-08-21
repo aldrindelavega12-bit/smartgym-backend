@@ -3334,6 +3334,8 @@ from datetime import timedelta
 @app.route("/api/lockers", methods=["GET"])
 def get_lockers():
 
+    conn = None
+
     try:
 
         conn = get_connection()
@@ -3343,28 +3345,24 @@ def get_lockers():
         )
 
         cursor.execute("""
-
             SELECT
 
                 l.locker_number,
 
                 CASE
+                    WHEN ls.status = 'overtime'
+                        THEN 'OVERTIME'
 
-                    WHEN ls.status='overtime'
-                    THEN 'OVERTIME'
+                    WHEN ls.status = 'active'
+                        THEN 'IN_USE'
 
-                    WHEN ls.status='active'
-                    THEN 'IN_USE'
-
-                    WHEN l.status='RESERVED'
-                    THEN 'RESERVED'
+                    WHEN l.status = 'RESERVED'
+                        THEN 'RESERVED'
 
                     ELSE 'AVAILABLE'
-
                 END AS status,
 
                 ls.user_id,
-
                 ls.start_time,
 
                 COALESCE(
@@ -3376,17 +3374,24 @@ def get_lockers():
             FROM lockers l
 
             LEFT JOIN locker_sessions ls
-            ON l.locker_number = ls.locker_number
-            AND ls.status IN ('active','overtime')
+                ON l.locker_number = ls.locker_number
+                AND ls.status IN ('active', 'overtime')
 
             LEFT JOIN members m
-            ON ls.user_id = m.id
+                ON CONVERT(ls.user_id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
+                   =
+                   CONVERT(m.id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
 
             LEFT JOIN walkins w
-            ON ls.user_id = w.id
+                ON CONVERT(ls.user_id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
+                   =
+                   CONVERT(w.id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
 
             ORDER BY l.locker_number ASC
-
         """)
 
         rows = cursor.fetchall()
@@ -3395,26 +3400,157 @@ def get_lockers():
 
         for row in rows:
 
-            # 🔥 NAME
-            name = row["full_name"] if row["full_name"] else "-"
+            # =========================
+            # NAME
+            # =========================
+            name = row["full_name"] or "-"
 
-            # 🔥 TIME
+            # =========================
+            # TIME
+            # =========================
             time_start = "-"
 
             if row["start_time"]:
-
                 time_start = row["start_time"].strftime("%I:%M %p")
 
             data.append({
-
                 "locker": row["locker_number"],
-
                 "name": name,
-
                 "time_start": time_start,
-
                 "status": row["status"]
+            })
 
+        return jsonify({
+            "data": data
+        }), 200
+
+    except Exception as e:
+
+        print("LOCKER API ERROR:", repr(e))
+
+        return jsonify({
+            "error": str(e),
+            "data": []
+        }), 500
+
+    finally:
+
+        if conn:
+            conn.close()
+@app.route("/api/locker_history", methods=["GET"])
+def locker_history():
+
+    conn = None
+
+    try:
+
+        date = request.args.get("date")
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        if date:
+
+            cursor.execute("""
+                SELECT
+                    ls.locker_number,
+
+                    ls.start_time,
+
+                    ls.end_time,
+
+                    ls.status,
+
+                    COALESCE(
+                        m.full_name,
+                        w.full_name,
+                        ls.user_id
+                    ) AS name
+
+                FROM locker_sessions ls
+
+                LEFT JOIN members m
+                    ON CONVERT(ls.user_id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+                    =
+                    CONVERT(m.id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+
+                LEFT JOIN walkins w
+                    ON CONVERT(ls.user_id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+                    =
+                    CONVERT(w.id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+
+                WHERE DATE(ls.start_time) = %s
+
+                ORDER BY ls.start_time DESC
+
+            """, (date,))
+
+        else:
+
+            cursor.execute("""
+                SELECT
+                    ls.locker_number,
+
+                    ls.start_time,
+
+                    ls.end_time,
+
+                    ls.status,
+
+                    COALESCE(
+                        m.full_name,
+                        w.full_name,
+                        ls.user_id
+                    ) AS name
+
+                FROM locker_sessions ls
+
+                LEFT JOIN members m
+                    ON CONVERT(ls.user_id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+                    =
+                    CONVERT(m.id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+
+                LEFT JOIN walkins w
+                    ON CONVERT(ls.user_id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+                    =
+                    CONVERT(w.id USING utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+
+                ORDER BY ls.start_time DESC
+
+            """)
+
+        rows = cursor.fetchall()
+
+        data = []
+
+        for row in rows:
+
+            start = "-"
+            end = "-"
+
+            if row["start_time"]:
+                start = row["start_time"].strftime("%I:%M %p")
+
+            if row["end_time"]:
+                end = row["end_time"].strftime("%I:%M %p")
+
+            data.append({
+                "name": row["name"] if row["name"] else "-",
+                "locker": row["locker_number"],
+                "start": start,
+                "end": end,
+                "status": row["status"]
             })
 
         return jsonify({
@@ -3423,55 +3559,19 @@ def get_lockers():
 
     except Exception as e:
 
-        print("LOCKER API ERROR:", e)
+        print("================================")
+        print("LOCKER HISTORY API ERROR:")
+        print(e)
+        print("================================")
 
         return jsonify({
             "error": str(e)
-        })
+        }), 500
 
     finally:
 
-        conn.close()
-        
-@app.route("/api/locker_history")
-def locker_history():
-
-    date = request.args.get("date")
-
-    conn = get_connection()
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-    if date:
-        cursor.execute("""
-            SELECT 
-                ls.locker_number,
-                ls.start_time,
-                ls.end_time,
-                ls.status,
-                COALESCE(m.full_name, w.full_name) AS name
-            FROM locker_sessions ls
-            LEFT JOIN members m ON ls.user_id = m.id
-            LEFT JOIN walkins w ON ls.user_id = w.id
-            WHERE DATE(ls.start_time)=%s
-            ORDER BY ls.start_time DESC
-        """,(date,))
-    else:
-        cursor.execute("SELECT * FROM locker_sessions")
-
-    rows = cursor.fetchall()
-
-    data = []
-    for r in rows:
-        data.append({
-            "name": r["name"],
-            "locker": r["locker_number"],
-            "start": str(r["start_time"]),
-            "end": str(r["end_time"]) if r["end_time"] else None,
-            "status": r["status"]
-        })
-
-    return jsonify({"data": data})
-
+        if conn:
+            conn.close()
 @app.route("/api/notify/attendance", methods=["POST"])
 def notify_attendance_api():
     socketio.emit("attendance_update")
