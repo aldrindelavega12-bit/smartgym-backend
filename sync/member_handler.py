@@ -1,6 +1,6 @@
 from db.connection import get_connection
 from sync.face_installer import remove_face_package
-from sync.fp_delete import delete_fingerprint
+
 
 
 def handle_member_created(payload):
@@ -106,13 +106,12 @@ def handle_member_created(payload):
         connection.close()
 
 
-def handle_member_deleted(payload):
+def handle_member_deleted(payload, fp_manager):
 
     connection = get_connection()
     cursor = connection.cursor()
 
     try:
-    
 
         member_id = payload["member_id"]
 
@@ -134,7 +133,11 @@ def handle_member_deleted(payload):
 
             fp_id = result[0]
 
-            delete_fingerprint(fp_id)
+            print(f"[FP] Deleting slot {fp_id} from IN")
+            fp_manager.delete_in(fp_id)
+
+            print(f"[FP] Deleting slot {fp_id} from OUT")
+            fp_manager.delete_out(fp_id)
 
         # ==========================
         # DELETE DATABASE
@@ -153,10 +156,12 @@ def handle_member_deleted(payload):
         # DELETE FACE DATASET
         # ==========================
         remove_face_package(member_id)
+
         # ==========================
         # DELETE USER ACCOUNT
         # ==========================
         print("DELETE USER ACCOUNT:", member_id)
+
         cursor.execute(
             """
             DELETE FROM user_accounts
@@ -164,19 +169,23 @@ def handle_member_deleted(payload):
             """,
             (member_id,)
         )
+
+        # ==========================
+        # UPDATE VERSIONS
+        # ==========================
         cursor.execute("""
-        UPDATE sync_versions
-        SET version = version + 1
-        WHERE resource='members'
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource='members'
         """)
 
         cursor.execute("""
-        UPDATE sync_versions
-        SET version = version + 1
-        WHERE resource='fingerprints'
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource='fingerprints'
         """)
+
         connection.commit()
-        
 
         return {
             "success": True,

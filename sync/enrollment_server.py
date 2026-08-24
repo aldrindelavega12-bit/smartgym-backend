@@ -3,7 +3,14 @@ from flask import Flask, request, jsonify
 
 from sync.event_handler import handle_event
 
+
 app = Flask(__name__)
+
+# ==========================================
+# SHARED FINGERPRINT MANAGER
+# ==========================================
+
+fp_manager = None
 
 
 @app.route("/")
@@ -20,7 +27,10 @@ def sync_event():
 
     try:
 
-        # -------- FILE EVENT --------
+        # ==========================================
+        # FILE EVENT
+        # ==========================================
+
         if request.files:
 
             event = {
@@ -35,21 +45,36 @@ def sync_event():
 
             }
 
-        # -------- JSON EVENT --------
+        # ==========================================
+        # JSON EVENT
+        # ==========================================
+
         else:
 
             event = request.get_json()
 
+
         print("\n========== EVENT RECEIVED ==========")
         print(event)
 
-        result = handle_event(event)
+
+        # ==========================================
+        # HANDLE EVENT
+        # ==========================================
+
+        result = handle_event(
+            event,
+            fp_manager
+        )
+
 
         print("\n========== RESULT ==========")
         print(result)
         print("============================\n")
 
+
         return jsonify(result), 200
+
 
     except Exception as e:
 
@@ -63,17 +88,40 @@ def sync_event():
 
         }), 500
 
-def start_server():
+
+# ==========================================
+# START SERVER
+# ==========================================
+
+def start_server(manager=None):
+
+    global fp_manager
+
+    # Receive the SAME FingerprintManager
+    # created by main.py
+
+    fp_manager = manager
+
 
     print("[SYNC] Enrollment Server Started (5002)")
 
+
     app.run(
+
         host="0.0.0.0",
+
         port=5002,
+
         debug=False,
+
         use_reloader=False
+
     )
 
+
+# ==========================================
+# STANDALONE MODE
+# ==========================================
 
 if __name__ == "__main__":
 

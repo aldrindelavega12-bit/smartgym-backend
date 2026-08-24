@@ -17,9 +17,19 @@ from sync.walkin_handler import (
 from sync.locker_handler import (
     handle_locker_overtime_paid
 )
-from sync.activation_handler import handle_activation_created
-from sync.face_handler import handle_face_sync
-from sync.fp_handler import handle_fp_sync   # <-- ADD
+
+from sync.activation_handler import (
+    handle_activation_created
+)
+
+from sync.face_handler import (
+    handle_face_sync
+)
+
+from sync.fp_handler import (
+    handle_fp_sync
+)
+
 
 HANDLERS = {
 
@@ -44,21 +54,49 @@ HANDLERS = {
     "ACTIVATION_CREATED": handle_activation_created
 }
 
-def handle_event(event):
+
+def handle_event(event, fp_manager=None):
 
     event_type = event.get("event_type")
     payload = event.get("payload", {})
 
-    # FILE EVENTS
+    # ==========================================
+    # FILE EVENT
+    # ==========================================
+
     if event_type == "FACE_SYNC":
+
         return handle_face_sync(event)
+
+    # ==========================================
+    # GET HANDLER
+    # ==========================================
 
     handler = HANDLERS.get(event_type)
 
     if handler is None:
+
         return {
             "success": False,
             "message": f"Unknown event: {event_type}"
         }
+
+    # ==========================================
+    # EVENTS THAT NEED FINGERPRINT MANAGER
+    # ==========================================
+
+    if event_type in (
+        "FP_SYNC",
+        "MEMBER_DELETED"
+    ):
+
+        return handler(
+            payload,
+            fp_manager
+        )
+
+    # ==========================================
+    # NORMAL EVENTS
+    # ==========================================
 
     return handler(payload)

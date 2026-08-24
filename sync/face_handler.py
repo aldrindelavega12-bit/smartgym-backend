@@ -15,17 +15,35 @@ def handle_face_sync(event):
 
     uploaded_file.save(save_path)
 
-    # Install package
+    # =========================
+    # INSTALL FACE PACKAGE
+    # =========================
+
     install_face_package(save_path)
+
+    # =========================
+    # RELOAD FACE MODEL
+    # =========================
+
+    from biometrics.face.recognize import face_recognizer
+
+    face_recognizer.load_model()
+
+    print("[FACE SYNC] Face model reloaded ✔")
+
+    # =========================
+    # UPDATE VERSION
+    # =========================
+
     from db.connection import get_connection
 
     connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
-    UPDATE sync_versions
-    SET version = version + 1
-    WHERE resource='face'
+        UPDATE sync_versions
+        SET version = version + 1
+        WHERE resource='face'
     """)
 
     connection.commit()
@@ -34,9 +52,6 @@ def handle_face_sync(event):
     connection.close()
 
     return {
-
         "success": True,
-
-        "message": "Face package installed."
-
+        "message": "Face package installed and model reloaded."
     }

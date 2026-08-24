@@ -30,9 +30,9 @@ from datetime import datetime
 from api.api_server import socketio
 from sms_module.sms import send_sms
 from datetime import datetime, timedelta
+from biometrics.fingerprint.manager import FingerprintManager
 
-
-
+from sync.enrollment_server import start_server
 # =========================
 # GLOBAL STATES
 # =========================
@@ -43,6 +43,8 @@ admin_requested = False
 recognition_enabled = True
 
 face_recognizer = None
+fp_manager = None
+
 FP_COOLDOWN = 2
 FACE_COOLDOWN = 2
 
@@ -255,8 +257,8 @@ def in_lane_loop(in_fp, face_recognizer, ui):
         if now - last_in_fp_scan < FP_COOLDOWN:
             time.sleep(0.1)
             continue
-
-        fp_id = in_fp.verify()
+        
+        fp_id = fp_manager.verify_in()
 
         if fp_id is not None:
             last_in_fp_scan = time.time()
@@ -527,7 +529,7 @@ def out_lane_loop(out_fp):
             time.sleep(0.1)
             continue
 
-        fp_id = out_fp.verify()
+        fp_id = fp_manager.verify_out()
 
         if fp_id is not None:
             last_out_fp_scan = time.time()
@@ -684,6 +686,8 @@ def print_access(name, user_type, status, reason=None):
 
 def main():
     global face_recognizer
+    global fp_manager
+
 
     print("\n" + "="*35)
     print(" SMART GYM TURNSTILE SYSTEM")
@@ -691,13 +695,17 @@ def main():
     print(" Commands: admin | quit")
     print("="*35 + "\n")
 
-    # -------------------------
-    # Initialize Hardware
-    # -------------------------
-    in_fp = InFingerprint()
-    out_fp = OutFingerprint()
+    fp_manager = FingerprintManager()
 
+    in_fp = fp_manager.in_fp
+    out_fp = fp_manager.out_fp
 #     init_serial("/dev/ttyACM0", 115200)
+
+    threading.Thread(
+        target=start_server,
+        args=(fp_manager,),
+        daemon=True
+    ).start()
 
 
     # -------------------------

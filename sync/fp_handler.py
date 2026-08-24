@@ -1,12 +1,10 @@
 from sync.fp_installer import install_fingerprint
 
 
-def handle_fp_sync(payload):
+def handle_fp_sync(payload, fp_manager):
 
     user_id = payload["user_id"]
-
     fp_id = payload["fp_id"]
-
     fp_template = payload["fp_template"]
 
     print("\n========== FP INSTALL ==========")
@@ -14,14 +12,12 @@ def handle_fp_sync(payload):
     print("FP ID   :", fp_id)
 
     install_fingerprint(
+        fp_manager,
         fp_id,
         fp_template
     )
 
     return {
-
         "success": True,
-
         "message": "Fingerprint installed."
-
     }
