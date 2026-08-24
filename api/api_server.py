@@ -1078,12 +1078,173 @@ def check_activation(token):
 
 
 
-
-
-
-
-
 # ----------------ENROLLMENT-------------
+
+@app.route("/api/walkin_created", methods=["POST"])
+def walkin_created():
+
+    data = request.get_json()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            INSERT INTO walkins(
+                id,
+                full_name,
+                fingerprint_template,
+                phone_number,
+                visit_date,
+                fp_id
+            )
+            VALUES(
+                %s,
+                %s,
+                %s,
+                %s,
+                CURDATE(),
+                %s
+            )
+
+            ON DUPLICATE KEY UPDATE
+
+                full_name=VALUES(full_name),
+                fingerprint_template=VALUES(fingerprint_template),
+                phone_number=VALUES(phone_number),
+                fp_id=VALUES(fp_id)
+
+        """, (
+            data["walkin_id"],
+            data["full_name"],
+            data["fp_template"],
+            data["phone_number"],
+            data["fp_id"]
+        ))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Walkin synchronized."
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+        
+        
+@app.route("/api/walkin_payment_updated", methods=["POST"])
+def walkin_payment_updated():
+
+    data = request.get_json()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            INSERT INTO payments(
+                user_id,
+                payment_type,
+                amount
+            )
+            VALUES(
+                %s,
+                %s,
+                %s
+            )
+        """, (
+            data["walkin_id"],
+            data["payment_type"],
+            data["amount"]
+        ))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Walk-in payment synchronized."
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+        
+@app.route("/api/walkin_deleted", methods=["POST"])
+def walkin_deleted():
+
+    data = request.get_json()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        walkin_id = data["walkin_id"]
+
+        # Delete fingerprint template record
+        cursor.execute("""
+            DELETE FROM fp_templates
+            WHERE user_id=%s
+        """, (walkin_id,))
+
+        # Delete walk-in
+        cursor.execute("""
+            DELETE FROM walkins
+            WHERE id=%s
+        """, (walkin_id,))
+
+        # Delete related payments
+        cursor.execute("""
+            DELETE FROM payments
+            WHERE user_id=%s
+        """, (walkin_id,))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Walk-in deleted."
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
+
 @app.route("/api/walkins", methods=["GET"])
 def get_walkins():
 

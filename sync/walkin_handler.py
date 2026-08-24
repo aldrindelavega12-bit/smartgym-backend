@@ -175,7 +175,7 @@ def handle_walkin_payment_updated(payload):
         connection.close()
 
 
-def handle_walkin_deleted(payload):
+def handle_walkin_deleted(payload, fp_manager):
 
     connection = get_connection()
 
@@ -199,13 +199,12 @@ def handle_walkin_deleted(payload):
         )
 
         result = cursor.fetchone()
-
+        
         if result:
 
             fp_id = result[0]
 
-            delete_fingerprint(fp_id)
-
+            delete_fingerprint(fp_manager, fp_id)
         # ==========================
         # DELETE DATABASE
         # ==========================

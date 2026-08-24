@@ -84,11 +84,13 @@ def handle_event(event, fp_manager=None):
     # ==========================================
     # EVENTS THAT NEED FINGERPRINT MANAGER
     # ==========================================
-
+    
     if event_type in (
         "FP_SYNC",
-        "MEMBER_DELETED"
+        "MEMBER_DELETED",
+        "WALKIN_DELETED"
     ):
+
 
         return handler(
             payload,
