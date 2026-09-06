@@ -1076,6 +1076,106 @@ def check_activation(token):
         cursor.close()
         conn.close()
 
+# ==============================
+# 📊 DAILY ATTENDANCE SUMMARY
+# ==============================
+
+@app.route("/api/attendance_summary", methods=["GET"])
+def get_attendance_summary():
+
+    conn = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                SUM(
+                    DATE(time_in) = CURDATE()
+                ) AS today,
+
+                SUM(
+                    DATE(time_in) = CURDATE() - INTERVAL 1 DAY
+                ) AS yesterday
+
+            FROM attendance_sessions
+
+            WHERE DATE(time_in)
+                IN (
+                    CURDATE(),
+                    CURDATE() - INTERVAL 1 DAY
+                )
+        """)
+
+        row = cursor.fetchone()
+
+        today = row["today"] or 0
+        yesterday = row["yesterday"] or 0
+
+
+        # ==============================
+        # PERCENTAGE CHANGE
+        # ==============================
+
+        if yesterday > 0:
+
+            percentage = (
+                (today - yesterday)
+                / yesterday
+            ) * 100
+
+        else:
+
+            percentage = 100 if today > 0 else 0
+
+
+        return jsonify({
+
+            "today": today,
+
+            "yesterday": yesterday,
+
+            "difference": today - yesterday,
+
+            "percentage": round(
+                percentage,
+                1
+            )
+
+        })
+
+
+    except Exception as e:
+
+        print(
+            "ATTENDANCE SUMMARY ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "today": 0,
+
+            "yesterday": 0,
+
+            "difference": 0,
+
+            "percentage": 0,
+
+            "error": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if conn:
+            conn.close()
 
 @app.route("/api/walkins_summary", methods=["GET"])
 def walkins_summary():
