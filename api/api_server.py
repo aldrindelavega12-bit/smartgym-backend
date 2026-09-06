@@ -1077,7 +1077,41 @@ def check_activation(token):
         conn.close()
 
 
+@app.route("/api/walkins_summary", methods=["GET"])
+def walkins_summary():
 
+    conn = get_connection()
+    cursor = conn.cursor(
+        pymysql.cursors.DictCursor
+    )
+
+    try:
+
+        cursor.execute("""
+            SELECT COUNT(*) AS total
+            FROM walkins
+            WHERE visit_date = CURDATE()
+        """)
+
+        row = cursor.fetchone()
+
+        return jsonify({
+            "today": row["total"]
+        })
+
+    except Exception as e:
+
+        print("WALKIN SUMMARY ERROR:", e)
+
+        return jsonify({
+            "today": 0,
+            "error": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
 # ----------------ENROLLMENT-------------
 
 @app.route("/api/walkin_created", methods=["POST"])

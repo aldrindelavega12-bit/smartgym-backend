@@ -170,9 +170,11 @@ def handle_member_deleted(payload, fp_manager):
             (member_id,)
         )
 
+
         # ==========================
         # UPDATE VERSIONS
         # ==========================
+
         cursor.execute("""
             UPDATE sync_versions
             SET version = version + 1
@@ -185,7 +187,14 @@ def handle_member_deleted(payload, fp_manager):
             WHERE resource='fingerprints'
         """)
 
+        cursor.execute("""
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource='face'
+        """)
+
         connection.commit()
+        
 
         return {
             "success": True,

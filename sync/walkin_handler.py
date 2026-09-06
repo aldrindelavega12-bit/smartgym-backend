@@ -219,6 +219,22 @@ def handle_walkin_deleted(payload, fp_manager):
             (walkin_id,)
         )
 
+        # ==========================
+        # UPDATE VERSIONS
+        # ==========================
+
+        cursor.execute("""
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource='walkins'
+        """)
+
+        cursor.execute("""
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource='fingerprints'
+        """)
+
         connection.commit()
 
         return {
