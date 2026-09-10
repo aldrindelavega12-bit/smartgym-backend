@@ -1212,6 +1212,103 @@ def walkins_summary():
 
         cursor.close()
         conn.close()
+        
+@app.route("/api/website_walkins", methods=["GET"])
+def website_walkins():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                w.id,
+                w.full_name,
+                w.phone_number,
+                w.visit_date,
+
+                COUNT(a.session_id) AS total_visit
+
+            FROM walkins w
+
+            LEFT JOIN attendance_sessions a
+                ON a.user_id = w.id
+
+            GROUP BY
+                w.id,
+                w.full_name,
+                w.phone_number,
+                w.visit_date
+
+            ORDER BY
+                w.visit_date DESC,
+                w.id ASC
+        """)
+
+        rows = cursor.fetchall()
+
+        data = []
+
+        for row in rows:
+
+            data.append({
+
+                "id": row["id"],
+
+                "name": row["full_name"],
+
+                "phone": row["phone_number"],
+
+                "visit_date": (
+                    row["visit_date"].strftime("%Y-%m-%d")
+                    if row["visit_date"]
+                    else "-"
+                ),
+
+                "total_visit":
+                    row["total_visit"] or 0
+            })
+
+        return jsonify({
+
+            "success": True,
+
+            "data": data
+
+        })
+
+    except Exception as e:
+
+        print(
+            "WEBSITE WALKINS API ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "success": False,
+
+            "data": [],
+
+            "error": str(e)
+
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()        
+
 # ----------------ENROLLMENT-------------
 
 @app.route("/api/walkin_created", methods=["POST"])
