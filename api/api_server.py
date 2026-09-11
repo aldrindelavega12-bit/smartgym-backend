@@ -1076,6 +1076,351 @@ def check_activation(token):
         cursor.close()
         conn.close()
 
+# ============================================
+# 📊 REPORTS - ATTENDANCE API
+# ============================================
+
+@app.route("/api/reports/attendance", methods=["GET"])
+def reports_attendance():
+
+    conn = None
+
+    try:
+
+        # ========================================
+        # GET DATE RANGE
+        # ========================================
+
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        # If no dates supplied → today
+        if not start_date:
+            start_date = datetime.now().strftime("%Y-%m-%d")
+
+        if not end_date:
+            end_date = start_date
+
+
+        # ========================================
+        # VALIDATE DATE RANGE
+        # ========================================
+
+        try:
+
+            start = datetime.strptime(
+                start_date,
+                "%Y-%m-%d"
+            ).date()
+
+            end = datetime.strptime(
+                end_date,
+                "%Y-%m-%d"
+            ).date()
+
+        except ValueError:
+
+            return jsonify({
+                "success": False,
+                "message": "Invalid date format. Use YYYY-MM-DD.",
+                "data": []
+            }), 400
+
+
+        if start > end:
+
+            return jsonify({
+                "success": False,
+                "message": "Start date cannot be later than end date.",
+                "data": []
+            }), 400
+
+
+        # ========================================
+        # DATABASE
+        # ========================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # ========================================
+        # ATTENDANCE QUERY
+        # ========================================
+
+        cursor.execute("""
+            SELECT
+
+                a.user_id,
+
+                COALESCE(
+                    m.full_name,
+                    w.full_name,
+                    a.user_id
+                ) AS name,
+
+                CASE
+
+                    WHEN m.id IS NOT NULL
+                        THEN 'Member'
+
+                    WHEN w.id IS NOT NULL
+                        THEN 'Walk-in'
+
+                    ELSE '-'
+
+                END AS type,
+
+                a.time_in,
+
+                a.time_out,
+
+                a.status
+
+            FROM attendance_sessions a
+
+            LEFT JOIN members m
+
+                ON CONVERT(a.user_id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+                =
+
+                CONVERT(m.id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+
+            LEFT JOIN walkins w
+
+                ON CONVERT(a.user_id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+                =
+
+                CONVERT(w.id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+
+            WHERE DATE(a.time_in)
+                BETWEEN %s AND %s
+
+
+            ORDER BY
+                a.time_in DESC
+
+        """, (
+            start_date,
+            end_date
+        ))
+
+
+        rows = cursor.fetchall()
+
+
+        # ========================================
+        # FORMAT DATA
+        # ========================================
+
+        data = []
+
+
+        for row in rows:
+
+            # ------------------------------------
+            # ID
+            # ------------------------------------
+
+            user_id = (
+                row["user_id"]
+                if row["user_id"]
+                else "-"
+            )
+
+
+            # ------------------------------------
+            # TIME IN
+            # ------------------------------------
+
+            time_in = "-"
+
+            if row["time_in"]:
+
+                time_in = row["time_in"].strftime(
+                    "%I:%M %p"
+                )
+
+
+            # ------------------------------------
+            # TIME OUT
+            # ------------------------------------
+
+            time_out = "-"
+
+            if row["time_out"]:
+
+                time_out = row["time_out"].strftime(
+                    "%I:%M %p"
+                )
+
+
+            # ------------------------------------
+            # DURATION
+            # ------------------------------------
+
+            duration = "-"
+
+            if row["time_in"] and row["time_out"]:
+
+                seconds = (
+                    row["time_out"]
+                    - row["time_in"]
+                ).total_seconds()
+
+
+                minutes = int(
+                    seconds // 60
+                )
+
+
+                hours = minutes // 60
+
+                remaining_minutes = (
+                    minutes % 60
+                )
+
+
+                if hours > 0:
+
+                    duration = (
+                        f"{hours}h "
+                        f"{remaining_minutes}m"
+                    )
+
+                else:
+
+                    duration = (
+                        f"{remaining_minutes}m"
+                    )
+
+
+            # ------------------------------------
+            # REMARKS
+            # ------------------------------------
+
+            if row["time_out"]:
+
+                remarks = "Completed"
+
+            else:
+
+                remarks = "Active"
+
+
+            # ------------------------------------
+            # VISIT DATE
+            # ------------------------------------
+
+            visit_date = "-"
+
+            if row["time_in"]:
+
+                visit_date = (
+                    row["time_in"]
+                    .strftime("%Y-%m-%d")
+                )
+
+
+            # ------------------------------------
+            # APPEND
+            # ------------------------------------
+
+            data.append({
+
+                "id":
+                    user_id,
+
+                "name":
+                    row["name"]
+                    if row["name"]
+                    else "-",
+
+                "type":
+                    row["type"]
+                    if row["type"]
+                    else "-",
+
+                "time_in":
+                    time_in,
+
+                "time_out":
+                    time_out,
+
+                "duration":
+                    duration,
+
+                "visit_date":
+                    visit_date,
+
+                "remarks":
+                    remarks
+
+            })
+
+
+        # ========================================
+        # RESPONSE
+        # ========================================
+
+        return jsonify({
+
+            "success": True,
+
+            "start_date":
+                start_date,
+
+            "end_date":
+                end_date,
+
+            "total":
+                len(data),
+
+            "data":
+                data
+
+        })
+
+
+    except Exception as e:
+
+        print(
+            "❌ REPORTS ATTENDANCE API ERROR:",
+            e
+        )
+
+
+        return jsonify({
+
+            "success": False,
+
+            "message":
+                str(e),
+
+            "data":
+                []
+
+        }), 500
+
+
+    finally:
+
+        if conn:
+
+            conn.close()
+
+
 # ==============================
 # 📊 DAILY ATTENDANCE SUMMARY
 # ==============================
