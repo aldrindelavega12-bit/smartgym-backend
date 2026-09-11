@@ -1721,25 +1721,21 @@ def reports_locker():
         # SUMMARY
         # ========================================
 
-        total_usage =
-            len(data)
+        total_usage = len(data)
 
 
         total_members = sum(
             1
             for row in data
-            if str(row["type"]).lower()
-            == "member"
+            if str(row["type"]).lower() == "member"
         )
 
 
         total_walkins = sum(
             1
             for row in data
-            if str(row["type"]).lower()
-            in ["walk-in", "walkin"]
+            if str(row["type"]).lower() in ["walk-in", "walkin"]
         )
-
 
         # ========================================
         # RESPONSE
