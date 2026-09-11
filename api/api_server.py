@@ -1420,7 +1420,386 @@ def reports_attendance():
 
             conn.close()
 
+# ============================================
+# 📊 REPORTS - LOCKER API
+# ============================================
 
+@app.route("/api/reports/locker", methods=["GET"])
+def reports_locker():
+
+    conn = None
+
+    try:
+
+        # ========================================
+        # DATE RANGE
+        # ========================================
+
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+
+        if not start_date:
+            start_date = datetime.now().strftime("%Y-%m-%d")
+
+
+        if not end_date:
+            end_date = start_date
+
+
+        # ========================================
+        # VALIDATE DATES
+        # ========================================
+
+        try:
+
+            start = datetime.strptime(
+                start_date,
+                "%Y-%m-%d"
+            ).date()
+
+            end = datetime.strptime(
+                end_date,
+                "%Y-%m-%d"
+            ).date()
+
+        except ValueError:
+
+            return jsonify({
+                "success": False,
+                "message": "Invalid date format. Use YYYY-MM-DD.",
+                "data": []
+            }), 400
+
+
+        if start > end:
+
+            return jsonify({
+                "success": False,
+                "message": "Start date cannot be later than end date.",
+                "data": []
+            }), 400
+
+
+        # ========================================
+        # DATABASE
+        # ========================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # ========================================
+        # LOCKER SESSIONS
+        # ========================================
+
+        cursor.execute("""
+
+            SELECT
+
+                l.id,
+
+                l.user_id,
+
+                l.locker_number,
+
+                l.start_time,
+
+                l.end_time,
+
+
+                COALESCE(
+                    m.full_name,
+                    w.full_name,
+                    l.user_id
+                ) AS name,
+
+
+                CASE
+
+                    WHEN m.id IS NOT NULL
+                        THEN 'Member'
+
+                    WHEN w.id IS NOT NULL
+                        THEN 'Walk-in'
+
+                    ELSE '-'
+
+                END AS type
+
+
+            FROM locker_sessions l
+
+
+            LEFT JOIN members m
+
+                ON CONVERT(l.user_id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+                =
+
+                CONVERT(m.id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+
+            LEFT JOIN walkins w
+
+                ON CONVERT(l.user_id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+                =
+
+                CONVERT(w.id USING utf8mb4)
+                COLLATE utf8mb4_general_ci
+
+
+            WHERE DATE(l.start_time)
+                BETWEEN %s AND %s
+
+
+            ORDER BY
+                l.start_time DESC
+
+        """, (
+            start_date,
+            end_date
+        ))
+
+
+        rows = cursor.fetchall()
+
+
+        # ========================================
+        # FORMAT DATA
+        # ========================================
+
+        data = []
+
+
+        for row in rows:
+
+            # ------------------------------------
+            # START TIME
+            # ------------------------------------
+
+            start_time = "-"
+
+            if row["start_time"]:
+
+                start_time = row["start_time"].strftime(
+                    "%I:%M %p"
+                )
+
+
+            # ------------------------------------
+            # END TIME
+            # ------------------------------------
+
+            end_time = "-"
+
+            if row["end_time"]:
+
+                end_time = row["end_time"].strftime(
+                    "%I:%M %p"
+                )
+
+
+            # ------------------------------------
+            # DURATION
+            # ------------------------------------
+
+            duration = "-"
+
+
+            if (
+                row["start_time"]
+                and row["end_time"]
+            ):
+
+                total_minutes = int(
+                    (
+                        row["end_time"]
+                        - row["start_time"]
+                    ).total_seconds()
+                    // 60
+                )
+
+
+                hours = total_minutes // 60
+
+                minutes = total_minutes % 60
+
+
+                if hours > 0:
+
+                    duration = (
+                        f"{hours}h "
+                        f"{minutes:02d}m"
+                    )
+
+                else:
+
+                    duration = (
+                        f"{minutes}m"
+                    )
+
+
+            # ------------------------------------
+            # STATUS
+            # ------------------------------------
+
+            if not row["end_time"]:
+
+                status = "Active"
+
+            else:
+
+                status = "Completed"
+
+
+            # ------------------------------------
+            # VISIT DATE
+            # ------------------------------------
+
+            visit_date = "-"
+
+
+            if row["start_time"]:
+
+                visit_date = row["start_time"].strftime(
+                    "%Y-%m-%d"
+                )
+
+
+            # ------------------------------------
+            # DATA
+            # ------------------------------------
+
+            data.append({
+
+                "id":
+                    row["id"],
+
+                "locker_number":
+                    row["locker_number"],
+
+                "user_id":
+                    row["user_id"],
+
+                "name":
+                    row["name"]
+                    if row["name"]
+                    else "-",
+
+                "type":
+                    row["type"]
+                    if row["type"]
+                    else "-",
+
+                "start_time":
+                    start_time,
+
+                "end_time":
+                    end_time,
+
+                "duration":
+                    duration,
+
+                "status":
+                    status,
+
+                "visit_date":
+                    visit_date
+
+            })
+
+
+        # ========================================
+        # SUMMARY
+        # ========================================
+
+        total_usage =
+            len(data)
+
+
+        total_members = sum(
+            1
+            for row in data
+            if str(row["type"]).lower()
+            == "member"
+        )
+
+
+        total_walkins = sum(
+            1
+            for row in data
+            if str(row["type"]).lower()
+            in ["walk-in", "walkin"]
+        )
+
+
+        # ========================================
+        # RESPONSE
+        # ========================================
+
+        return jsonify({
+
+            "success": True,
+
+            "start_date":
+                start_date,
+
+            "end_date":
+                end_date,
+
+            "total":
+                total_usage,
+
+            "members":
+                total_members,
+
+            "walkins":
+                total_walkins,
+
+            "data":
+                data
+
+        })
+
+
+    except Exception as e:
+
+        print(
+            "❌ LOCKER REPORT API ERROR:",
+            e
+        )
+
+
+        return jsonify({
+
+            "success": False,
+
+            "message":
+                str(e),
+
+            "total": 0,
+
+            "members": 0,
+
+            "walkins": 0,
+
+            "data": []
+
+        }), 500
+
+
+    finally:
+
+        if conn:
+            conn.close()
 # ==============================
 # 📊 DAILY ATTENDANCE SUMMARY
 # ==============================
