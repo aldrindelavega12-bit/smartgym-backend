@@ -2227,8 +2227,6 @@ def create_trainer_request():
 
             WHERE tt.member_id = %s
 
-            ORDER BY tt.created_at DESC
-
             LIMIT 1
 
         """, (
@@ -2296,14 +2294,47 @@ def create_trainer_request():
 
 
         # =====================================================
+        # DETERMINE REQUEST TYPE
+        # =====================================================
+
+        request_status = "pending"
+
+        action = "created"
+
+
+        if existing:
+
+            # =================================================
+            # SAME TRAINER = RENEWAL
+            # DIRECTLY ACTIVE
+            # =================================================
+
+            if (
+                existing["trainer_id"]
+                ==
+                trainer_id
+            ):
+
+                request_status = "active"
+
+                action = "renewed"
+
+
+            # =================================================
+            # DIFFERENT TRAINER
+            # REQUEST REQUIRED
+            # =================================================
+
+            else:
+
+                request_status = "pending"
+
+                action = "changed_trainer"
+
+
+        # =====================================================
         # EXISTING RECORD
-        #
-        # completed:
-        #   can be reused
-        #
-        # active/pending:
-        #   can be reused only if no overlap
-        #
+        # UPDATE SAME ROW
         # =====================================================
 
         if existing:
@@ -2316,7 +2347,7 @@ def create_trainer_request():
                     plan_id = %s,
                     start_date = %s,
                     end_date = %s,
-                    status = 'pending'
+                    status = %s
 
                 WHERE id = %s
 
@@ -2325,17 +2356,17 @@ def create_trainer_request():
                 plan_id,
                 start_date_obj,
                 end_date_obj,
+                request_status,
                 existing["id"]
             ))
 
 
             request_id = existing["id"]
 
-            action = "updated"
-
 
         # =====================================================
         # NO EXISTING RECORD
+        # CREATE FIRST RECORD
         # =====================================================
 
         else:
@@ -2358,7 +2389,7 @@ def create_trainer_request():
                     %s,
                     %s,
                     %s,
-                    'pending'
+                    %s
                 )
 
             """, (
@@ -2366,11 +2397,14 @@ def create_trainer_request():
                 member_id,
                 plan_id,
                 start_date_obj,
-                end_date_obj
+                end_date_obj,
+                "pending"
             ))
 
 
             request_id = cursor.lastrowid
+
+            request_status = "pending"
 
             action = "created"
 
@@ -2383,7 +2417,30 @@ def create_trainer_request():
 
 
         # =====================================================
-        # SUCCESS
+        # SUCCESS MESSAGE
+        # =====================================================
+
+        if action == "renewed":
+
+            message = (
+                "Training renewed successfully."
+            )
+
+        elif action == "changed_trainer":
+
+            message = (
+                "Trainer request submitted successfully."
+            )
+
+        else:
+
+            message = (
+                "Trainer request submitted successfully."
+            )
+
+
+        # =====================================================
+        # SUCCESS RESPONSE
         # =====================================================
 
         return jsonify({
@@ -2392,7 +2449,7 @@ def create_trainer_request():
                 "success",
 
             "message":
-                "Trainer request submitted successfully.",
+                message,
 
             "action":
                 action,
@@ -2435,7 +2492,7 @@ def create_trainer_request():
                 ),
 
             "status":
-                "pending"
+                request_status
 
         }), 201
 
@@ -2467,9 +2524,11 @@ def create_trainer_request():
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
+
             conn.close()
 
 
