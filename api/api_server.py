@@ -2013,6 +2013,10 @@ def create_trainer_request():
 
         plan_id = data.get("plan_id")
 
+        start_date = str(
+            data.get("start_date", "")
+        ).strip()
+
 
         # =========================
         # VALIDATION
@@ -2039,6 +2043,47 @@ def create_trainer_request():
             return jsonify({
                 "status": "error",
                 "message": "Plan ID is required."
+            }), 400
+
+
+        if not start_date:
+
+            return jsonify({
+                "status": "error",
+                "message": "Training start date is required."
+            }), 400
+
+
+        # =========================
+        # VALIDATE START DATE
+        # =========================
+
+        try:
+
+            start_date_obj = datetime.strptime(
+                start_date,
+                "%Y-%m-%d"
+            ).date()
+
+        except ValueError:
+
+            return jsonify({
+                "status": "error",
+                "message": "Invalid training start date."
+            }), 400
+
+
+        # =========================
+        # CHECK PAST DATE
+        # =========================
+
+        today = datetime.now().date()
+
+        if start_date_obj < today:
+
+            return jsonify({
+                "status": "error",
+                "message": "Training start date cannot be in the past."
             }), 400
 
 
@@ -2143,68 +2188,94 @@ def create_trainer_request():
 
 
         # =========================
-        # CHECK EXISTING REQUEST
+        # CALCULATE END DATE
+        # =========================
+
+        duration_days = int(
+            plan["duration_days"]
+        )
+
+
+        end_date_obj = (
+            start_date_obj +
+            timedelta(
+                days=duration_days - 1
+            )
+        )
+
+
+        # =========================
+        # CHECK EXISTING TRAINER
+        # FOR SELECTED DATE RANGE
         # =========================
 
         cursor.execute("""
             SELECT
-                id,
-                status
-            FROM trainer_trainees
-            WHERE member_id = %s
-            AND trainer_id = %s
-            AND status IN (
+                tt.id,
+                tt.trainer_id,
+                ua.fullname AS trainer_name,
+                tt.start_date,
+                tt.end_date,
+                tt.status
+            FROM trainer_trainees tt
+
+            INNER JOIN user_accounts ua
+                ON tt.trainer_id = ua.user_id
+
+            WHERE tt.member_id = %s
+
+            AND tt.status IN (
                 'pending',
                 'active'
             )
+
+            AND tt.start_date <= %s
+            AND tt.end_date >= %s
+
             LIMIT 1
         """, (
             member_id,
-            trainer_id
+            end_date_obj,
+            start_date_obj
         ))
+
 
         existing = cursor.fetchone()
 
 
         if existing:
 
-            if existing["status"] == "pending":
+            existing_start =
+                existing["start_date"].strftime(
+                    "%Y-%m-%d"
+                )
 
-                return jsonify({
-                    "status": "error",
-                    "message": "You already have a pending request with this trainer."
-                }), 409
-
-
-            if existing["status"] == "active":
-
-                return jsonify({
-                    "status": "error",
-                    "message": "You are already an active trainee of this trainer."
-                }), 409
+            existing_end =
+                existing["end_date"].strftime(
+                    "%Y-%m-%d"
+                )
 
 
-        # =========================
-        # DATE
-        # =========================
+            return jsonify({
 
-        cursor.execute("""
-            SELECT
-                CURDATE() AS start_date,
-                DATE_ADD(
-                    CURDATE(),
-                    INTERVAL %s DAY
-                ) AS end_date
-        """, (
-            int(plan["duration_days"]),
-        ))
+                "status": "error",
 
-        dates = cursor.fetchone()
+                "message":
+                    "You already have a trainer during the selected dates.",
 
+                "existing_trainer":
+                    existing["trainer_name"],
 
-        start_date = dates["start_date"]
+                "existing_start_date":
+                    existing_start,
 
-        end_date = dates["end_date"]
+                "existing_end_date":
+                    existing_end,
+
+                "existing_status":
+                    existing["status"]
+
+            }), 409
 
 
         # =========================
@@ -2234,8 +2305,8 @@ def create_trainer_request():
             trainer_id,
             member_id,
             plan_id,
-            start_date,
-            end_date
+            start_date_obj,
+            end_date_obj
         ))
 
 
@@ -2251,7 +2322,8 @@ def create_trainer_request():
 
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
             "message":
                 "Trainer request submitted successfully.",
@@ -2284,10 +2356,14 @@ def create_trainer_request():
                 str(plan["price"]),
 
             "start_date":
-                start_date.strftime("%Y-%m-%d"),
+                start_date_obj.strftime(
+                    "%Y-%m-%d"
+                ),
 
             "end_date":
-                end_date.strftime("%Y-%m-%d"),
+                end_date_obj.strftime(
+                    "%Y-%m-%d"
+                ),
 
             "status":
                 "pending"
@@ -2310,9 +2386,11 @@ def create_trainer_request():
 
         return jsonify({
 
-            "status": "error",
+            "status":
+                "error",
 
-            "message": str(e)
+            "message":
+                str(e)
 
         }), 500
 
