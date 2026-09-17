@@ -2448,6 +2448,300 @@ def get_trainer_requests(trainer_id):
 
         if conn:
             conn.close()
+ 
+# =========================================================
+# ACCEPT TRAINER REQUEST
+# =========================================================
+
+@app.route(
+    "/api/trainer/request/<int:request_id>/accept",
+    methods=["POST"]
+)
+def accept_trainer_request(request_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        trainer_id = str(
+            data.get("trainer_id", "")
+        ).strip()
+
+
+        if not trainer_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =================================================
+        # CHECK REQUEST
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                member_id,
+                plan_id,
+                status
+            FROM trainer_trainees
+            WHERE id = %s
+            AND trainer_id = %s
+            LIMIT 1
+        """, (
+            request_id,
+            trainer_id
+        ))
+
+
+        request_row = cursor.fetchone()
+
+
+        if not request_row:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer request not found."
+            }), 404
+
+
+        if request_row["status"] != "pending":
+
+            return jsonify({
+                "status": "error",
+                "message": "This request is no longer pending."
+            }), 409
+
+
+        # =================================================
+        # ACCEPT
+        # =================================================
+
+        cursor.execute("""
+            UPDATE trainer_trainees
+            SET status = 'active'
+            WHERE id = %s
+            AND trainer_id = %s
+            AND status = 'pending'
+        """, (
+            request_id,
+            trainer_id
+        ))
+
+
+        conn.commit()
+
+
+        return jsonify({
+
+            "status": "success",
+
+            "message":
+                "Trainer request accepted successfully.",
+
+            "request_id":
+                request_id,
+
+            "member_id":
+                request_row["member_id"],
+
+            "trainer_id":
+                trainer_id,
+
+            "plan_id":
+                request_row["plan_id"],
+
+            "new_status":
+                "active"
+
+        }), 200
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+
+        print(
+            "ACCEPT TRAINER REQUEST ERROR:",
+            e
+        )
+
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close() 
+ 
+# =========================================================
+# REJECT TRAINER REQUEST
+# =========================================================
+
+@app.route(
+    "/api/trainer/request/<int:request_id>/reject",
+    methods=["POST"]
+)
+def reject_trainer_request(request_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        trainer_id = str(
+            data.get("trainer_id", "")
+        ).strip()
+
+
+        if not trainer_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =================================================
+        # CHECK REQUEST
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                member_id,
+                plan_id,
+                status
+            FROM trainer_trainees
+            WHERE id = %s
+            AND trainer_id = %s
+            LIMIT 1
+        """, (
+            request_id,
+            trainer_id
+        ))
+
+
+        request_row = cursor.fetchone()
+
+
+        if not request_row:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer request not found."
+            }), 404
+
+
+        if request_row["status"] != "pending":
+
+            return jsonify({
+                "status": "error",
+                "message": "This request is no longer pending."
+            }), 409
+
+
+        # =================================================
+        # REJECT
+        # =================================================
+
+        cursor.execute("""
+            UPDATE trainer_trainees
+            SET status = 'cancelled'
+            WHERE id = %s
+            AND trainer_id = %s
+            AND status = 'pending'
+        """, (
+            request_id,
+            trainer_id
+        ))
+
+
+        conn.commit()
+
+
+        return jsonify({
+
+            "status": "success",
+
+            "message":
+                "Trainer request rejected successfully.",
+
+            "request_id":
+                request_id,
+
+            "member_id":
+                request_row["member_id"],
+
+            "trainer_id":
+                trainer_id,
+
+            "plan_id":
+                request_row["plan_id"],
+
+            "new_status":
+                "cancelled"
+
+        }), 200
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+
+        print(
+            "REJECT TRAINER REQUEST ERROR:",
+            e
+        )
+
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
      
 @app.route("/api/website_walkins", methods=["GET"])
 def website_walkins():
