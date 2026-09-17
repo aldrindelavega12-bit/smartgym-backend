@@ -2742,6 +2742,115 @@ def reject_trainer_request(request_id):
 
         if conn:
             conn.close()
+ 
+@app.route(
+    "/api/member/trainer-status/<member_id>",
+    methods=["GET"]
+)
+def get_member_trainer_status(member_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        member_id = str(member_id).strip()
+
+        if not member_id:
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                tt.id,
+                tt.trainer_id,
+                ua.fullname AS trainer_name,
+                tt.member_id,
+                tt.plan_id,
+                tp.plan_name,
+                tp.duration_days,
+                tp.price,
+                tt.start_date,
+                tt.end_date,
+                tt.status
+            FROM trainer_trainees tt
+
+            INNER JOIN user_accounts ua
+                ON tt.trainer_id = ua.user_id
+
+            INNER JOIN trainer_plans tp
+                ON tt.plan_id = tp.id
+
+            WHERE tt.member_id = %s
+
+            AND tt.status IN ('pending', 'active')
+
+            AND tt.start_date <= CURDATE()
+            AND tt.end_date >= CURDATE()
+
+            ORDER BY tt.created_at DESC
+
+            LIMIT 1
+        """, (member_id,))
+
+        row = cursor.fetchone()
+
+        if not row:
+
+            return jsonify({
+                "has_trainer": False
+            }), 200
+
+        if row["start_date"] is not None:
+            row["start_date"] = row[
+                "start_date"
+            ].strftime("%Y-%m-%d")
+
+        if row["end_date"] is not None:
+            row["end_date"] = row[
+                "end_date"
+            ].strftime("%Y-%m-%d")
+
+        if row["price"] is not None:
+            row["price"] = float(
+                row["price"]
+            )
+
+        return jsonify({
+
+            "has_trainer": True,
+
+            "trainer": row
+
+        }), 200
+
+    except Exception as e:
+
+        print(
+            "GET MEMBER TRAINER STATUS ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
      
 @app.route("/api/website_walkins", methods=["GET"])
 def website_walkins():
@@ -2838,6 +2947,8 @@ def website_walkins():
 
         if conn:
             conn.close()        
+
+
 
 # ----------------ENROLLMENT-------------
 
