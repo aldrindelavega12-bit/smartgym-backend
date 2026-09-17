@@ -4295,38 +4295,154 @@ def get_attendance():
            methods=["POST"])
 def create_staff_account():
 
+    conn = None
+    cursor = None
+
     try:
 
-        data = request.json
+        data = request.get_json() or {}
 
-        print(data)
+        print("CREATE STAFF DATA:", data)
 
-        fullname = data["fullname"]
-        username = data["username"]
-        password = data["password"]
-        role = data["role"]
+        fullname = data.get("fullname", "").strip()
+        username = data.get("username", "").strip()
+        password = data.get("password", "")
+        role = data.get("role", "").strip().lower()
+
+        price_day = data.get("price_day")
+        price_week = data.get("price_week")
+        price_month = data.get("price_month")
+
+
+        # =========================
+        # BASIC VALIDATION
+        # =========================
+
+        if not fullname or not username or not password or not role:
+
+            return jsonify({
+                "status": "error",
+                "message": "Please complete all required fields."
+            }), 400
+
+
+        if role not in ["staff", "trainer"]:
+
+            return jsonify({
+                "status": "error",
+                "message": "Invalid role."
+            }), 400
+
+
+        # =========================
+        # TRAINER PRICE VALIDATION
+        # =========================
+
+        if role == "trainer":
+
+            if (
+                price_day is None or
+                price_week is None or
+                price_month is None
+            ):
+
+                return jsonify({
+                    "status": "error",
+                    "message": "All trainer prices are required."
+                }), 400
+
+
+            try:
+
+                price_day = float(price_day)
+                price_week = float(price_week)
+                price_month = float(price_month)
+
+            except (ValueError, TypeError):
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid trainer price."
+                }), 400
+
+
+            if (
+                price_day < 0 or
+                price_week < 0 or
+                price_month < 0
+            ):
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Trainer prices cannot be negative."
+                }), 400
+
+
+        # =========================
+        # DATABASE
+        # =========================
 
         conn = get_connection()
-        cursor = conn.cursor()
 
-        if role == "staff":
-            prefix = "S"
-        else:
-            prefix = "T"
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =========================
+        # CHECK USERNAME
+        # =========================
 
         cursor.execute("""
-            SELECT COUNT(*) total
+            SELECT id
+            FROM user_accounts
+            WHERE username=%s
+            LIMIT 1
+        """, (
+            username,
+        ))
+
+        existing = cursor.fetchone()
+
+        if existing:
+
+            return jsonify({
+                "status": "error",
+                "message": "Username already exists."
+            }), 409
+
+
+        # =========================
+        # GENERATE USER ID
+        # =========================
+
+        if role == "staff":
+
+            prefix = "S"
+
+        else:
+
+            prefix = "T"
+
+
+        cursor.execute("""
+            SELECT COUNT(*) AS total
             FROM user_accounts
             WHERE role=%s
-        """,(role,))
+        """, (
+            role,
+        ))
 
         row = cursor.fetchone()
 
-        print("ROW =", row)
-
-        total = row[0] + 1
+        total = int(row["total"]) + 1
 
         user_id = f"{prefix}{total:04d}"
+
+
+        # =========================
+        # CREATE ACCOUNT
+        # =========================
 
         cursor.execute("""
             INSERT INTO user_accounts
@@ -4337,8 +4453,15 @@ def create_staff_account():
                 password,
                 role
             )
-            VALUES(%s,%s,%s,%s,%s)
-        """,(
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+        """, (
             user_id,
             fullname,
             username,
@@ -4346,21 +4469,101 @@ def create_staff_account():
             role
         ))
 
+
+        # =========================
+        # SAVE TRAINER PRICES
+        # =========================
+
+        if role == "trainer":
+
+            cursor.execute("""
+                INSERT INTO trainer_plans
+                (
+                    trainer_id,
+                    plan_name,
+                    duration_days,
+                    price,
+                    active
+                )
+                VALUES
+                    (%s, '1 Day', 1, %s, 1),
+                    (%s, '1 Week', 7, %s, 1),
+                    (%s, '1 Month', 30, %s, 1)
+            """, (
+                user_id,
+                price_day,
+
+                user_id,
+                price_week,
+
+                user_id,
+                price_month
+            ))
+
+
+        # =========================
+        # COMMIT
+        # =========================
+
         conn.commit()
 
+
+        print("================================")
+        print("ACCOUNT CREATED")
+        print("USER ID :", user_id)
+        print("ROLE    :", role)
+
+        if role == "trainer":
+
+            print("1 DAY   :", price_day)
+            print("1 WEEK  :", price_week)
+            print("1 MONTH :", price_month)
+
+        print("================================")
+
+
         return jsonify({
-            "status":"success"
-        })
+
+            "status": "success",
+
+            "message":
+                "Trainer account and pricing created successfully."
+                if role == "trainer"
+                else
+                "Staff account created successfully.",
+
+            "user_id": user_id
+
+        }), 201
+
 
     except Exception as e:
 
-        print("ERROR:", e)
+        if conn:
+
+            conn.rollback()
+
+
+        print("CREATE STAFF ERROR:", e)
+
 
         return jsonify({
-            "status":"error",
-            "message":str(e)
-        }),500
-        
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+            
 @app.route("/api/staff_accounts")
 def staff_accounts():
 
