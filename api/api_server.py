@@ -1984,7 +1984,349 @@ def trainer_plans():
 
         if conn:
             conn.close()
-            
+       
+# =========================================================
+# TRAINER REQUEST
+# MEMBER -> TRAINER
+# =========================================================
+
+@app.route(
+    "/api/trainer/request",
+    methods=["POST"]
+)
+def create_trainer_request():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        member_id = str(
+            data.get("member_id", "")
+        ).strip()
+
+        trainer_id = str(
+            data.get("trainer_id", "")
+        ).strip()
+
+        plan_id = data.get("plan_id")
+
+
+        # =========================
+        # VALIDATION
+        # =========================
+
+        if not member_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+
+        if not trainer_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        if not plan_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Plan ID is required."
+            }), 400
+
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =========================
+        # CHECK MEMBER
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                full_name
+            FROM members
+            WHERE id = %s
+            LIMIT 1
+        """, (
+            member_id,
+        ))
+
+        member = cursor.fetchone()
+
+
+        if not member:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member not found."
+            }), 404
+
+
+        # =========================
+        # CHECK TRAINER
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                user_id,
+                fullname
+            FROM user_accounts
+            WHERE user_id = %s
+            AND role = 'trainer'
+            LIMIT 1
+        """, (
+            trainer_id,
+        ))
+
+        trainer = cursor.fetchone()
+
+
+        if not trainer:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer not found."
+            }), 404
+
+
+        # =========================
+        # CHECK PLAN
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                plan_name,
+                duration_days,
+                price,
+                active
+            FROM trainer_plans
+            WHERE id = %s
+            AND trainer_id = %s
+            LIMIT 1
+        """, (
+            plan_id,
+            trainer_id
+        ))
+
+        plan = cursor.fetchone()
+
+
+        if not plan:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer plan not found."
+            }), 404
+
+
+        if int(plan["active"]) != 1:
+
+            return jsonify({
+                "status": "error",
+                "message": "This trainer plan is not available."
+            }), 400
+
+
+        # =========================
+        # CHECK EXISTING REQUEST
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                status
+            FROM trainer_trainees
+            WHERE member_id = %s
+            AND trainer_id = %s
+            AND status IN (
+                'pending',
+                'active'
+            )
+            LIMIT 1
+        """, (
+            member_id,
+            trainer_id
+        ))
+
+        existing = cursor.fetchone()
+
+
+        if existing:
+
+            if existing["status"] == "pending":
+
+                return jsonify({
+                    "status": "error",
+                    "message": "You already have a pending request with this trainer."
+                }), 409
+
+
+            if existing["status"] == "active":
+
+                return jsonify({
+                    "status": "error",
+                    "message": "You are already an active trainee of this trainer."
+                }), 409
+
+
+        # =========================
+        # DATE
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                CURDATE() AS start_date,
+                DATE_ADD(
+                    CURDATE(),
+                    INTERVAL %s DAY
+                ) AS end_date
+        """, (
+            int(plan["duration_days"]),
+        ))
+
+        dates = cursor.fetchone()
+
+
+        start_date = dates["start_date"]
+
+        end_date = dates["end_date"]
+
+
+        # =========================
+        # INSERT REQUEST
+        # =========================
+
+        cursor.execute("""
+            INSERT INTO trainer_trainees
+            (
+                trainer_id,
+                member_id,
+                plan_id,
+                start_date,
+                end_date,
+                status
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                'pending'
+            )
+        """, (
+            trainer_id,
+            member_id,
+            plan_id,
+            start_date,
+            end_date
+        ))
+
+
+        request_id = cursor.lastrowid
+
+
+        conn.commit()
+
+
+        # =========================
+        # SUCCESS
+        # =========================
+
+        return jsonify({
+
+            "status": "success",
+
+            "message":
+                "Trainer request submitted successfully.",
+
+            "request_id":
+                request_id,
+
+            "trainer_id":
+                trainer_id,
+
+            "trainer_name":
+                trainer["fullname"],
+
+            "member_id":
+                member_id,
+
+            "member_name":
+                member["full_name"],
+
+            "plan_id":
+                plan["id"],
+
+            "plan_name":
+                plan["plan_name"],
+
+            "duration_days":
+                plan["duration_days"],
+
+            "price":
+                str(plan["price"]),
+
+            "start_date":
+                start_date.strftime("%Y-%m-%d"),
+
+            "end_date":
+                end_date.strftime("%Y-%m-%d"),
+
+            "status":
+                "pending"
+
+        }), 201
+
+
+    except Exception as e:
+
+        if conn:
+
+            conn.rollback()
+
+
+        print(
+            "CREATE TRAINER REQUEST ERROR:",
+            e
+        )
+
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if cursor:
+
+            cursor.close()
+
+        if conn:
+
+            conn.close()
+     
 @app.route("/api/website_walkins", methods=["GET"])
 def website_walkins():
 
