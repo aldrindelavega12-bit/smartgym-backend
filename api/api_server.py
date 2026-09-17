@@ -2395,36 +2395,32 @@ def get_trainer_requests(trainer_id):
         rows = cursor.fetchall()
 
 
+        # =================================================
+        # FORMAT DATES
+        # =================================================
+
         for row in rows:
 
-            if row["start_date"]:
-
-                row["start_date"] =
-                    row["start_date"].strftime(
-                        "%Y-%m-%d"
-                    )
+            if row["start_date"] is not None:
+                row["start_date"] = row["start_date"].strftime(
+                    "%Y-%m-%d"
+                )
 
 
-            if row["end_date"]:
-
-                row["end_date"] =
-                    row["end_date"].strftime(
-                        "%Y-%m-%d"
-                    )
+            if row["end_date"] is not None:
+                row["end_date"] = row["end_date"].strftime(
+                    "%Y-%m-%d"
+                )
 
 
-            if row["created_at"]:
-
-                row["created_at"] =
-                    row["created_at"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    )
+            if row["created_at"] is not None:
+                row["created_at"] = row["created_at"].strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
 
 
             if row["price"] is not None:
-
-                row["price"] =
-                    float(row["price"])
+                row["price"] = float(row["price"])
 
 
         return jsonify(rows), 200
@@ -2447,11 +2443,10 @@ def get_trainer_requests(trainer_id):
     finally:
 
         if cursor:
-
             cursor.close()
 
-        if conn:
 
+        if conn:
             conn.close()
      
 @app.route("/api/website_walkins", methods=["GET"])
