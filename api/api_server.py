@@ -2400,6 +2400,140 @@ def create_trainer_request():
 
             conn.close()
 
+@app.route(
+    "/api/trainer/trainees/<trainer_id>",
+    methods=["GET"]
+)
+def get_trainer_trainees(trainer_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        trainer_id = str(
+            trainer_id
+        ).strip()
+
+        if not trainer_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        cursor.execute("""
+            SELECT
+                tt.id,
+                tt.trainer_id,
+                tt.member_id,
+
+                m.full_name,
+
+                tt.plan_id,
+
+                tp.plan_name,
+                tp.duration_days,
+                tp.price,
+
+                tt.start_date,
+                tt.end_date,
+
+                tt.status,
+                tt.created_at
+
+            FROM trainer_trainees tt
+
+            INNER JOIN members m
+                ON tt.member_id = m.id
+
+            INNER JOIN trainer_plans tp
+                ON tt.plan_id = tp.id
+
+            WHERE tt.trainer_id = %s
+
+            AND tt.status = 'active'
+
+            ORDER BY tt.created_at DESC
+
+        """, (
+            trainer_id,
+        ))
+
+
+        rows = cursor.fetchall()
+
+
+        for row in rows:
+
+            if row["start_date"] is not None:
+
+                row["start_date"] = \
+                    row["start_date"].strftime(
+                        "%Y-%m-%d"
+                    )
+
+
+            if row["end_date"] is not None:
+
+                row["end_date"] = \
+                    row["end_date"].strftime(
+                        "%Y-%m-%d"
+                    )
+
+
+            if row["created_at"] is not None:
+
+                row["created_at"] = \
+                    row["created_at"].strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+
+
+            if row["price"] is not None:
+
+                row["price"] = float(
+                    row["price"]
+                )
+
+
+        return jsonify(
+            rows
+        ), 200
+
+
+    except Exception as e:
+
+        print(
+            "GET TRAINER TRAINEES ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 # =========================================================
 # GET TRAINER CLIENT REQUESTS
 # =========================================================
