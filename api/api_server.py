@@ -2018,9 +2018,9 @@ def create_trainer_request():
         ).strip()
 
 
-        # =========================
+        # =====================================================
         # VALIDATION
-        # =========================
+        # =====================================================
 
         if not member_id:
 
@@ -2054,9 +2054,9 @@ def create_trainer_request():
             }), 400
 
 
-        # =========================
+        # =====================================================
         # VALIDATE START DATE
-        # =========================
+        # =====================================================
 
         try:
 
@@ -2073,11 +2073,8 @@ def create_trainer_request():
             }), 400
 
 
-        # =========================
-        # CHECK PAST DATE
-        # =========================
-
         today = datetime.now().date()
+
 
         if start_date_obj < today:
 
@@ -2087,6 +2084,10 @@ def create_trainer_request():
             }), 400
 
 
+        # =====================================================
+        # DATABASE
+        # =====================================================
+
         conn = get_connection()
 
         cursor = conn.cursor(
@@ -2094,9 +2095,9 @@ def create_trainer_request():
         )
 
 
-        # =========================
+        # =====================================================
         # CHECK MEMBER
-        # =========================
+        # =====================================================
 
         cursor.execute("""
             SELECT
@@ -2120,9 +2121,9 @@ def create_trainer_request():
             }), 404
 
 
-        # =========================
+        # =====================================================
         # CHECK TRAINER
-        # =========================
+        # =====================================================
 
         cursor.execute("""
             SELECT
@@ -2147,9 +2148,9 @@ def create_trainer_request():
             }), 404
 
 
-        # =========================
+        # =====================================================
         # CHECK PLAN
-        # =========================
+        # =====================================================
 
         cursor.execute("""
             SELECT
@@ -2187,9 +2188,9 @@ def create_trainer_request():
             }), 400
 
 
-        # =========================
+        # =====================================================
         # CALCULATE END DATE
-        # =========================
+        # =====================================================
 
         duration_days = int(
             plan["duration_days"]
@@ -2204,19 +2205,21 @@ def create_trainer_request():
         )
 
 
-        # =========================
-        # CHECK EXISTING TRAINER
-        # FOR SELECTED DATE RANGE
-        # =========================
+        # =====================================================
+        # FIND EXISTING MEMBER RECORD
+        # =====================================================
 
         cursor.execute("""
             SELECT
                 tt.id,
                 tt.trainer_id,
                 ua.fullname AS trainer_name,
+                tt.member_id,
+                tt.plan_id,
                 tt.start_date,
                 tt.end_date,
                 tt.status
+
             FROM trainer_trainees tt
 
             INNER JOIN user_accounts ua
@@ -2224,96 +2227,164 @@ def create_trainer_request():
 
             WHERE tt.member_id = %s
 
-            AND tt.status IN (
-                'pending',
-                'active'
-            )
-
-            AND tt.start_date <= %s
-            AND tt.end_date >= %s
+            ORDER BY tt.created_at DESC
 
             LIMIT 1
+
         """, (
             member_id,
-            end_date_obj,
-            start_date_obj
         ))
 
-
         existing = cursor.fetchone()
-        
+
+
+        # =====================================================
+        # CHECK ACTIVE / PENDING OVERLAP
+        # =====================================================
+
         if existing:
 
-            existing_start = existing["start_date"].strftime(
-                "%Y-%m-%d"
-            )
+            if existing["status"] in (
+                "pending",
+                "active"
+            ):
 
-            existing_end = existing["end_date"].strftime(
-                "%Y-%m-%d"
-            )
+                existing_start = \
+                    existing["start_date"]
 
-            return jsonify({
+                existing_end = \
+                    existing["end_date"]
 
-                "status": "error",
 
-                "message":
-                    "You already have a trainer during the selected dates.",
+                overlap = (
 
-                "existing_trainer":
-                    existing["trainer_name"],
+                    existing_start <= end_date_obj
 
-                "existing_start_date":
-                    existing_start,
+                    and
 
-                "existing_end_date":
-                    existing_end,
+                    existing_end >= start_date_obj
 
-                "existing_status":
-                    existing["status"]
+                )
 
-            }), 409
 
-        # =========================
-        # INSERT REQUEST
-        # =========================
+                if overlap:
 
-        cursor.execute("""
-            INSERT INTO trainer_trainees
-            (
+                    return jsonify({
+
+                        "status": "error",
+
+                        "message":
+                            "You already have a trainer during the selected dates.",
+
+                        "existing_trainer":
+                            existing["trainer_name"],
+
+                        "existing_start_date":
+                            existing_start.strftime(
+                                "%Y-%m-%d"
+                            ),
+
+                        "existing_end_date":
+                            existing_end.strftime(
+                                "%Y-%m-%d"
+                            ),
+
+                        "existing_status":
+                            existing["status"]
+
+                    }), 409
+
+
+        # =====================================================
+        # EXISTING RECORD
+        #
+        # completed:
+        #   can be reused
+        #
+        # active/pending:
+        #   can be reused only if no overlap
+        #
+        # =====================================================
+
+        if existing:
+
+            cursor.execute("""
+                UPDATE trainer_trainees
+
+                SET
+                    trainer_id = %s,
+                    plan_id = %s,
+                    start_date = %s,
+                    end_date = %s,
+                    status = 'pending'
+
+                WHERE id = %s
+
+            """, (
+                trainer_id,
+                plan_id,
+                start_date_obj,
+                end_date_obj,
+                existing["id"]
+            ))
+
+
+            request_id = existing["id"]
+
+            action = "updated"
+
+
+        # =====================================================
+        # NO EXISTING RECORD
+        # =====================================================
+
+        else:
+
+            cursor.execute("""
+                INSERT INTO trainer_trainees
+                (
+                    trainer_id,
+                    member_id,
+                    plan_id,
+                    start_date,
+                    end_date,
+                    status
+                )
+
+                VALUES
+                (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    'pending'
+                )
+
+            """, (
                 trainer_id,
                 member_id,
                 plan_id,
-                start_date,
-                end_date,
-                status
-            )
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                'pending'
-            )
-        """, (
-            trainer_id,
-            member_id,
-            plan_id,
-            start_date_obj,
-            end_date_obj
-        ))
+                start_date_obj,
+                end_date_obj
+            ))
 
 
-        request_id = cursor.lastrowid
+            request_id = cursor.lastrowid
 
+            action = "created"
+
+
+        # =====================================================
+        # COMMIT
+        # =====================================================
 
         conn.commit()
 
 
-        # =========================
+        # =====================================================
         # SUCCESS
-        # =========================
+        # =====================================================
 
         return jsonify({
 
@@ -2322,6 +2393,9 @@ def create_trainer_request():
 
             "message":
                 "Trainer request submitted successfully.",
+
+            "action":
+                action,
 
             "request_id":
                 request_id,
@@ -2393,12 +2467,11 @@ def create_trainer_request():
     finally:
 
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
+
 
 @app.route(
     "/api/trainer/trainees/<trainer_id>",
