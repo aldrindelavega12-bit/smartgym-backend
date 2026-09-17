@@ -2547,6 +2547,11 @@ def get_trainer_trainees(trainer_id):
             trainer_id
         ).strip()
 
+
+        # =====================================================
+        # VALIDATION
+        # =====================================================
+
         if not trainer_id:
 
             return jsonify({
@@ -2555,12 +2560,38 @@ def get_trainer_trainees(trainer_id):
             }), 400
 
 
+        # =====================================================
+        # DATABASE CONNECTION
+        # =====================================================
+
         conn = get_connection()
 
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
 
+
+        # =====================================================
+        # AUTO-COMPLETE EXPIRED ACTIVE TRAINING
+        # =====================================================
+
+        cursor.execute("""
+            UPDATE trainer_trainees
+            SET status = 'completed'
+            WHERE trainer_id = %s
+            AND status = 'active'
+            AND end_date < CURDATE()
+        """, (
+            trainer_id,
+        ))
+
+
+        conn.commit()
+
+
+        # =====================================================
+        # GET ACTIVE + COMPLETED TRAINEES
+        # =====================================================
 
         cursor.execute("""
             SELECT
@@ -2574,12 +2605,12 @@ def get_trainer_trainees(trainer_id):
 
                 tp.plan_name,
                 tp.duration_days,
-                tp.price,
 
                 tt.start_date,
                 tt.end_date,
 
                 tt.status,
+
                 tt.created_at
 
             FROM trainer_trainees tt
@@ -2592,10 +2623,21 @@ def get_trainer_trainees(trainer_id):
 
             WHERE tt.trainer_id = %s
 
-            AND tt.status = 'active'
+            AND tt.status IN (
+                'active',
+                'completed'
+            )
 
-            ORDER BY tt.created_at DESC
+            ORDER BY
+                CASE
+                    WHEN tt.status = 'active'
+                    THEN 0
+                    ELSE 1
+                END,
 
+                tt.end_date DESC,
+
+                tt.created_at DESC
         """, (
             trainer_id,
         ))
@@ -2603,6 +2645,10 @@ def get_trainer_trainees(trainer_id):
 
         rows = cursor.fetchall()
 
+
+        # =====================================================
+        # FORMAT DATES
+        # =====================================================
 
         for row in rows:
 
@@ -2630,12 +2676,9 @@ def get_trainer_trainees(trainer_id):
                     )
 
 
-            if row["price"] is not None:
-
-                row["price"] = float(
-                    row["price"]
-                )
-
+        # =====================================================
+        # RESPONSE
+        # =====================================================
 
         return jsonify(
             rows
@@ -2644,16 +2687,24 @@ def get_trainer_trainees(trainer_id):
 
     except Exception as e:
 
+        if conn:
+
+            conn.rollback()
+
+
         print(
             "GET TRAINER TRAINEES ERROR:",
             e
         )
 
+
         return jsonify({
 
-            "status": "error",
+            "status":
+                "error",
 
-            "message": str(e)
+            "message":
+                str(e)
 
         }), 500
 
@@ -2661,11 +2712,12 @@ def get_trainer_trainees(trainer_id):
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
-            conn.close()
 
+            conn.close()
 # =========================================================
 # GET TRAINER CLIENT REQUESTS
 # =========================================================
