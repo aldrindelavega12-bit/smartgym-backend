@@ -1933,6 +1933,58 @@ def walkins_summary():
         cursor.close()
         conn.close()
         
+@app.route("/api/trainer_plans", methods=["GET"])
+def trainer_plans():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                tp.id,
+                tp.trainer_id,
+                ua.fullname,
+                ua.username,
+                tp.plan_name,
+                tp.duration_days,
+                tp.price,
+                tp.active
+            FROM trainer_plans tp
+            INNER JOIN user_accounts ua
+                ON tp.trainer_id = ua.user_id
+            WHERE ua.role = 'trainer'
+            ORDER BY tp.trainer_id, tp.duration_days
+        """)
+
+        rows = cursor.fetchall()
+
+        return jsonify(rows), 200
+
+    except Exception as e:
+
+        print("GET TRAINER PLANS ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+            
 @app.route("/api/website_walkins", methods=["GET"])
 def website_walkins():
 
