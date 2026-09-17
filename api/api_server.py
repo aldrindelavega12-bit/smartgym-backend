@@ -2244,35 +2244,34 @@ def create_trainer_request():
         
         if existing:
 
-			existing_start = existing["start_date"].strftime(
-				"%Y-%m-%d"
-			)
+            existing_start = existing["start_date"].strftime(
+                "%Y-%m-%d"
+            )
 
-			existing_end = existing["end_date"].strftime(
-				"%Y-%m-%d"
-			)
+            existing_end = existing["end_date"].strftime(
+                "%Y-%m-%d"
+            )
 
-			return jsonify({
+            return jsonify({
 
-				"status": "error",
+                "status": "error",
 
-				"message":
-					"You already have a trainer during the selected dates.",
+                "message":
+                    "You already have a trainer during the selected dates.",
 
-				"existing_trainer":
-					existing["trainer_name"],
+                "existing_trainer":
+                    existing["trainer_name"],
 
-				"existing_start_date":
-					existing_start,
+                "existing_start_date":
+                    existing_start,
 
-				"existing_end_date":
-					existing_end,
+                "existing_end_date":
+                    existing_end,
 
-				"existing_status":
-					existing["status"]
+                "existing_status":
+                    existing["status"]
 
-			}), 409
-
+            }), 409
 
         # =========================
         # INSERT REQUEST
