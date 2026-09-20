@@ -7028,6 +7028,7 @@ def update_booking():
             "error": str(e)
         }), 500
 
+
 from datetime import timedelta
 
 @app.route("/api/approved_bookings", methods=["GET"])
