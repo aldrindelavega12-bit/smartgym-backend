@@ -2383,42 +2383,44 @@ def create_trainer_request():
 
         # =====================================================
         # DETERMINE REQUEST TYPE
-        # =====================================================
+        # ====================================================
 
         request_status = "pending"
-
         action = "created"
-
 
         if existing:
 
-            # =================================================
-            # SAME TRAINER = RENEWAL
-            # DIRECTLY ACTIVE
-            # =================================================
+            # ================================================
+            # PREVIOUS REQUEST WAS REJECTED/CANCELLED
+            # ================================================
+            if existing["status"] == "cancelled":
 
-            if (
-                existing["trainer_id"]
-                ==
-                trainer_id
+                request_status = "pending"
+                action = "created"
+
+            # ================================================
+            # SAME TRAINER = RENEWAL
+            # ONLY IF ACTIVE
+            # ================================================
+            elif (
+                existing["status"] == "active"
+                and
+                existing["trainer_id"] == trainer_id
             ):
 
                 request_status = "active"
-
                 action = "renewed"
 
-
-            # =================================================
+            # ================================================
             # DIFFERENT TRAINER
             # REQUEST REQUIRED
-            # =================================================
-
+            # ================================================
             else:
 
                 request_status = "pending"
-
                 action = "changed_trainer"
 
+                
 
         # =====================================================
         # EXISTING RECORD
