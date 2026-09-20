@@ -123,7 +123,7 @@ def get_member_attendance(user_id):
 
             conn.close()
             
-@app.route("/api/staff_member_messages")
+ @app.route("/api/staff_member_messages")
 def staff_member_messages():
 
     try:
@@ -135,10 +135,11 @@ def staff_member_messages():
         )
 
         cursor.execute("""
+
             SELECT
+
                 m.id,
                 m.user_id,
-                mem.full_name AS member_name,
 
                 m.sender_id,
                 m.sender_name,
@@ -157,15 +158,16 @@ def staff_member_messages():
                         '+00:00',
                         '+08:00'
                     ),
-                    '%%a, %%d %%b %%Y %%h:%%i %%p'
+                    '%%M %%d, %%Y %%h:%%i %%p'
                 ) AS created_at
 
             FROM messages m
 
-            INNER JOIN members mem
-                ON mem.id = m.user_id
+            WHERE
+                m.receiver_role = 'admin'
+                AND m.sender_role = 'member'
 
-            ORDER BY m.created_at DESC
+            ORDER BY m.id DESC
 
         """)
 
@@ -177,11 +179,14 @@ def staff_member_messages():
 
     except Exception as e:
 
-        print("STAFF MEMBER MESSAGES ERROR:", e)
+        print(
+            "STAFF MEMBER MESSAGES ERROR:",
+            e
+        )
 
         return jsonify({
             "error": str(e)
-        }), 500            
+        }), 500           
             
 @app.route("/api/member/profile", methods=["PUT"])
 def update_member_profile():
