@@ -8006,16 +8006,25 @@ def update_locker_status():
 def get_messages(user_id):
 
     conn = get_connection()
-
     cursor = conn.cursor(
         pymysql.cursors.DictCursor
     )
 
     cursor.execute("""
-
         SELECT
             id,
             user_id,
+            sender_id,
+            sender_name,
+
+            CASE
+                WHEN sender_role = 'staff'
+                    THEN 'Front Desk'
+                WHEN sender_role = 'trainer'
+                    THEN 'Trainer'
+                ELSE sender_role
+            END AS sender_role,
+
             title,
             message,
             reason,
@@ -8043,6 +8052,231 @@ def get_messages(user_id):
     conn.close()
 
     return jsonify(rows)
+
+@app.route("/api/send_message", methods=["POST"])
+def send_message():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        sender_id = str(
+            data.get("sender_id", "")
+        ).strip()
+
+        receiver_id = str(
+            data.get("receiver_id", "")
+        ).strip()
+
+        title = str(
+            data.get("title", "")
+        ).strip()
+
+        message = str(
+            data.get("message", "")
+        ).strip()
+
+        reason = data.get("reason", "-")
+
+        # =========================
+        # VALIDATION
+        # =========================
+
+        if not sender_id:
+            return jsonify({
+                "success": False,
+                "message": "Sender ID is required."
+            }), 400
+
+        if not receiver_id:
+            return jsonify({
+                "success": False,
+                "message": "Receiver ID is required."
+            }), 400
+
+        if not message:
+            return jsonify({
+                "success": False,
+                "message": "Message is required."
+            }), 400
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        # =========================
+        # GET SENDER
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                user_id,
+                fullname,
+                role
+            FROM user_accounts
+            WHERE user_id = %s
+            AND role IN ('staff', 'trainer')
+            LIMIT 1
+        """, (
+            sender_id,
+        ))
+
+        sender = cursor.fetchone()
+
+        if not sender:
+
+            return jsonify({
+                "success": False,
+                "message": "Sender account not found."
+            }), 404
+
+        # =========================
+        # GET RECEIVER
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                user_id,
+                fullname,
+                role
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (
+            receiver_id,
+        ))
+
+        receiver = cursor.fetchone()
+
+        if not receiver:
+
+            return jsonify({
+                "success": False,
+                "message": "Receiver account not found."
+            }), 404
+
+        # =========================
+        # SENDER ROLE
+        # =========================
+
+        sender_role = sender["role"]
+
+        if sender_role == "staff":
+            sender_role = "staff"
+
+        elif sender_role == "trainer":
+            sender_role = "trainer"
+
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Only Front Desk and Trainer can send messages."
+            }), 403
+
+        # =========================
+        # INSERT MESSAGE
+        # =========================
+
+        cursor.execute("""
+            INSERT INTO messages
+            (
+                user_id,
+                sender_id,
+                sender_name,
+                sender_role,
+                title,
+                message,
+                reason,
+                receiver_role,
+                is_read
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                0
+            )
+        """, (
+            receiver["user_id"],
+            sender["user_id"],
+            sender["fullname"],
+            sender_role,
+            title,
+            message,
+            reason,
+            receiver["role"]
+        ))
+
+        message_id = cursor.lastrowid
+
+        conn.commit()
+
+        # =========================
+        # REALTIME NOTIFICATION
+        # =========================
+
+        socketio.emit(
+            "new_message",
+            {
+                "message_id": message_id,
+                "receiver_id": receiver["user_id"]
+            }
+        )
+
+        return jsonify({
+
+            "success": True,
+
+            "message": "Message sent successfully.",
+
+            "data": {
+                "id": message_id,
+                "receiver_id": receiver["user_id"],
+                "sender_id": sender["user_id"],
+                "sender_name": sender["fullname"],
+                "sender_role": sender_role,
+                "title": title,
+                "message": message,
+                "reason": reason
+            }
+
+        }), 201
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "SEND MESSAGE ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "success": False,
+            "message": str(e)
+
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 
 @app.route("/api/member_active_locker/<user_id>", methods=["GET"])
 def member_active_locker(user_id):
