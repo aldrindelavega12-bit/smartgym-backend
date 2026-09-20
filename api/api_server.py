@@ -123,7 +123,7 @@ def get_member_attendance(user_id):
 
             conn.close()
             
- @app.route("/api/staff_member_messages")
+@app.route("/api/staff_member_messages")
 def staff_member_messages():
 
     try:
@@ -187,7 +187,7 @@ def staff_member_messages():
         return jsonify({
             "error": str(e)
         }), 500           
-            
+
 @app.route("/api/member/profile", methods=["PUT"])
 def update_member_profile():
 
