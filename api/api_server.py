@@ -135,7 +135,6 @@ def staff_member_messages():
         )
 
         cursor.execute("""
-
             SELECT
                 m.id,
 
@@ -143,7 +142,7 @@ def staff_member_messages():
                     m.message,
                     ' ',
                     1
-                ) AS member_id,
+                ) AS user_id,
 
                 mem.full_name AS member_name,
 
@@ -158,7 +157,7 @@ def staff_member_messages():
                         '+00:00',
                         '+08:00'
                     ),
-                    '%%M %%d, %%Y %%h:%%i %%p'
+                    '%M %d, %Y %h:%i %p'
                 ) AS created_at
 
             FROM messages m
@@ -171,6 +170,24 @@ def staff_member_messages():
                 )
 
             WHERE m.user_id = 'ADMIN'
+
+            AND m.id = (
+                SELECT MAX(m2.id)
+
+                FROM messages m2
+
+                WHERE m2.user_id = 'ADMIN'
+
+                AND SUBSTRING_INDEX(
+                    m2.message,
+                    ' ',
+                    1
+                ) = SUBSTRING_INDEX(
+                    m.message,
+                    ' ',
+                    1
+                )
+            )
 
             ORDER BY m.id DESC
 
@@ -192,8 +209,7 @@ def staff_member_messages():
         return jsonify({
             "error": str(e)
         }), 500
-
-
+    
 @app.route("/api/member/profile", methods=["PUT"])
 def update_member_profile():
 
