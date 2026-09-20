@@ -6903,6 +6903,41 @@ def update_booking():
         )
 
         # =========================
+        # GET SENDER / FRONT DESK
+        # =========================
+        sender_id = data.get("sender_id")
+
+        if not sender_id:
+            return jsonify({
+                "error": "Sender ID is required."
+            }), 400
+
+        cursor.execute("""
+            SELECT
+                user_id,
+                fullname,
+                role
+            FROM user_accounts
+            WHERE user_id=%s
+            LIMIT 1
+        """, (sender_id,))
+
+        sender = cursor.fetchone()
+
+        if not sender:
+            return jsonify({
+                "error": "Sender account not found."
+            }), 404
+
+        # Only Front Desk can approve/reject locker bookings
+        if sender["role"] != "staff":
+            return jsonify({
+                "error": "Only Front Desk can update locker bookings."
+            }), 403
+
+        print("SENDER:", sender)
+
+        # =========================
         # UPDATE BOOKING
         # =========================
         cursor.execute("""
@@ -6941,6 +6976,12 @@ def update_booking():
 
         print("BOOKING:", booking)
 
+        if not booking:
+            conn.rollback()
+            return jsonify({
+                "error": "Booking not found."
+            }), 404
+
         # =========================
         # APPROVED
         # =========================
@@ -6953,22 +6994,34 @@ def update_booking():
                 INSERT INTO messages
                 (
                     user_id,
+                    sender_id,
+                    sender_name,
+                    sender_role,
                     title,
                     message,
-                    reason
+                    reason,
+                    receiver_role
                 )
 
-                VALUES (%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
 
             """, (
 
                 booking["user_id"],
 
+                sender["user_id"],
+
+                sender["fullname"],
+
+                sender["role"],
+
                 "BOOKING ACCEPTED",
 
                 f"Your booking for Locker {booking['locker_number']} was accepted.",
 
-                "-"
+                "-",
+
+                "member"
 
             ))
 
@@ -6986,22 +7039,34 @@ def update_booking():
                 INSERT INTO messages
                 (
                     user_id,
+                    sender_id,
+                    sender_name,
+                    sender_role,
                     title,
                     message,
-                    reason
+                    reason,
+                    receiver_role
                 )
 
-                VALUES (%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
 
             """, (
 
                 booking["user_id"],
 
+                sender["user_id"],
+
+                sender["fullname"],
+
+                sender["role"],
+
                 "BOOKING REJECTED",
 
                 f"Your booking for Locker {booking['locker_number']} was rejected.",
 
-                data.get("reason") or "No reason provided"
+                data.get("reason") or "No reason provided",
+
+                "member"
 
             ))
 
@@ -7024,11 +7089,16 @@ def update_booking():
 
         print("UPDATE BOOKING ERROR:", e)
 
+        if conn:
+            conn.rollback()
+
+        if conn:
+            conn.close()
+
         return jsonify({
             "error": str(e)
         }), 500
-
-
+        
 from datetime import timedelta
 
 @app.route("/api/approved_bookings", methods=["GET"])
