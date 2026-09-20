@@ -122,6 +122,67 @@ def get_member_attendance(user_id):
         if conn:
 
             conn.close()
+            
+@app.route("/api/staff_member_messages")
+def staff_member_messages():
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                m.id,
+                m.user_id,
+                mem.full_name AS member_name,
+
+                m.sender_id,
+                m.sender_name,
+                m.sender_role,
+
+                m.title,
+                m.message,
+                m.reason,
+
+                m.receiver_role,
+                m.is_read,
+
+                DATE_FORMAT(
+                    CONVERT_TZ(
+                        m.created_at,
+                        '+00:00',
+                        '+08:00'
+                    ),
+                    '%%a, %%d %%b %%Y %%h:%%i %%p'
+                ) AS created_at
+
+            FROM messages m
+
+            INNER JOIN members mem
+                ON mem.id = m.user_id
+
+            ORDER BY m.created_at DESC
+
+        """)
+
+        rows = cursor.fetchall()
+
+        conn.close()
+
+        return jsonify(rows)
+
+    except Exception as e:
+
+        print("STAFF MEMBER MESSAGES ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500            
+            
 @app.route("/api/member/profile", methods=["PUT"])
 def update_member_profile():
 
