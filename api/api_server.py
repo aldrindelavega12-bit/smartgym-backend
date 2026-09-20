@@ -2436,7 +2436,8 @@ def create_trainer_request():
                     start_date = %s,
                     end_date = %s,
                     status = %s,
-                    created_at = CURRENT_TIMESTAMP
+                    created_at = CONVERT_TZ(NOW(), '+00:00', '+08:00')
+
 
                 WHERE id = %s
 
