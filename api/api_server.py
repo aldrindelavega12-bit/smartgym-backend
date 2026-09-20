@@ -122,7 +122,7 @@ def get_member_attendance(user_id):
         if conn:
 
             conn.close()
-            
+
 @app.route("/api/staff_member_messages")
 def staff_member_messages():
 
@@ -137,19 +137,19 @@ def staff_member_messages():
         cursor.execute("""
 
             SELECT
-
                 m.id,
-                m.user_id,
 
-                m.sender_id,
-                m.sender_name,
-                m.sender_role,
+                SUBSTRING_INDEX(
+                    m.message,
+                    ' ',
+                    1
+                ) AS member_id,
+
+                mem.full_name AS member_name,
 
                 m.title,
                 m.message,
                 m.reason,
-
-                m.receiver_role,
                 m.is_read,
 
                 DATE_FORMAT(
@@ -163,9 +163,14 @@ def staff_member_messages():
 
             FROM messages m
 
-            WHERE
-                m.receiver_role = 'admin'
-                AND m.sender_role = 'member'
+            LEFT JOIN members mem
+                ON mem.id = SUBSTRING_INDEX(
+                    m.message,
+                    ' ',
+                    1
+                )
+
+            WHERE m.user_id = 'ADMIN'
 
             ORDER BY m.id DESC
 
@@ -186,7 +191,8 @@ def staff_member_messages():
 
         return jsonify({
             "error": str(e)
-        }), 500           
+        }), 500
+
 
 @app.route("/api/member/profile", methods=["PUT"])
 def update_member_profile():
