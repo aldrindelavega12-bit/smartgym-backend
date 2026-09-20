@@ -2435,7 +2435,8 @@ def create_trainer_request():
                     plan_id = %s,
                     start_date = %s,
                     end_date = %s,
-                    status = %s
+                    status = %s,
+                    created_at = CURRENT_TIMESTAMP
 
                 WHERE id = %s
 
