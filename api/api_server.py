@@ -2398,20 +2398,18 @@ def create_trainer_request():
 
                 request_status = "pending"
                 action = "created"
-
-
+                
             # ================================================
-            # SAME TRAINER = RENEWAL
-            # ONLY IF ACTIVE
+            # COMPLETED + SAME TRAINER = RENEWAL REQUEST
             # ================================================
 
             elif (
-                existing["status"] == "active"
+                existing["status"] == "completed"
                 and
                 existing["trainer_id"] == trainer_id
             ):
 
-                request_status = "active"
+                request_status = "pending"
                 action = "renewed"
 
 
