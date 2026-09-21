@@ -2073,6 +2073,7 @@ def trainer_plans():
         if conn:
             conn.close()
 
+
 # =========================================================
 # TRAINER MESSAGES
 # GET MESSAGES RECEIVED BY TRAINER
@@ -2088,6 +2089,10 @@ def trainer_messages():
     cursor = None
 
     try:
+
+        # =====================================================
+        # GET TRAINER ID
+        # =====================================================
 
         trainer_id = str(
             request.args.get(
@@ -2127,26 +2132,18 @@ def trainer_messages():
         cursor.execute("""
             SELECT
                 m.id,
-
                 m.user_id,
-
                 m.sender_id,
-
                 m.sender_name AS member_name,
-
                 m.sender_role,
-
                 m.title,
-
                 m.message,
-
                 m.reason,
-
                 m.is_read,
 
                 DATE_FORMAT(
                     m.created_at,
-                    '%M %d, %Y %h:%i %p'
+                    '%%M %%d, %%Y %%h:%%i %%p'
                 ) AS created_at
 
             FROM messages m
@@ -2170,7 +2167,9 @@ def trainer_messages():
         # RESPONSE
         # =====================================================
 
-        return jsonify(rows)
+        return jsonify(
+            rows
+        ), 200
 
 
     except Exception as e:
@@ -2182,19 +2181,25 @@ def trainer_messages():
 
 
         return jsonify({
-            "success": False,
-            "message": str(e)
+
+            "success":
+                False,
+
+            "message":
+                str(e)
+
         }), 500
 
 
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
-            conn.close()
 
+            conn.close()
 # =========================================================
 # TRAINER REQUEST
 # MEMBER -> TRAINER
