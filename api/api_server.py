@@ -2072,7 +2072,129 @@ def trainer_plans():
 
         if conn:
             conn.close()
-       
+
+# =========================================================
+# TRAINER MESSAGES
+# GET MESSAGES RECEIVED BY TRAINER
+# =========================================================
+
+@app.route(
+    "/api/trainer_messages",
+    methods=["GET"]
+)
+def trainer_messages():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        trainer_id = str(
+            request.args.get(
+                "trainer_id",
+                ""
+            )
+        ).strip()
+
+
+        # =====================================================
+        # VALIDATION
+        # =====================================================
+
+        if not trainer_id:
+
+            return jsonify({
+                "success": False,
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        # =====================================================
+        # DATABASE
+        # =====================================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =====================================================
+        # GET TRAINER MESSAGES
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                m.id,
+
+                m.user_id,
+
+                m.sender_id,
+
+                m.sender_name AS member_name,
+
+                m.sender_role,
+
+                m.title,
+
+                m.message,
+
+                m.reason,
+
+                m.is_read,
+
+                DATE_FORMAT(
+                    m.created_at,
+                    '%M %d, %Y %h:%i %p'
+                ) AS created_at
+
+            FROM messages m
+
+            WHERE m.user_id = %s
+
+            AND m.receiver_role = 'trainer'
+
+            ORDER BY
+                m.id DESC
+
+        """, (
+            trainer_id,
+        ))
+
+
+        rows = cursor.fetchall()
+
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        return jsonify(rows)
+
+
+    except Exception as e:
+
+        print(
+            "TRAINER MESSAGES ERROR:",
+            e
+        )
+
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 # =========================================================
 # TRAINER REQUEST
 # MEMBER -> TRAINER
