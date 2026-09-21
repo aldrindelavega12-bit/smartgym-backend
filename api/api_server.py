@@ -2409,7 +2409,7 @@ def create_trainer_request():
                 existing["trainer_id"] == trainer_id
             ):
 
-                request_status = "pending"
+                request_status = "active"
                 action = "renewed"
 
 
