@@ -2383,7 +2383,7 @@ def create_trainer_request():
 
         # =====================================================
         # DETERMINE REQUEST TYPE
-        # ====================================================
+        # =====================================================
 
         request_status = "pending"
         action = "created"
@@ -2393,15 +2393,18 @@ def create_trainer_request():
             # ================================================
             # PREVIOUS REQUEST WAS REJECTED/CANCELLED
             # ================================================
+
             if existing["status"] == "cancelled":
 
                 request_status = "pending"
                 action = "created"
 
+
             # ================================================
             # SAME TRAINER = RENEWAL
             # ONLY IF ACTIVE
             # ================================================
+
             elif (
                 existing["status"] == "active"
                 and
@@ -2411,16 +2414,17 @@ def create_trainer_request():
                 request_status = "active"
                 action = "renewed"
 
+
             # ================================================
             # DIFFERENT TRAINER
             # REQUEST REQUIRED
             # ================================================
+
             else:
 
                 request_status = "pending"
                 action = "changed_trainer"
 
-                
 
         # =====================================================
         # EXISTING RECORD
@@ -2438,8 +2442,11 @@ def create_trainer_request():
                     start_date = %s,
                     end_date = %s,
                     status = %s,
-                    created_at = CONVERT_TZ(NOW(), '+00:00', '+08:00')
-
+                    created_at = CONVERT_TZ(
+                        NOW(),
+                        '+00:00',
+                        '+08:00'
+                    )
 
                 WHERE id = %s
 
@@ -2499,6 +2506,86 @@ def create_trainer_request():
             request_status = "pending"
 
             action = "created"
+
+
+        # =====================================================
+        # SEND MESSAGE TO TRAINER
+        # MEMBER -> TRAINER
+        # =====================================================
+
+        print("CREATING TRAINER MESSAGE...")
+
+
+        cursor.execute("""
+            INSERT INTO messages
+            (
+                user_id,
+                sender_id,
+                sender_name,
+                sender_role,
+                title,
+                message,
+                reason,
+                receiver_role,
+                is_read
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                0
+            )
+
+        """, (
+
+            # RECEIVER = TRAINER
+            trainer["user_id"],
+
+            # SENDER = MEMBER
+            member_id,
+
+            # MEMBER NAME
+            member["full_name"],
+
+            # SENDER ROLE
+            "member",
+
+            # TITLE
+            (
+                "TRAINER RENEWAL"
+                if action == "renewed"
+                else "NEW TRAINER REQUEST"
+            ),
+
+            # MESSAGE
+            (
+                f"{member['full_name']} renewed training with you."
+                if action == "renewed"
+                else f"{member['full_name']} sent you a trainer request."
+            ),
+
+            # REASON
+            "-",
+
+            # RECEIVER ROLE
+            "trainer"
+        ))
+
+
+        trainer_message_id = cursor.lastrowid
+
+
+        print(
+            "TRAINER MESSAGE CREATED:",
+            trainer_message_id
+        )
 
 
         # =====================================================
@@ -2622,8 +2709,7 @@ def create_trainer_request():
         if conn:
 
             conn.close()
-
-
+            
 @app.route(
     "/api/trainer/trainees/<trainer_id>",
     methods=["GET"]
