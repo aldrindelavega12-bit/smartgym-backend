@@ -2128,7 +2128,7 @@ def trainer_messages():
         # =====================================================
         # GET TRAINER MESSAGES
         # =====================================================
-
+        
         cursor.execute("""
             SELECT
                 m.id,
@@ -2142,22 +2142,25 @@ def trainer_messages():
                 m.is_read,
 
                 DATE_FORMAT(
-                    m.created_at,
+                    CONVERT_TZ(
+                        m.created_at,
+                        '+00:00',
+                        '+08:00'
+                    ),
                     '%%M %%d, %%Y %%h:%%i %%p'
                 ) AS created_at
 
             FROM messages m
 
             WHERE m.user_id = %s
-
             AND m.receiver_role = 'trainer'
 
-            ORDER BY
-                m.id DESC
+            ORDER BY m.id DESC
 
         """, (
             trainer_id,
         ))
+
 
 
         rows = cursor.fetchall()
