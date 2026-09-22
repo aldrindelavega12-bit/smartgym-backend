@@ -6415,11 +6415,13 @@ def get_program_trainers():
                 AND trp.active = 1
 
             INNER JOIN user_accounts u
-                ON u.user_id = trp.trainer_id
+                ON u.user_id COLLATE utf8mb4_general_ci
+                   = trp.trainer_id COLLATE utf8mb4_general_ci
                 AND u.role = 'trainer'
 
             LEFT JOIN trainer_plans tp
-                ON tp.trainer_id = u.user_id
+                ON tp.trainer_id COLLATE utf8mb4_general_ci
+                   = u.user_id COLLATE utf8mb4_general_ci
                 AND tp.active = 1
 
             WHERE p.active = 1
@@ -6441,6 +6443,7 @@ def get_program_trainers():
 
         return jsonify(data), 200
 
+
     except Exception as e:
 
         print(
@@ -6452,6 +6455,7 @@ def get_program_trainers():
             "status": "error",
             "message": str(e)
         }), 500
+
 
     finally:
 
