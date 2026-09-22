@@ -5931,6 +5931,9 @@ def create_staff_account():
         price_week = data.get("price_week")
         price_month = data.get("price_month")
 
+        # Trainer programs
+        programs = data.get("programs", [])
+
 
         # =========================
         # BASIC VALIDATION
@@ -5953,10 +5956,23 @@ def create_staff_account():
 
 
         # =========================
-        # TRAINER PRICE VALIDATION
+        # TRAINER VALIDATION
         # =========================
 
         if role == "trainer":
+
+            # At least one program
+            if not programs:
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Please select at least one program."
+                }), 400
+
+
+            # =========================
+            # TRAINER PRICE VALIDATION
+            # =========================
 
             if (
                 price_day is None or
@@ -5996,6 +6012,32 @@ def create_staff_account():
                 }), 400
 
 
+            # =========================
+            # PROGRAM ID VALIDATION
+            # =========================
+
+            try:
+
+                programs = [
+                    int(program_id)
+                    for program_id in programs
+                ]
+
+            except (ValueError, TypeError):
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid program selection."
+                }), 400
+
+
+            # Remove duplicate programs
+
+            programs = list(
+                dict.fromkeys(programs)
+            )
+
+
         # =========================
         # DATABASE
         # =========================
@@ -6028,6 +6070,47 @@ def create_staff_account():
                 "status": "error",
                 "message": "Username already exists."
             }), 409
+
+
+        # =========================
+        # VALIDATE PROGRAMS
+        # =========================
+
+        if role == "trainer":
+
+            placeholders = ",".join(
+                ["%s"] * len(programs)
+            )
+
+            cursor.execute(
+                f"""
+                SELECT id
+                FROM programs
+                WHERE id IN ({placeholders})
+                AND active = 1
+                """,
+                tuple(programs)
+            )
+
+            valid_programs = cursor.fetchall()
+
+            valid_ids = {
+                int(row["id"])
+                for row in valid_programs
+            }
+
+
+            # Check if every selected
+            # program actually exists
+
+            for program_id in programs:
+
+                if program_id not in valid_ids:
+
+                    return jsonify({
+                        "status": "error",
+                        "message": "One or more selected programs are invalid."
+                    }), 400
 
 
         # =========================
@@ -6090,6 +6173,7 @@ def create_staff_account():
 
         # =========================
         # SAVE TRAINER PRICES
+        # ONE SET ONLY
         # =========================
 
         if role == "trainer":
@@ -6120,11 +6204,43 @@ def create_staff_account():
 
 
         # =========================
+        # SAVE TRAINER PROGRAMS
+        # NO PRICES HERE
+        # =========================
+
+        if role == "trainer":
+
+            for program_id in programs:
+
+                cursor.execute("""
+                    INSERT INTO trainer_programs
+                    (
+                        trainer_id,
+                        program_id,
+                        active
+                    )
+                    VALUES
+                    (
+                        %s,
+                        %s,
+                        1
+                    )
+                """, (
+                    user_id,
+                    program_id
+                ))
+
+
+        # =========================
         # COMMIT
         # =========================
 
         conn.commit()
 
+
+        # =========================
+        # LOG
+        # =========================
 
         print("================================")
         print("ACCOUNT CREATED")
@@ -6133,19 +6249,24 @@ def create_staff_account():
 
         if role == "trainer":
 
-            print("1 DAY   :", price_day)
-            print("1 WEEK  :", price_week)
-            print("1 MONTH :", price_month)
+            print("PROGRAMS :", programs)
+            print("1 DAY    :", price_day)
+            print("1 WEEK   :", price_week)
+            print("1 MONTH  :", price_month)
 
         print("================================")
 
+
+        # =========================
+        # RESPONSE
+        # =========================
 
         return jsonify({
 
             "status": "success",
 
             "message":
-                "Trainer account and pricing created successfully."
+                "Trainer account, pricing, and programs created successfully."
                 if role == "trainer"
                 else
                 "Staff account created successfully.",
@@ -6155,6 +6276,10 @@ def create_staff_account():
         }), 201
 
 
+    # =========================
+    # ERROR
+    # =========================
+
     except Exception as e:
 
         if conn:
@@ -6162,7 +6287,10 @@ def create_staff_account():
             conn.rollback()
 
 
-        print("CREATE STAFF ERROR:", e)
+        print(
+            "CREATE STAFF ERROR:",
+            e
+        )
 
 
         return jsonify({
@@ -6174,14 +6302,21 @@ def create_staff_account():
         }), 500
 
 
+    # =========================
+    # CLOSE CONNECTION
+    # =========================
+
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
+
             conn.close()
-            
+
+
 @app.route("/api/staff_accounts")
 def staff_accounts():
 
