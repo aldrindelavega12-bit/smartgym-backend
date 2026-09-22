@@ -6316,6 +6316,53 @@ def create_staff_account():
 
             conn.close()
 
+@app.route("/api/programs", methods=["GET"])
+def get_programs():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_name,
+                description,
+                duration_days,
+                active
+            FROM programs
+            WHERE active = 1
+            ORDER BY program_name
+        """)
+
+        programs = cursor.fetchall()
+
+        return jsonify(programs), 200
+
+    except Exception as e:
+
+        print("PROGRAM LOAD ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 
 @app.route("/api/staff_accounts")
 def staff_accounts():
