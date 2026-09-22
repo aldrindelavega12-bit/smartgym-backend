@@ -6363,6 +6363,103 @@ def get_programs():
         if conn:
             conn.close()
 
+@app.route("/api/program_trainers", methods=["GET"])
+def get_program_trainers():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                p.id AS program_id,
+                p.program_name,
+                p.description,
+                p.duration_days,
+
+                u.user_id AS trainer_id,
+                u.fullname AS trainer_name,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Day'
+                        THEN tp.price
+                    END
+                ) AS price_day,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Week'
+                        THEN tp.price
+                    END
+                ) AS price_week,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Month'
+                        THEN tp.price
+                    END
+                ) AS price_month
+
+            FROM programs p
+
+            INNER JOIN trainer_programs trp
+                ON trp.program_id = p.id
+                AND trp.active = 1
+
+            INNER JOIN user_accounts u
+                ON u.user_id = trp.trainer_id
+                AND u.role = 'trainer'
+
+            LEFT JOIN trainer_plans tp
+                ON tp.trainer_id = u.user_id
+                AND tp.active = 1
+
+            WHERE p.active = 1
+
+            GROUP BY
+                p.id,
+                p.program_name,
+                p.description,
+                p.duration_days,
+                u.user_id,
+                u.fullname
+
+            ORDER BY
+                p.id,
+                u.fullname
+        """)
+
+        data = cursor.fetchall()
+
+        return jsonify(data), 200
+
+    except Exception as e:
+
+        print(
+            "PROGRAM TRAINERS ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 
 @app.route("/api/staff_accounts")
 def staff_accounts():
