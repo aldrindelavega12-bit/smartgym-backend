@@ -7230,6 +7230,149 @@ def get_programs():
         if conn:
             conn.close()
 
+@app.route(
+    "/api/programs/<int:program_id>/plans",
+    methods=["GET"]
+)
+def get_program_plans(program_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        # =========================
+        # DATABASE
+        # =========================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =========================
+        # CHECK PROGRAM
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_name,
+                description,
+                duration_days,
+                active
+            FROM programs
+            WHERE id = %s
+            AND active = 1
+            LIMIT 1
+        """, (
+            program_id,
+        ))
+
+        program = cursor.fetchone()
+
+
+        if not program:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program not found."
+            }), 404
+
+
+        # =========================
+        # GET PLANS / SPLITS
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_id,
+                plan_name,
+                description,
+                active,
+                created_at
+            FROM program_plans
+            WHERE program_id = %s
+            AND active = 1
+            ORDER BY id ASC
+        """, (
+            program_id,
+        ))
+
+        plans = cursor.fetchall()
+
+
+        # =========================
+        # FORMAT DATE
+        # =========================
+
+        for plan in plans:
+
+            if plan["created_at"] is not None:
+
+                plan["created_at"] = (
+                    plan["created_at"]
+                    .strftime("%Y-%m-%d %H:%M:%S")
+                )
+
+
+        # =========================
+        # RESPONSE
+        # =========================
+
+        return jsonify({
+
+            "status": "success",
+
+            "program": {
+                "id": program["id"],
+                "program_name":
+                    program["program_name"],
+                "description":
+                    program["description"],
+                "duration_days":
+                    program["duration_days"]
+            },
+
+            "plans": plans
+
+        }), 200
+
+
+    # =========================
+    # ERROR
+    # =========================
+
+    except Exception as e:
+
+        print(
+            "PROGRAM PLANS LOAD ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "status": "error",
+            "message": str(e)
+
+        }), 500
+
+
+    # =========================
+    # CLOSE
+    # =========================
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 @app.route("/api/program_trainers", methods=["GET"])
 def get_program_trainers():
 
