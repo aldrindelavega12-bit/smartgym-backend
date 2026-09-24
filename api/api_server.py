@@ -5013,7 +5013,135 @@ def get_trainer_workouts(trainer_id):
 
         if conn:
             conn.close()
+# =========================================================
+# MARK TRAINER WORKOUT AS COMPLETED
+# =========================================================
 
+@app.route(
+    "/api/trainer/workout/<int:workout_id>/complete",
+    methods=["POST"]
+)
+def complete_trainer_workout(workout_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        # =========================
+        # DATABASE
+        # =========================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =========================
+        # CHECK WORKOUT
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+
+            FROM trainer_workout_schedule
+
+            WHERE id = %s
+
+        """, (
+            workout_id,
+        ))
+
+
+        workout = cursor.fetchone()
+
+
+        if not workout:
+
+            return jsonify({
+                "status": "error",
+                "message": "Workout not found."
+            }), 404
+
+
+        # =========================
+        # UPDATE STATUS
+        # =========================
+
+        cursor.execute("""
+            UPDATE trainer_workout_schedule
+
+            SET status = 'completed'
+
+            WHERE id = %s
+
+        """, (
+            workout_id,
+        ))
+
+
+        conn.commit()
+
+
+        # =========================
+        # RESPONSE
+        # =========================
+
+        return jsonify({
+
+            "status": "success",
+
+            "message": "Workout marked as completed.",
+
+            "workout": {
+                "id": workout["id"],
+                "member_id": workout["member_id"],
+                "trainer_id": workout["trainer_id"],
+                "workout_date":
+                    workout["workout_date"].strftime("%Y-%m-%d")
+                    if workout["workout_date"]
+                    else None,
+                "workout_name": workout["workout_name"],
+                "status": "completed"
+            }
+
+        }), 200
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "COMPLETE TRAINER WORKOUT ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 
 @app.route("/api/user_accounts", methods=["GET"])
 def get_user_accounts():
