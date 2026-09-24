@@ -5285,6 +5285,209 @@ def missed_trainer_workout(workout_id):
         if conn:
             conn.close()
 
+# =========================================================
+# RESCHEDULE MISSED WORKOUT TO NEXT DAY
+# =========================================================
+
+@app.route(
+    "/api/trainer/workout/<int:workout_id>/reschedule",
+    methods=["POST"]
+)
+def reschedule_trainer_workout(workout_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =========================
+        # GET WORKOUT
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+
+            FROM trainer_workout_schedule
+
+            WHERE id = %s
+
+        """, (
+            workout_id,
+        ))
+
+
+        workout = cursor.fetchone()
+
+
+        if not workout:
+
+            return jsonify({
+                "status": "error",
+                "message": "Workout not found."
+            }), 404
+
+
+        # =========================
+        # ONLY MISSED WORKOUT
+        # =========================
+
+        if workout["status"] != "missed":
+
+            return jsonify({
+                "status": "error",
+                "message": "Only missed workouts can be rescheduled."
+            }), 400
+
+
+        # =========================
+        # NEXT DAY
+        # =========================
+
+        cursor.execute("""
+            SELECT DATE_ADD(
+                %s,
+                INTERVAL 1 DAY
+            ) AS next_date
+        """, (
+            workout["workout_date"],
+        ))
+
+        next_date = cursor.fetchone()["next_date"]
+
+
+        # =========================
+        # CHECK EXISTING WORKOUT
+        # =========================
+
+        cursor.execute("""
+            SELECT
+                id
+
+            FROM trainer_workout_schedule
+
+            WHERE member_id = %s
+            AND workout_date = %s
+
+            LIMIT 1
+
+        """, (
+            workout["member_id"],
+            next_date
+        ))
+
+
+        existing = cursor.fetchone()
+
+
+        if existing:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "Member already has a workout scheduled for the next day."
+            }), 409
+
+
+        # =========================
+        # UPDATE
+        # =========================
+
+        cursor.execute("""
+            UPDATE trainer_workout_schedule
+
+            SET
+                workout_date = %s,
+                status = 'scheduled'
+
+            WHERE id = %s
+
+        """, (
+            next_date,
+            workout_id
+        ))
+
+
+        conn.commit()
+
+
+        # =========================
+        # RESPONSE
+        # =========================
+
+        return jsonify({
+
+            "status": "success",
+
+            "message":
+                "Workout rescheduled to the next day.",
+
+            "workout": {
+
+                "id":
+                    workout["id"],
+
+                "member_id":
+                    workout["member_id"],
+
+                "trainer_id":
+                    workout["trainer_id"],
+
+                "workout_date":
+                    next_date.strftime("%Y-%m-%d"),
+
+                "workout_name":
+                    workout["workout_name"],
+
+                "status":
+                    "scheduled"
+
+            }
+
+        }), 200
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+
+        print(
+            "RESCHEDULE TRAINER WORKOUT ERROR:",
+            e
+        )
+
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 @app.route("/api/user_accounts", methods=["GET"])
 def get_user_accounts():
 
