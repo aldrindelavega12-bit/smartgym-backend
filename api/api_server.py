@@ -4880,7 +4880,141 @@ def pending_members():
         cursor.close()
         conn.close()
         
-        
+# =========================================================
+# GET TRAINER WORKOUT SCHEDULES
+# =========================================================
+
+@app.route(
+    "/api/trainer/workouts/<trainer_id>",
+    methods=["GET"]
+)
+def get_trainer_workouts(trainer_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        trainer_id = str(
+            trainer_id
+        ).strip()
+
+
+        # =========================
+        # VALIDATION
+        # =========================
+
+        if not trainer_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        # =========================
+        # DATABASE
+        # =========================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        cursor.execute("""
+            SELECT
+
+                tws.id,
+
+                tws.member_id,
+
+                m.full_name AS member_name,
+
+                tws.trainer_id,
+
+                tws.workout_date,
+
+                tws.workout_name,
+
+                tws.status
+
+            FROM trainer_workout_schedule tws
+
+            INNER JOIN members m
+                ON tws.member_id = m.id
+
+            WHERE tws.trainer_id = %s
+
+            ORDER BY
+                tws.workout_date ASC,
+                tws.id ASC
+
+        """, (
+            trainer_id,
+        ))
+
+
+        rows = cursor.fetchall()
+
+
+        # =========================
+        # FORMAT DATE
+        # =========================
+
+        for row in rows:
+
+            if row["workout_date"] is not None:
+
+                row["workout_date"] = row[
+                    "workout_date"
+                ].strftime(
+                    "%Y-%m-%d"
+                )
+
+
+        # =========================
+        # RESPONSE
+        # =========================
+
+        return jsonify({
+
+            "status": "success",
+
+            "trainer_id": trainer_id,
+
+            "workouts": rows
+
+        }), 200
+
+
+    except Exception as e:
+
+        print(
+            "GET TRAINER WORKOUTS ERROR:",
+            e
+        )
+
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
 @app.route("/api/user_accounts", methods=["GET"])
 def get_user_accounts():
 
