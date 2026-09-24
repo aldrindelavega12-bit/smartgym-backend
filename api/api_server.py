@@ -3468,20 +3468,33 @@ def get_member_trainer_status(member_id):
         cursor.execute("""
             SELECT
                 tt.id,
+
                 tt.trainer_id,
                 ua.fullname AS trainer_name,
+
                 tt.member_id,
+
+                tt.program_id,
+                p.program_name,
+                p.description AS program_description,
+                p.duration_days AS program_duration_days,
+
                 tt.plan_id,
                 tp.plan_name,
                 tp.duration_days,
                 tp.price,
+
                 tt.start_date,
                 tt.end_date,
                 tt.status
+
             FROM trainer_trainees tt
 
             INNER JOIN user_accounts ua
                 ON tt.trainer_id = ua.user_id
+
+            LEFT JOIN programs p
+                ON tt.program_id = p.id
 
             INNER JOIN trainer_plans tp
                 ON tt.plan_id = tp.id
@@ -3496,6 +3509,7 @@ def get_member_trainer_status(member_id):
             ORDER BY tt.created_at DESC
 
             LIMIT 1
+
         """, (member_id,))
 
         row = cursor.fetchone()
@@ -3507,16 +3521,19 @@ def get_member_trainer_status(member_id):
             }), 200
 
         if row["start_date"] is not None:
+
             row["start_date"] = row[
                 "start_date"
             ].strftime("%Y-%m-%d")
 
         if row["end_date"] is not None:
+
             row["end_date"] = row[
                 "end_date"
             ].strftime("%Y-%m-%d")
 
         if row["price"] is not None:
+
             row["price"] = float(
                 row["price"]
             )
