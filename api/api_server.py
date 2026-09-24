@@ -5300,6 +5300,10 @@ def reschedule_trainer_workout(workout_id):
 
     try:
 
+        # =========================
+        # DATABASE
+        # =========================
+
         conn = get_connection()
 
         cursor = conn.cursor(
@@ -5348,24 +5352,29 @@ def reschedule_trainer_workout(workout_id):
 
             return jsonify({
                 "status": "error",
-                "message": "Only missed workouts can be rescheduled."
+                "message":
+                    "Only missed workouts can be rescheduled."
             }), 400
 
 
         # =========================
-        # NEXT DAY
+        # CALCULATE NEXT DAY
         # =========================
 
-        cursor.execute("""
-            SELECT DATE_ADD(
-                %s,
-                INTERVAL 1 DAY
-            ) AS next_date
-        """, (
-            workout["workout_date"],
-        ))
+        current_date = workout["workout_date"]
 
-        next_date = cursor.fetchone()["next_date"]
+
+        if isinstance(current_date, str):
+
+            current_date = datetime.strptime(
+                current_date,
+                "%Y-%m-%d"
+            ).date()
+
+
+        next_date = current_date + timedelta(
+            days=1
+        )
 
 
         # =========================
@@ -5395,14 +5404,17 @@ def reschedule_trainer_workout(workout_id):
         if existing:
 
             return jsonify({
+
                 "status": "error",
+
                 "message":
                     "Member already has a workout scheduled for the next day."
+
             }), 409
 
 
         # =========================
-        # UPDATE
+        # UPDATE WORKOUT
         # =========================
 
         cursor.execute("""
@@ -5446,7 +5458,7 @@ def reschedule_trainer_workout(workout_id):
                     workout["trainer_id"],
 
                 "workout_date":
-                    next_date.strftime("%Y-%m-%d"),
+                    str(next_date),
 
                 "workout_name":
                     workout["workout_name"],
