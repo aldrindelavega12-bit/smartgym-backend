@@ -3439,6 +3439,237 @@ def reject_trainer_request(request_id):
 
         if conn:
             conn.close()
+
+@app.route("/api/trainer/workout", methods=["POST"])
+def create_trainer_workout():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.json
+
+        member_id = str(
+            data.get("member_id", "")
+        ).strip()
+
+        trainer_id = str(
+            data.get("trainer_id", "")
+        ).strip()
+
+        workout_date = data.get(
+            "workout_date"
+        )
+
+        workout_name = str(
+            data.get("workout_name", "")
+        ).strip()
+
+
+        # =========================
+        # VALIDATION
+        # =========================
+
+        if not member_id:
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+
+        if not trainer_id:
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        if not workout_date:
+            return jsonify({
+                "status": "error",
+                "message": "Workout date is required."
+            }), 400
+
+
+        if not workout_name:
+            return jsonify({
+                "status": "error",
+                "message": "Workout name is required."
+            }), 400
+
+
+        # =========================
+        # DATABASE
+        # =========================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        cursor.execute("""
+            INSERT INTO trainer_workout_schedule
+            (
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                'scheduled'
+            )
+        """, (
+            member_id,
+            trainer_id,
+            workout_date,
+            workout_name
+        ))
+
+
+        conn.commit()
+
+
+        return jsonify({
+            "status": "success",
+            "message": "Workout scheduled successfully.",
+            "workout_id": cursor.lastrowid
+        }), 201
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "CREATE TRAINER WORKOUT ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+@app.route(
+    "/api/member/workout-schedule/<member_id>",
+    methods=["GET"]
+)
+def get_member_workout_schedule(member_id):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        member_id = str(
+            member_id
+        ).strip()
+
+
+        if not member_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        cursor.execute("""
+            SELECT
+
+                id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+
+            FROM trainer_workout_schedule
+
+            WHERE member_id = %s
+
+            ORDER BY workout_date ASC
+
+        """, (
+            member_id,
+        ))
+
+
+        rows = cursor.fetchall()
+
+
+        for row in rows:
+
+            if row["workout_date"] is not None:
+
+                row["workout_date"] = row[
+                    "workout_date"
+                ].strftime(
+                    "%Y-%m-%d"
+                )
+
+
+        return jsonify({
+
+            "status": "success",
+
+            "member_id": member_id,
+
+            "workouts": rows
+
+        }), 200
+
+
+    except Exception as e:
+
+        print(
+            "GET MEMBER WORKOUT SCHEDULE ERROR:",
+            e
+        )
+
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
  
 @app.route(
     "/api/member/trainer-status/<member_id>",
