@@ -4111,8 +4111,7 @@ def renew_member_program():
         ))
 
 
-        new_training_id =
-            cursor.lastrowid
+        new_training_id = cursor.lastrowid
 
 
         # =================================================
