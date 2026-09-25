@@ -3663,6 +3663,7 @@ def accept_trainer_request(request_id):
         if conn:
             conn.close()
 
+
 @app.route(
     "/api/member/program/renew",
     methods=["POST"]
@@ -3717,11 +3718,10 @@ def renew_member_program():
         # =================================================
         # GET LATEST TRAINER ASSIGNMENT
         #
-        # IMPORTANT:
         # DO NOT FILTER BY STATUS
         #
-        # The program, split and trainer remain the same.
-        # Only the trainer rate period expires.
+        # Program, split and trainer remain the same.
+        # Only the trainer rate period is renewed.
         # =================================================
 
         cursor.execute("""
@@ -3768,7 +3768,7 @@ def renew_member_program():
 
 
         # =================================================
-        # RENEW ONLY AFTER CURRENT TRAINER RATE ENDS
+        # CHECK CURRENT END DATE
         # =================================================
 
         if not current["end_date"]:
@@ -3779,6 +3779,10 @@ def renew_member_program():
                     "Current trainer rate end date is missing."
             }), 400
 
+
+        # =================================================
+        # RENEW ONLY AFTER CURRENT TRAINER RATE ENDS
+        # =================================================
 
         if current["end_date"] >= date.today():
 
@@ -3863,7 +3867,7 @@ def renew_member_program():
 
 
         # =================================================
-        # CREATE NEW TRAINER RATE PERIOD
+        # UPDATE EXISTING TRAINER ASSIGNMENT
         #
         # SAME:
         #   trainer
@@ -3871,49 +3875,35 @@ def renew_member_program():
         #   program
         #   split
         #
-        # NEW:
+        # UPDATE:
         #   trainer rate
         #   start date
         #   end date
+        #   status
+        #
+        # DO NOT CREATE A NEW ROW
         # =================================================
 
         cursor.execute("""
-            INSERT INTO trainer_trainees
-            (
-                trainer_id,
-                member_id,
-                program_id,
-                program_plan_id,
-                plan_id,
-                start_date,
-                end_date,
-                status
-            )
+            UPDATE trainer_trainees
 
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                'active'
-            )
+            SET
+                plan_id = %s,
+                start_date = %s,
+                end_date = %s,
+                status = 'active'
+
+            WHERE id = %s
 
         """, (
-            current["trainer_id"],
-            current["member_id"],
-            current["program_id"],
-            current["program_plan_id"],
             rate["id"],
             start_date,
-            end_date
+            end_date,
+            current["id"]
         ))
 
 
-        new_training_id = cursor.lastrowid
+        new_training_id = current["id"]
 
 
         # =================================================
@@ -4126,6 +4116,7 @@ def renew_member_program():
 
         if conn:
             conn.close()
+
 
 
 # =========================================================
