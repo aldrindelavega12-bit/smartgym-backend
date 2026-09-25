@@ -2207,7 +2207,6 @@ def trainer_messages():
 # TRAINER REQUEST
 # MEMBER -> TRAINER
 # =========================================================
-
 @app.route(
     "/api/trainer/request",
     methods=["POST"]
@@ -2528,7 +2527,8 @@ def create_trainer_request():
 
                 request_status = "pending"
                 action = "created"
-                
+
+
             # ================================================
             # COMPLETED + SAME TRAINER = RENEWAL REQUEST
             # ================================================
@@ -2837,6 +2837,7 @@ def create_trainer_request():
         if conn:
 
             conn.close()
+
             
 @app.route(
     "/api/trainer/trainees/<trainer_id>",
