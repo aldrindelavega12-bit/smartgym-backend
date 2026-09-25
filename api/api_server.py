@@ -2207,6 +2207,7 @@ def trainer_messages():
 # TRAINER REQUEST
 # MEMBER -> TRAINER
 # =========================================================
+
 @app.route(
     "/api/trainer/request",
     methods=["POST"]
@@ -2220,85 +2221,59 @@ def create_trainer_request():
 
         data = request.get_json() or {}
 
-        member_id = str(
-            data.get("member_id", "")
-        ).strip()
+        # =================================================
+        # GET DATA
+        # =================================================
 
-        trainer_id = str(
-            data.get("trainer_id", "")
-        ).strip()
-
-        program_id = data.get(
-            "program_id"
-        )
-
-        program_plan_id = data.get(
-            "program_plan_id"
-        )
-
-        plan_id = data.get(
-            "plan_id"
-        )
-
-        start_date = str(
-            data.get("start_date", "")
-        ).strip()
-
+        member_id = data.get("member_id")
+        trainer_id = data.get("trainer_id")
+        program_id = data.get("program_id")
+        program_plan_id = data.get("program_plan_id")
+        plan_id = data.get("plan_id")
+        start_date = data.get("start_date")
 
         # =================================================
         # VALIDATION
         # =================================================
 
         if not member_id:
-
             return jsonify({
                 "status": "error",
                 "message": "Member ID is required."
             }), 400
 
-
         if not trainer_id:
-
             return jsonify({
                 "status": "error",
                 "message": "Trainer ID is required."
             }), 400
 
-
         if not program_id:
-
             return jsonify({
                 "status": "error",
                 "message": "Program ID is required."
             }), 400
 
-
         if not program_plan_id:
-
             return jsonify({
                 "status": "error",
-                "message": "Program Plan ID is required."
+                "message": "Program plan is required."
             }), 400
-
 
         if not plan_id:
-
             return jsonify({
                 "status": "error",
-                "message": "Trainer Rate Plan ID is required."
+                "message": "Trainer rate is required."
             }), 400
-
 
         if not start_date:
-
             return jsonify({
                 "status": "error",
-                "message": "Training start date is required."
+                "message": "Start date is required."
             }), 400
 
-
         # =================================================
-        # START DATE
+        # DATE
         # =================================================
 
         try:
@@ -2312,23 +2287,11 @@ def create_trainer_request():
 
             return jsonify({
                 "status": "error",
-                "message": "Invalid training start date."
+                "message": "Invalid start date format."
             }), 400
-
-
-        today = datetime.now().date()
-
-
-        if start_date_obj < today:
-
-            return jsonify({
-                "status": "error",
-                "message": "Training start date cannot be in the past."
-            }), 400
-
 
         # =================================================
-        # DATABASE CONNECTION
+        # DATABASE
         # =================================================
 
         conn = get_connection()
@@ -2336,7 +2299,6 @@ def create_trainer_request():
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
-
 
         # =================================================
         # GET MEMBER
@@ -2355,14 +2317,12 @@ def create_trainer_request():
 
         member = cursor.fetchone()
 
-
         if not member:
 
             return jsonify({
                 "status": "error",
                 "message": "Member not found."
             }), 404
-
 
         # =================================================
         # GET TRAINER
@@ -2374,7 +2334,6 @@ def create_trainer_request():
                 fullname
             FROM user_accounts
             WHERE user_id = %s
-            AND role = 'trainer'
             LIMIT 1
         """, (
             trainer_id,
@@ -2382,14 +2341,12 @@ def create_trainer_request():
 
         trainer = cursor.fetchone()
 
-
         if not trainer:
 
             return jsonify({
                 "status": "error",
                 "message": "Trainer not found."
             }), 404
-
 
         # =================================================
         # GET PROGRAM
@@ -2412,14 +2369,12 @@ def create_trainer_request():
 
         program = cursor.fetchone()
 
-
         if not program:
 
             return jsonify({
                 "status": "error",
                 "message": "Program not found."
             }), 404
-
 
         # =================================================
         # GET PROGRAM PLAN / SPLIT
@@ -2444,7 +2399,6 @@ def create_trainer_request():
 
         program_plan = cursor.fetchone()
 
-
         if not program_plan:
 
             return jsonify({
@@ -2452,7 +2406,6 @@ def create_trainer_request():
                 "message":
                     "Program plan not found for this program."
             }), 404
-
 
         # =================================================
         # GET TRAINER RATE PLAN
@@ -2477,14 +2430,12 @@ def create_trainer_request():
 
         plan = cursor.fetchone()
 
-
         if not plan:
 
             return jsonify({
                 "status": "error",
                 "message": "Trainer plan not found."
             }), 404
-
 
         if int(plan["active"]) != 1:
 
@@ -2494,41 +2445,44 @@ def create_trainer_request():
                     "This trainer plan is not available."
             }), 400
 
-
         # =================================================
-        # PROGRAM DURATION
+        # TRAINER RATE DURATION
+        # =================================================
         #
         # IMPORTANT:
-        # PROGRAM duration is independent from
-        # TRAINER RATE duration.
+        # DO NOT USE:
+        # program["duration_days"]
         #
-        # Example:
-        # General Fitness = 30 days
-        # Daily Rate      = 1 day
+        # USE:
+        # plan["duration_days"]
         #
-        # End date follows PROGRAM duration.
+        # 1 Day   = 1 day
+        # 1 Week  = 7 days
+        # 1 Month = 30 days
         # =================================================
 
-        program_duration_days = int(
-            program["duration_days"]
+        trainer_rate_duration_days = int(
+            plan["duration_days"]
         )
 
-
-        if program_duration_days <= 0:
+        if trainer_rate_duration_days <= 0:
 
             return jsonify({
                 "status": "error",
-                "message": "Invalid program duration."
+                "message":
+                    "Invalid trainer rate duration."
             }), 400
 
+        # =================================================
+        # CALCULATE TRAINER RATE END DATE
+        # =================================================
 
         end_date_obj = (
             start_date_obj +
             timedelta(
-                days=program_duration_days - 1
+                days=trainer_rate_duration_days - 1
             )
         )
-
 
         # =================================================
         # CHECK EXISTING MEMBER TRAINER RECORD
@@ -2540,11 +2494,9 @@ def create_trainer_request():
                 tt.trainer_id,
                 ua.fullname AS trainer_name,
                 tt.member_id,
-
                 tt.program_id,
                 tt.program_plan_id,
                 tt.plan_id,
-
                 tt.start_date,
                 tt.end_date,
                 tt.status
@@ -2556,13 +2508,14 @@ def create_trainer_request():
 
             WHERE tt.member_id = %s
 
+            ORDER BY tt.created_at DESC
+
             LIMIT 1
         """, (
             member_id,
         ))
 
         existing = cursor.fetchone()
-
 
         # =================================================
         # CHECK DATE OVERLAP
@@ -2583,18 +2536,18 @@ def create_trainer_request():
                     existing["end_date"]
                 )
 
-
                 overlap = (
                     existing_start <= end_date_obj
                     and
                     existing_end >= start_date_obj
                 )
 
-
                 if overlap:
 
                     return jsonify({
+
                         "status": "error",
+
                         "message":
                             "You already have a trainer during the selected dates.",
 
@@ -2613,165 +2566,75 @@ def create_trainer_request():
 
                         "existing_status":
                             existing["status"]
+
                     }), 409
 
-
         # =================================================
-        # DETERMINE ACTION
+        # DETERMINE REQUEST ACTION
         # =================================================
-
-        request_status = "pending"
 
         action = "created"
-
-
-        if existing:
-
-            if existing["status"] == "cancelled":
-
-                request_status = "pending"
-
-                action = "created"
-
-
-            elif (
-                existing["status"] == "completed"
-                and
-                existing["trainer_id"] == trainer_id
-            ):
-
-                request_status = "active"
-
-                action = "renewed"
-
-
-            else:
-
-                request_status = "pending"
-
-                action = "changed_trainer"
-
+        request_status = "pending"
 
         # =================================================
-        # UPDATE EXISTING RECORD
+        # INSERT NEW TRAINER REQUEST
         # =================================================
 
-        if existing:
-
-            cursor.execute("""
-                UPDATE trainer_trainees
-
-                SET
-
-                    trainer_id = %s,
-
-                    program_id = %s,
-
-                    program_plan_id = %s,
-
-                    plan_id = %s,
-
-                    start_date = %s,
-
-                    end_date = %s,
-
-                    status = %s,
-
-                    created_at = CONVERT_TZ(
-                        NOW(),
-                        '+00:00',
-                        '+08:00'
-                    )
-
-                WHERE id = %s
-
-            """, (
+        cursor.execute("""
+            INSERT INTO trainer_trainees
+            (
                 trainer_id,
-
-                program_id,
-
-                program_plan_id,
-
-                plan_id,
-
-                start_date_obj,
-
-                end_date_obj,
-
-                request_status,
-
-                existing["id"]
-            ))
-
-
-            request_id = existing["id"]
-
-
-        # =================================================
-        # INSERT NEW RECORD
-        # =================================================
-
-        else:
-
-            cursor.execute("""
-                INSERT INTO trainer_trainees
-                (
-                    trainer_id,
-                    member_id,
-                    program_id,
-                    program_plan_id,
-                    plan_id,
-                    start_date,
-                    end_date,
-                    status
-                )
-
-                VALUES
-                (
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-
-            """, (
-                trainer_id,
-
                 member_id,
-
                 program_id,
-
                 program_plan_id,
-
                 plan_id,
+                start_date,
+                end_date,
+                status
+            )
 
-                start_date_obj,
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
 
-                end_date_obj,
+        """, (
 
-                "pending"
-            ))
+            trainer_id,
 
+            member_id,
 
-            request_id = cursor.lastrowid
+            program_id,
 
-            request_status = "pending"
+            program_plan_id,
 
-            action = "created"
+            plan_id,
 
+            start_date_obj,
+
+            end_date_obj,
+
+            request_status
+
+        ))
+
+        request_id = cursor.lastrowid
 
         # =================================================
         # CREATE TRAINER MESSAGE
+        # MEMBER -> TRAINER
         # =================================================
 
         print(
             "CREATING TRAINER MESSAGE..."
         )
-
 
         cursor.execute("""
             INSERT INTO messages
@@ -2802,73 +2665,44 @@ def create_trainer_request():
 
         """, (
 
+            # RECEIVER = TRAINER
             trainer["user_id"],
 
+            # SENDER = MEMBER
             member_id,
 
+            # MEMBER NAME
             member["full_name"],
 
+            # SENDER ROLE
             "member",
 
-            (
-                "TRAINER RENEWAL"
-                if action == "renewed"
-                else
-                "NEW TRAINER REQUEST"
-            ),
+            # TITLE
+            "NEW TRAINER REQUEST",
 
-            (
-                f"{member['full_name']} renewed training with you."
-                if action == "renewed"
-                else
-                f"{member['full_name']} sent you a trainer request."
-            ),
+            # MESSAGE
+            f"{member['full_name']} sent you a trainer request.",
 
+            # REASON
             "-",
 
+            # RECEIVER ROLE
             "trainer"
 
         ))
 
-
         trainer_message_id = cursor.lastrowid
-
 
         print(
             "TRAINER MESSAGE CREATED:",
             trainer_message_id
         )
 
-
         # =================================================
         # COMMIT
         # =================================================
 
         conn.commit()
-
-
-        # =================================================
-        # RESPONSE MESSAGE
-        # =================================================
-
-        if action == "renewed":
-
-            message = (
-                "Training renewed successfully."
-            )
-
-        elif action == "changed_trainer":
-
-            message = (
-                "Trainer request submitted successfully."
-            )
-
-        else:
-
-            message = (
-                "Trainer request submitted successfully."
-            )
-
 
         # =================================================
         # RESPONSE
@@ -2880,7 +2714,7 @@ def create_trainer_request():
                 "success",
 
             "message":
-                message,
+                "Trainer request submitted successfully.",
 
             "action":
                 action,
@@ -2888,32 +2722,17 @@ def create_trainer_request():
             "request_id":
                 request_id,
 
-
-            # =================================================
-            # MEMBER
-            # =================================================
-
             "member_id":
                 member_id,
 
             "member_name":
                 member["full_name"],
 
-
-            # =================================================
-            # TRAINER
-            # =================================================
-
             "trainer_id":
                 trainer_id,
 
             "trainer_name":
                 trainer["fullname"],
-
-
-            # =================================================
-            # PROGRAM
-            # =================================================
 
             "program_id":
                 program["id"],
@@ -2924,21 +2743,11 @@ def create_trainer_request():
             "program_duration_days":
                 program["duration_days"],
 
-
-            # =================================================
-            # PROGRAM PLAN / SPLIT
-            # =================================================
-
             "program_plan_id":
                 program_plan["id"],
 
             "program_plan_name":
                 program_plan["plan_name"],
-
-
-            # =================================================
-            # TRAINER RATE
-            # =================================================
 
             "plan_id":
                 plan["id"],
@@ -2952,11 +2761,6 @@ def create_trainer_request():
             "price":
                 str(plan["price"]),
 
-
-            # =================================================
-            # DATES
-            # =================================================
-
             "start_date":
                 start_date_obj.strftime(
                     "%Y-%m-%d"
@@ -2967,50 +2771,39 @@ def create_trainer_request():
                     "%Y-%m-%d"
                 ),
 
-
-            # =================================================
-            # STATUS
-            # =================================================
-
             "status":
                 request_status
 
         }), 201
 
-
     except Exception as e:
 
         if conn:
-
             conn.rollback()
-
 
         print(
             "CREATE TRAINER REQUEST ERROR:",
             e
         )
 
-
         return jsonify({
+
             "status":
                 "error",
 
             "message":
                 str(e)
-        }), 500
 
+        }), 500
 
     finally:
 
         if cursor:
-
             cursor.close()
 
-
         if conn:
-
             conn.close()
-            
+         
 
 
 @app.route(
