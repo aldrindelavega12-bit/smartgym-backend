@@ -4720,7 +4720,6 @@ def get_member_workout_schedule(member_id):
             conn.close()
  
 
-
 @app.route(
     "/api/member/trainer-status/<member_id>",
     methods=["GET"]
@@ -4732,13 +4731,26 @@ def get_member_trainer_status(member_id):
 
     try:
 
-        member_id = str(member_id).strip()
+        member_id = str(
+            member_id
+        ).strip()
+
+
+        # =================================================
+        # VALIDATION
+        # =================================================
 
         if not member_id:
+
             return jsonify({
                 "status": "error",
                 "message": "Member ID is required."
             }), 400
+
+
+        # =================================================
+        # DATABASE
+        # =================================================
 
         conn = get_connection()
 
@@ -4746,8 +4758,20 @@ def get_member_trainer_status(member_id):
             pymysql.cursors.DictCursor
         )
 
+
+        # =================================================
+        # GET LATEST TRAINER ASSIGNMENT
+        #
+        # IMPORTANT:
+        # DO NOT FILTER BY ACTIVE/PENDING
+        #
+        # completed = completed trainer fee
+        # NOT completed program
+        # =================================================
+
         cursor.execute("""
             SELECT
+
                 tt.id,
 
                 tt.trainer_id,
@@ -4788,36 +4812,103 @@ def get_member_trainer_status(member_id):
 
             WHERE tt.member_id = %s
 
-            AND tt.status IN ('pending', 'active')
-
-            AND tt.start_date <= CURDATE()
-            AND tt.end_date >= CURDATE()
-
-            ORDER BY tt.created_at DESC
+            ORDER BY
+                tt.created_at DESC,
+                tt.id DESC
 
             LIMIT 1
 
-        """, (member_id,))
+        """, (
+            member_id,
+        ))
+
 
         row = cursor.fetchone()
+
+
+        # =================================================
+        # NO TRAINER / PROGRAM RECORD
+        # =================================================
 
         if not row:
 
             return jsonify({
-                "has_trainer": False
+
+                "has_trainer":
+                    False
+
             }), 200
+
+
+        # =================================================
+        # CHECK TRAINER FEE STATUS
+        # =================================================
+
+        today = date.today()
+
+
+        trainer_rate_active = (
+
+            row["start_date"] is not None
+
+            and
+
+            row["end_date"] is not None
+
+            and
+
+            row["start_date"] <= today
+
+            and
+
+            row["end_date"] >= today
+
+            and
+
+            row["status"] in (
+                "pending",
+                "active"
+            )
+
+        )
+
+
+        trainer_rate_expired = (
+
+            row["end_date"] is not None
+
+            and
+
+            row["end_date"] < today
+
+        )
+
+
+        # =================================================
+        # FORMAT DATES
+        # =================================================
 
         if row["start_date"] is not None:
 
             row["start_date"] = row[
                 "start_date"
-            ].strftime("%Y-%m-%d")
+            ].strftime(
+                "%Y-%m-%d"
+            )
+
 
         if row["end_date"] is not None:
 
             row["end_date"] = row[
                 "end_date"
-            ].strftime("%Y-%m-%d")
+            ].strftime(
+                "%Y-%m-%d"
+            )
+
+
+        # =================================================
+        # FORMAT PRICE
+        # =================================================
 
         if row["price"] is not None:
 
@@ -4825,13 +4916,31 @@ def get_member_trainer_status(member_id):
                 row["price"]
             )
 
+
+        # =================================================
+        # RESPONSE
+        # =================================================
+
         return jsonify({
 
-            "has_trainer": True,
+            "has_trainer":
+                True,
 
-            "trainer": row
+            "trainer_rate_active":
+                trainer_rate_active,
+
+            "trainer_rate_expired":
+                trainer_rate_expired,
+
+            "trainer":
+                row
 
         }), 200
+
+
+    # =====================================================
+    # ERROR
+    # =====================================================
 
     except Exception as e:
 
@@ -4841,9 +4950,19 @@ def get_member_trainer_status(member_id):
         )
 
         return jsonify({
-            "status": "error",
-            "message": str(e)
+
+            "status":
+                "error",
+
+            "message":
+                str(e)
+
         }), 500
+
+
+    # =====================================================
+    # CLOSE
+    # =====================================================
 
     finally:
 
@@ -4853,7 +4972,7 @@ def get_member_trainer_status(member_id):
         if conn:
             conn.close()
 
-     
+   
 @app.route("/api/website_walkins", methods=["GET"])
 def website_walkins():
 
