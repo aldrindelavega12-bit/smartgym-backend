@@ -3663,7 +3663,6 @@ def accept_trainer_request(request_id):
         if conn:
             conn.close()
 
-
 @app.route(
     "/api/member/program/renew",
     methods=["POST"]
@@ -3719,7 +3718,7 @@ def renew_member_program():
         # GET LATEST TRAINER ASSIGNMENT
         #
         # IMPORTANT:
-        # DO NOT CHECK status = completed
+        # DO NOT FILTER BY STATUS
         #
         # The program, split and trainer remain the same.
         # Only the trainer rate period expires.
@@ -3741,11 +3740,6 @@ def renew_member_program():
             FROM trainer_trainees
 
             WHERE member_id = %s
-
-            AND status IN (
-                'active',
-                'pending'
-            )
 
             ORDER BY
                 end_date DESC,
