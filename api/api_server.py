@@ -4243,6 +4243,8 @@ def get_member_workout_schedule(member_id):
         if conn:
             conn.close()
  
+
+
 @app.route(
     "/api/member/trainer-status/<member_id>",
     methods=["GET"]
@@ -4282,9 +4284,12 @@ def get_member_trainer_status(member_id):
                 p.description AS program_description,
                 p.duration_days AS program_duration_days,
 
+                tt.program_plan_id,
+                pp.plan_name AS program_plan_name,
+
                 tt.plan_id,
                 tp.plan_name,
-                tp.duration_days,
+                tp.duration_days AS trainer_rate_duration_days,
                 tp.price,
 
                 tt.start_date,
@@ -4298,6 +4303,9 @@ def get_member_trainer_status(member_id):
 
             LEFT JOIN programs p
                 ON tt.program_id = p.id
+
+            LEFT JOIN program_plans pp
+                ON tt.program_plan_id = pp.id
 
             INNER JOIN trainer_plans tp
                 ON tt.plan_id = tp.id
@@ -4368,6 +4376,7 @@ def get_member_trainer_status(member_id):
 
         if conn:
             conn.close()
+
      
 @app.route("/api/website_walkins", methods=["GET"])
 def website_walkins():
