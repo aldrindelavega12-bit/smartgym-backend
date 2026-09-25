@@ -4257,7 +4257,7 @@ def renew_member_program():
 # TRAINER FEE REMINDER
 # =========================================================
 
-def check_trainer_fee_reminders():
+         def check_trainer_fee_reminders():
 
     conn = None
     cursor = None
@@ -4270,56 +4270,23 @@ def check_trainer_fee_reminders():
             pymysql.cursors.DictCursor
         )
 
-
-        # =================================================
-        # GET ACTIVE TRAINER FEES
-        #
-        # 7 days  = Weekly
-        # 30 days = Monthly
-        #
-        # 1 Day is excluded
-        # =================================================
-
         cursor.execute("""
             SELECT
-
                 tt.id,
                 tt.member_id,
-                tt.trainer_id,
-                tt.plan_id,
-                tt.start_date,
                 tt.end_date,
-
-                tp.plan_name,
-                tp.duration_days,
-
-                m.full_name AS member_name
-
+                tp.duration_days
             FROM trainer_trainees tt
-
             INNER JOIN trainer_plans tp
                 ON tt.plan_id = tp.id
-
-            INNER JOIN members m
-                ON tt.member_id = m.id
-
             WHERE tt.status = 'active'
-
             AND tp.duration_days IN (7, 30)
-
             AND tt.end_date IS NOT NULL
-
         """)
 
         rows = cursor.fetchall()
 
-
         today = date.today()
-
-
-        # =================================================
-        # CHECK EACH TRAINER FEE
-        # =================================================
 
         for row in rows:
 
@@ -4329,76 +4296,43 @@ def check_trainer_fee_reminders():
                 end_date - today
             ).days
 
-
-            # =================================================
-            # ONLY 3, 2, 1 DAYS LEFT
-            # =================================================
-
-            if days_remaining not in (
-                3,
-                2,
-                1
-            ):
-
+            # Reminder only 3, 2, and 1 day before expiry
+            if days_remaining not in (3, 2, 1):
                 continue
 
+            if days_remaining == 3:
+                reminder_message = (
+                    "Your trainer is about to end in 3 days."
+                )
 
-            # =================================================
-            # MESSAGE
-            # =================================================
+            elif days_remaining == 2:
+                reminder_message = (
+                    "Your trainer is about to end in 2 days."
+                )
 
-            if days_remaining == 1:
-
+            else:
                 reminder_message = (
                     "Your trainer is about to end tomorrow."
                 )
 
-            else:
-
-                reminder_message = (
-                    f"Your trainer is about to end "
-                    f"in {days_remaining} days."
-                )
-
-
-            # =================================================
-            # CHECK IF SAME REMINDER ALREADY EXISTS
-            #
-            # Prevent duplicate messages when the function
-            # runs multiple times on the same day.
-            # =================================================
-
+            # Prevent duplicate reminder on the same day
             cursor.execute("""
                 SELECT id
-
                 FROM messages
-
                 WHERE user_id = %s
-
                 AND title = 'TRAINER FEE REMINDER'
-
                 AND message = %s
-
                 AND DATE(created_at) = CURDATE()
-
                 LIMIT 1
-
             """, (
                 row["member_id"],
                 reminder_message
             ))
 
-            existing_message = cursor.fetchone()
+            existing = cursor.fetchone()
 
-
-            if existing_message:
-
+            if existing:
                 continue
-
-
-            # =================================================
-            # CREATE MEMBER MESSAGE
-            # =================================================
 
             cursor.execute("""
                 INSERT INTO messages
@@ -4413,7 +4347,6 @@ def check_trainer_fee_reminders():
                     receiver_role,
                     is_read
                 )
-
                 VALUES
                 (
                     %s,
@@ -4426,48 +4359,23 @@ def check_trainer_fee_reminders():
                     %s,
                     0
                 )
-
             """, (
-
-                # RECEIVER = MEMBER
                 row["member_id"],
-
-                # SYSTEM SENDER
                 "SYSTEM",
-
-                # SENDER NAME
                 "Smart Gym",
-
-                # SENDER ROLE
                 "system",
-
-                # TITLE
                 "TRAINER FEE REMINDER",
-
-                # MESSAGE
                 reminder_message,
-
-                # REASON
                 "Trainer fee expiration reminder.",
-
-                # RECEIVER ROLE
                 "member"
-
             ))
 
-
-        # =================================================
-        # COMMIT
-        # =================================================
-
         conn.commit()
-
 
         print(
             "TRAINER FEE REMINDERS CHECKED:",
             len(rows)
         )
-
 
     except Exception as e:
 
@@ -4479,7 +4387,6 @@ def check_trainer_fee_reminders():
             e
         )
 
-
     finally:
 
         if cursor:
@@ -4487,7 +4394,6 @@ def check_trainer_fee_reminders():
 
         if conn:
             conn.close()
-            
             
             
 # =========================================================
