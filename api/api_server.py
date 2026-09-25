@@ -4361,7 +4361,7 @@ def check_trainer_fee_reminders():
 
 @app.route(
     "/api/system/trainer-fee-reminders",
-    methods=["POST"]
+    methods=["GET", "POST"]
 )
 def trainer_fee_reminders_api():
 
