@@ -3871,7 +3871,357 @@ def accept_trainer_request(request_id):
             conn.close()
 
 
+@app.route(
+    "/api/member/program/renew",
+    methods=["POST"]
+)
+def renew_member_program():
 
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        member_id = str(
+            data.get("member_id", "")
+        ).strip()
+
+        plan_id = data.get("plan_id")
+
+
+        if not member_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+
+        if not plan_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer rate is required."
+            }), 400
+
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =================================================
+        # GET CURRENT ACTIVE TRAINING
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                member_id,
+                trainer_id,
+                program_id,
+                program_plan_id,
+                end_date
+
+            FROM trainer_trainees
+
+            WHERE member_id = %s
+            AND status = 'active'
+
+            ORDER BY id DESC
+
+            LIMIT 1
+        """, (
+            member_id,
+        ))
+
+        current = cursor.fetchone()
+
+
+        if not current:
+
+            return jsonify({
+                "status": "error",
+                "message": "No active training found."
+            }), 404
+
+
+        # =================================================
+        # GET SELECTED TRAINER RATE
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                plan_name,
+                duration_days,
+                price
+
+            FROM trainer_plans
+
+            WHERE id = %s
+            AND trainer_id = %s
+            AND active = 1
+
+            LIMIT 1
+        """, (
+            plan_id,
+            current["trainer_id"]
+        ))
+
+        rate = cursor.fetchone()
+
+
+        if not rate:
+
+            return jsonify({
+                "status": "error",
+                "message": "Selected trainer rate not found."
+            }), 404
+
+
+        # =================================================
+        # NEW START DATE
+        # =================================================
+
+        start_date = (
+            current["end_date"] +
+            timedelta(days=1)
+        )
+
+
+        # =================================================
+        # NEW END DATE
+        # =================================================
+
+        end_date = (
+            start_date +
+            timedelta(
+                days=int(
+                    rate["duration_days"]
+                ) - 1
+            )
+        )
+
+
+        # =================================================
+        # CREATE NEW TRAINING
+        # =================================================
+
+        cursor.execute("""
+            INSERT INTO trainer_trainees
+            (
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                'active'
+            )
+        """, (
+            current["trainer_id"],
+            member_id,
+            current["program_id"],
+            current["program_plan_id"],
+            rate["id"],
+            start_date,
+            end_date
+        ))
+
+
+        new_training_id = cursor.lastrowid
+
+
+        # =================================================
+        # GET SPLIT DAYS
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                day_number,
+                day_name
+
+            FROM plan_days
+
+            WHERE plan_id = %s
+            AND active = 1
+
+            ORDER BY day_number ASC
+        """, (
+            current["program_plan_id"],
+        ))
+
+        plan_days = cursor.fetchall()
+
+
+        # =================================================
+        # GENERATE SAME SCHEDULE PATTERN
+        # =================================================
+
+        if plan_days:
+
+            current_date = start_date
+
+            day_index = 0
+
+
+            while current_date <= end_date:
+
+                plan_day = plan_days[
+                    day_index % len(plan_days)
+                ]
+
+
+                # -----------------------------------------
+                # BODY PARTS
+                # -----------------------------------------
+
+                cursor.execute("""
+                    SELECT
+                        body_part
+
+                    FROM plan_day_body_parts
+
+                    WHERE plan_day_id = %s
+                    AND active = 1
+
+                    ORDER BY id ASC
+                """, (
+                    plan_day["id"],
+                ))
+
+                body_parts = cursor.fetchall()
+
+
+                if body_parts:
+
+                    workout_name = ", ".join(
+                        row["body_part"]
+                        for row in body_parts
+                    )
+
+                else:
+
+                    workout_name = (
+                        plan_day["day_name"]
+                    )
+
+
+                # -----------------------------------------
+                # INSERT SCHEDULE
+                # -----------------------------------------
+
+                cursor.execute("""
+                    INSERT INTO trainer_workout_schedule
+                    (
+                        member_id,
+                        trainer_id,
+                        workout_date,
+                        workout_name,
+                        status
+                    )
+
+                    VALUES
+                    (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        'scheduled'
+                    )
+                """, (
+                    member_id,
+                    current["trainer_id"],
+                    current_date,
+                    workout_name
+                ))
+
+
+                current_date += timedelta(days=1)
+
+                day_index += 1
+
+
+        conn.commit()
+
+
+        return jsonify({
+
+            "status": "success",
+
+            "message":
+                "Training renewed successfully.",
+
+            "training_id":
+                new_training_id,
+
+            "start_date":
+                start_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "end_date":
+                end_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "plan_name":
+                rate["plan_name"],
+
+            "duration_days":
+                rate["duration_days"],
+
+            "price":
+                float(rate["price"])
+
+        }), 201
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+
+        print(
+            "RENEW PROGRAM ERROR:",
+            e
+        )
+
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 # =========================================================
 # REJECT TRAINER REQUEST
 # =========================================================
