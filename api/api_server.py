@@ -5064,9 +5064,10 @@ def get_member_workout_schedule(member_id):
 
     try:
 
-        # =========================================================
-        # VALIDATE MEMBER ID
-        # =========================================================
+        # =====================================================
+        # MEMBER ID
+        # =====================================================
+
         member_id = str(
             member_id
         ).strip()
@@ -5080,9 +5081,10 @@ def get_member_workout_schedule(member_id):
             }), 400
 
 
-        # =========================================================
-        # DATABASE CONNECTION
-        # =========================================================
+        # =====================================================
+        # DATABASE
+        # =====================================================
+
         conn = get_connection()
 
         cursor = conn.cursor(
@@ -5090,32 +5092,37 @@ def get_member_workout_schedule(member_id):
         )
 
 
-        # =========================================================
-        # GET CURRENT TRAINER PROGRAM
+        # =====================================================
+        # GET CURRENT PROGRAM / SPLIT
         #
-        # We get the current trainer assignment first.
+        # IMPORTANT:
         #
-        # NO JOIN between text columns here.
-        # This avoids the collation conflict.
-        # =========================================================
+        # trainer rate end_date is NOT used to determine
+        # how long the workout pattern exists.
+        #
+        # The program + split determine the workout pattern.
+        # =====================================================
+
         cursor.execute("""
             SELECT
-                id,
-                member_id,
-                trainer_id,
-                program_id,
-                program_plan_id,
-                start_date,
-                end_date,
-                status
+                tt.id,
+                tt.member_id,
+                tt.trainer_id,
 
-            FROM trainer_trainees
+                tt.program_id,
+                tt.program_plan_id,
 
-            WHERE member_id = %s
+                tt.start_date,
+                tt.end_date,
+
+                tt.status
+
+            FROM trainer_trainees tt
+
+            WHERE tt.member_id = %s
 
             ORDER BY
-                end_date DESC,
-                id DESC
+                tt.id DESC
 
             LIMIT 1
         """, (
@@ -5125,9 +5132,10 @@ def get_member_workout_schedule(member_id):
         current = cursor.fetchone()
 
 
-        # =========================================================
-        # NO TRAINER PROGRAM
-        # =========================================================
+        # =====================================================
+        # NO PROGRAM
+        # =====================================================
+
         if not current:
 
             return jsonify({
@@ -5138,16 +5146,31 @@ def get_member_workout_schedule(member_id):
                 "member_id":
                     member_id,
 
+                "program_id":
+                    None,
+
+                "program_plan_id":
+                    None,
+
+                "schedule_type":
+                    "recurring",
+
                 "workouts":
                     []
 
             }), 200
 
 
-        # =========================================================
-        # CHECK DATES
-        # =========================================================
-        if not current["start_date"]:
+        # =====================================================
+        # CURRENT PROGRAM SPLIT
+        # =====================================================
+
+        program_plan_id = (
+            current["program_plan_id"]
+        )
+
+
+        if not program_plan_id:
 
             return jsonify({
 
@@ -5157,13 +5180,69 @@ def get_member_workout_schedule(member_id):
                 "member_id":
                     member_id,
 
+                "program_id":
+                    current["program_id"],
+
+                "program_plan_id":
+                    None,
+
+                "schedule_type":
+                    "recurring",
+
                 "workouts":
                     []
 
             }), 200
 
 
-        if not current["end_date"]:
+        # =====================================================
+        # GET PLAN DAYS
+        #
+        # THIS IS THE ACTUAL SPLIT
+        #
+        # Example:
+        #
+        # Full Body
+        # Rest
+        #
+        # or
+        #
+        # Chest
+        # Back
+        # Shoulders
+        # Arms
+        # Legs
+        # Rest
+        #
+        # This pattern is NOT limited by trainer fee duration.
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id AS plan_day_id,
+                day_number,
+                day_name
+
+            FROM plan_days
+
+            WHERE plan_id = %s
+
+              AND active = 1
+
+            ORDER BY
+                day_number ASC
+        """, (
+            program_plan_id,
+        ))
+
+        plan_days = cursor.fetchall()
+
+
+        # =====================================================
+        # NO PLAN DAYS
+        # =====================================================
+
+        if not plan_days:
 
             return jsonify({
 
@@ -5173,93 +5252,95 @@ def get_member_workout_schedule(member_id):
                 "member_id":
                     member_id,
 
+                "program_id":
+                    current["program_id"],
+
+                "program_plan_id":
+                    program_plan_id,
+
+                "schedule_type":
+                    "recurring",
+
                 "workouts":
                     []
 
             }), 200
 
 
-        # =========================================================
-        # NORMALIZE START DATE
-        # =========================================================
-        if hasattr(
-            current["start_date"],
-            "date"
-        ):
+        # =====================================================
+        # GET BODY PARTS
+        # =====================================================
 
-            start_date = (
-                current["start_date"].date()
-            )
+        for day in plan_days:
 
-        else:
+            cursor.execute("""
+                SELECT
+                    body_part
 
-            start_date = date.fromisoformat(
-                str(
-                    current["start_date"]
-                ).split(" ")[0]
-            )
+                FROM plan_day_body_parts
 
+                WHERE plan_day_id = %s
 
-        # =========================================================
-        # NORMALIZE END DATE
-        # =========================================================
-        if hasattr(
-            current["end_date"],
-            "date"
-        ):
+                  AND active = 1
 
-            end_date = (
-                current["end_date"].date()
-            )
+                ORDER BY
+                    id ASC
+            """, (
+                day["plan_day_id"],
+            ))
 
-        else:
-
-            end_date = date.fromisoformat(
-                str(
-                    current["end_date"]
-                ).split(" ")[0]
-            )
+            body_parts = cursor.fetchall()
 
 
-        # =========================================================
+            day["body_parts"] = [
+
+                row["body_part"]
+
+                for row in body_parts
+
+            ]
+
+
+        # =====================================================
         # DEBUG
-        # =========================================================
+        # =====================================================
+
         print(
             "========================================"
         )
 
         print(
-            "GET MEMBER WORKOUT SCHEDULE"
+            "RECURRING MEMBER WORKOUT SCHEDULE"
         )
 
         print(
-            "Member ID:",
+            "MEMBER ID:",
             member_id
         )
 
         print(
-            "Trainer ID:",
-            current["trainer_id"]
-        )
-
-        print(
-            "Program ID:",
+            "PROGRAM ID:",
             current["program_id"]
         )
 
         print(
-            "Program Plan ID:",
-            current["program_plan_id"]
+            "PROGRAM PLAN ID:",
+            program_plan_id
         )
 
         print(
-            "Start Date:",
-            start_date
+            "TRAINER START:",
+            current["start_date"]
         )
 
         print(
-            "End Date:",
-            end_date
+            "TRAINER END:",
+            current["end_date"]
+        )
+
+        print(
+            "PLAN DAYS:",
+            plan_days
         )
 
         print(
@@ -5267,84 +5348,101 @@ def get_member_workout_schedule(member_id):
         )
 
 
-        # =========================================================
-        # GET EXISTING WORKOUT SCHEDULE
+        # =====================================================
+        # BUILD RECURRING PATTERN
         #
         # IMPORTANT:
         #
-        # We DO NOT generate anything here.
+        # We do NOT use:
         #
-        # We ONLY READ existing schedules.
+        # trainer_workout_schedule
         #
-        # Schedule must fall inside:
+        # We do NOT limit it to:
         #
-        # start_date <= workout_date <= end_date
+        # start_date -> end_date
         #
-        # Renewal extends end_date but does NOT create
-        # new schedule rows.
-        # =========================================================
-        cursor.execute("""
-            SELECT
-                id,
-                member_id,
-                trainer_id,
-                workout_date,
-                workout_name,
-                status
+        # The selected program split is the source of truth.
+        # =====================================================
 
-            FROM trainer_workout_schedule
-
-            WHERE member_id = %s
-
-              AND trainer_id = %s
-
-              AND workout_date >= %s
-
-              AND workout_date <= %s
-
-            ORDER BY
-                workout_date ASC
-        """, (
-            member_id,
-            current["trainer_id"],
-            start_date,
-            end_date
-        ))
-
-        rows = cursor.fetchall()
+        schedule_pattern = []
 
 
-        # =========================================================
-        # FORMAT DATES
-        # =========================================================
-        for row in rows:
+        for index, day in enumerate(
+            plan_days
+        ):
 
-            if row["workout_date"] is not None:
+            day_name = (
+                day["day_name"]
+                or
+                ""
+            ).strip()
 
-                row["workout_date"] = (
-                    row["workout_date"].strftime(
-                        "%Y-%m-%d"
-                    )
+
+            # =================================================
+            # REST
+            # =================================================
+
+            if day_name.lower() == "rest":
+
+                workout_name = "Rest"
+
+
+            # =================================================
+            # BODY PARTS
+            # =================================================
+
+            elif day["body_parts"]:
+
+                workout_name = ", ".join(
+                    day["body_parts"]
                 )
 
 
-        # =========================================================
-        # DEBUG RESULT
-        # =========================================================
-        print(
-            "WORKOUTS FOUND:",
-            len(rows)
-        )
+            # =================================================
+            # FALLBACK
+            # =================================================
 
-        print(
-            "WORKOUT DATA:",
-            rows
-        )
+            else:
+
+                workout_name = (
+                    day_name
+                    or
+                    "Workout"
+                )
 
 
-        # =========================================================
-        # RESPONSE
-        # =========================================================
+            schedule_pattern.append({
+
+                "day_number":
+                    day["day_number"],
+
+                "plan_day_id":
+                    day["plan_day_id"],
+
+                "day_name":
+                    day_name,
+
+                "workout_name":
+                    workout_name
+
+            })
+
+
+        # =====================================================
+        # RETURN RECURRING PROGRAM PATTERN
+        #
+        # THIS HAS NO END DATE.
+        #
+        # The frontend can display this pattern for:
+        #
+        # Sep 26
+        # Sep 27
+        # Sep 28
+        # ...
+        #
+        # indefinitely.
+        # =====================================================
+
         return jsonify({
 
             "status":
@@ -5362,35 +5460,51 @@ def get_member_workout_schedule(member_id):
             "program_plan_id":
                 current["program_plan_id"],
 
-            "start_date":
-                start_date.strftime(
-                    "%Y-%m-%d"
+            "trainer_start_date":
+                (
+                    current["start_date"].strftime(
+                        "%Y-%m-%d"
+                    )
+                    if current["start_date"]
+                    else None
                 ),
 
-            "end_date":
-                end_date.strftime(
-                    "%Y-%m-%d"
+            "trainer_end_date":
+                (
+                    current["end_date"].strftime(
+                        "%Y-%m-%d"
+                    )
+                    if current["end_date"]
+                    else None
                 ),
+
+            "schedule_type":
+                "recurring",
+
+            "schedule_pattern":
+                schedule_pattern,
 
             "workouts":
-                rows
+                schedule_pattern
 
         }), 200
 
 
-    # =============================================================
-    # ERROR HANDLING
-    # =============================================================
+    # =========================================================
+    # ERROR
+    # =========================================================
+
     except Exception as e:
+
+        if conn:
+
+            conn.rollback()
+
 
         print(
             "GET MEMBER WORKOUT SCHEDULE ERROR:",
             e
         )
-
-        if conn:
-
-            conn.rollback()
 
 
         return jsonify({
@@ -5404,17 +5518,20 @@ def get_member_workout_schedule(member_id):
         }), 500
 
 
-    # =============================================================
-    # CLOSE DATABASE
-    # =============================================================
+    # =========================================================
+    # CLOSE
+    # =========================================================
+
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
+
             conn.close()
- 
+
 
 @app.route(
     "/api/member/trainer-status/<member_id>",
@@ -12040,6 +12157,8 @@ def delete_message(id):
     return jsonify({
         "success": True
     })
-    
+
+
+check_trainer_fee_reminders()    
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
