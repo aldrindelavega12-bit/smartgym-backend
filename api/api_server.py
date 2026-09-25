@@ -3074,31 +3074,94 @@ def get_trainer_trainees(trainer_id):
 
         cursor.execute("""
             SELECT
+
                 tt.id,
+
                 tt.trainer_id,
+
                 tt.member_id,
 
+
+                /* =========================
+                   MEMBER
+                ========================= */
+
                 m.full_name,
+
+
+                /* =========================
+                   PROGRAM
+                ========================= */
+
+                tt.program_id,
+
+                p.program_name,
+
+
+                /* =========================
+                   PROGRAM PLAN / SPLIT
+                ========================= */
+
+                tt.program_plan_id,
+
+                pp.plan_name AS program_plan_name,
+
+
+                /* =========================
+                   TRAINER RATE
+                ========================= */
 
                 tt.plan_id,
 
                 tp.plan_name,
+
                 tp.duration_days,
 
+
+                /* =========================
+                   TRAINING PERIOD
+                ========================= */
+
                 tt.start_date,
+
                 tt.end_date,
+
+
+                /* =========================
+                   STATUS
+                ========================= */
 
                 tt.status,
 
                 tt.created_at
 
+
             FROM trainer_trainees tt
+
+
+            /* MEMBER */
 
             INNER JOIN members m
                 ON tt.member_id = m.id
 
+
+            /* PROGRAM */
+
+            LEFT JOIN programs p
+                ON tt.program_id = p.id
+
+
+            /* PROGRAM PLAN / SPLIT */
+
+            LEFT JOIN program_plans pp
+                ON tt.program_plan_id = pp.id
+
+
+            /* TRAINER RATE */
+
             INNER JOIN trainer_plans tp
                 ON tt.plan_id = tp.id
+
 
             WHERE tt.trainer_id = %s
 
@@ -3107,16 +3170,22 @@ def get_trainer_trainees(trainer_id):
                 'completed'
             )
 
+
             ORDER BY
+
                 CASE
+
                     WHEN tt.status = 'active'
                     THEN 0
+
                     ELSE 1
+
                 END,
 
                 tt.end_date DESC,
 
                 tt.created_at DESC
+
         """, (
             trainer_id,
         ))
@@ -3126,33 +3195,45 @@ def get_trainer_trainees(trainer_id):
 
 
         # =====================================================
-        # FORMAT DATES
+        # FORMAT DATA
         # =====================================================
 
         for row in rows:
 
+            # START DATE
+
             if row["start_date"] is not None:
 
-                row["start_date"] = \
-                    row["start_date"].strftime(
-                        "%Y-%m-%d"
-                    )
+                row["start_date"] = (
+                    row["start_date"]
+                    .strftime("%Y-%m-%d")
+                )
 
+
+            # END DATE
 
             if row["end_date"] is not None:
 
-                row["end_date"] = \
-                    row["end_date"].strftime(
-                        "%Y-%m-%d"
-                    )
+                row["end_date"] = (
+                    row["end_date"]
+                    .strftime("%Y-%m-%d")
+                )
 
+
+            # CREATED AT
 
             if row["created_at"] is not None:
 
-                row["created_at"] = \
-                    row["created_at"].strftime(
+                row["created_at"] = (
+                    row["created_at"]
+                    .strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
+                )
+
+
+            # PRICE IS NOT SELECTED HERE
+            # because trainee page does not need it.
 
 
         # =====================================================
@@ -3191,15 +3272,11 @@ def get_trainer_trainees(trainer_id):
     finally:
 
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
-# =========================================================
-# GET TRAINER CLIENT REQUESTS
-# =========================================================
+
 
 # =========================================================
 # GET TRAINER CLIENT REQUESTS
