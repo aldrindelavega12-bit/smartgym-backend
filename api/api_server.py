@@ -7398,6 +7398,35 @@ def get_program_trainers():
                 u.user_id AS trainer_id,
                 u.fullname AS trainer_name,
 
+                /* =========================
+                   TRAINER RATE PLAN IDs
+                   ========================= */
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Day'
+                        THEN tp.id
+                    END
+                ) AS plan_id_day,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Week'
+                        THEN tp.id
+                    END
+                ) AS plan_id_week,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Month'
+                        THEN tp.id
+                    END
+                ) AS plan_id_month,
+
+                /* =========================
+                   TRAINER RATE PRICES
+                   ========================= */
+
                 MAX(
                     CASE
                         WHEN tp.plan_name = '1 Day'
@@ -7427,12 +7456,16 @@ def get_program_trainers():
 
             INNER JOIN user_accounts u
                 ON u.user_id COLLATE utf8mb4_general_ci
-                   = trp.trainer_id COLLATE utf8mb4_general_ci
+                   =
+                   trp.trainer_id COLLATE utf8mb4_general_ci
+
                 AND u.role = 'trainer'
 
             LEFT JOIN trainer_plans tp
                 ON tp.trainer_id COLLATE utf8mb4_general_ci
-                   = u.user_id COLLATE utf8mb4_general_ci
+                   =
+                   u.user_id COLLATE utf8mb4_general_ci
+
                 AND tp.active = 1
 
             WHERE p.active = 1
