@@ -3737,7 +3737,11 @@ def renew_member_program():
         current = cursor.fetchone()
 
 
+        # =========================================================
+        # NO TRAINER PROGRAM
+        # =========================================================
         if not current:
+
             return jsonify({
                 "status": "error",
                 "message": "No trainer assignment found."
@@ -3745,31 +3749,116 @@ def renew_member_program():
 
 
         # =========================================================
-        # CHECK CURRENT END DATE
+        # CHECK END DATE
         # =========================================================
         if not current["end_date"]:
+
             return jsonify({
                 "status": "error",
-                "message": "Current trainer rate end date is missing."
+                "message": (
+                    "Current trainer rate "
+                    "end date is missing."
+                )
             }), 400
 
 
         # =========================================================
-        # RENEWAL ELIGIBILITY
+        # NORMALIZE DATABASE DATES
         #
-        # 3 DAYS OR LESS  = ALLOWED
-        # MORE THAN 3     = BLOCKED
-        #
-        # IMPORTANT:
-        # Do NOT block simply because the current status
-        # is still active.
+        # Handles both:
+        # datetime
+        # date
+        # string
         # =========================================================
-        today = date.today()
+
+        if hasattr(
+            current["start_date"],
+            "date"
+        ):
+            original_start_date = (
+                current["start_date"].date()
+            )
+
+        elif current["start_date"]:
+
+            original_start_date = (
+                date.fromisoformat(
+                    str(
+                        current["start_date"]
+                    ).split(" ")[0]
+                )
+            )
+
+        else:
+
+            original_start_date = None
+
+
+        if hasattr(
+            current["end_date"],
+            "date"
+        ):
+            old_end_date = (
+                current["end_date"].date()
+            )
+
+        else:
+
+            old_end_date = (
+                date.fromisoformat(
+                    str(
+                        current["end_date"]
+                    ).split(" ")[0]
+                )
+            )
+
+
+        # =========================================================
+        # IMPORTANT:
+        # USE PHILIPPINE DATE
+        #
+        # Render/server timezone should NOT decide the
+        # member's renewal eligibility.
+        # =========================================================
+
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+
+        philippines_now = (
+            datetime.now(
+                timezone.utc
+            ).astimezone(
+                ZoneInfo("Asia/Manila")
+            )
+        )
+
+        today = (
+            philippines_now.date()
+        )
+
+
+        # =========================================================
+        # CALCULATE DAYS REMAINING
+        #
+        # Example:
+        #
+        # Today       = Sep 26
+        # Valid Until = Sep 29
+        #
+        # 29 - 26 = 3 DAYS
+        #
+        # Therefore:
+        # ALLOWED
+        # =========================================================
 
         days_remaining = (
-            current["end_date"] - today
+            old_end_date - today
         ).days
 
+
+        # =========================================================
+        # DEBUG
+        # =========================================================
 
         print(
             "========================================"
@@ -3785,22 +3874,27 @@ def renew_member_program():
         )
 
         print(
-            "Today:",
+            "PH DATE:",
             today
         )
 
         print(
-            "Current Start Date:",
-            current["start_date"]
+            "PH TIME:",
+            philippines_now
         )
 
         print(
-            "Current End Date:",
-            current["end_date"]
+            "CURRENT START DATE:",
+            original_start_date
         )
 
         print(
-            "Days Remaining:",
+            "CURRENT END DATE:",
+            old_end_date
+        )
+
+        print(
+            "DAYS REMAINING:",
             days_remaining
         )
 
@@ -3810,23 +3904,44 @@ def renew_member_program():
 
 
         # =========================================================
-        # BLOCK ONLY IF MORE THAN 3 DAYS REMAIN
+        # RENEWAL RULE
+        #
+        # MORE THAN 3 DAYS = BLOCK
+        #
+        # 3 DAYS = ALLOW
+        # 2 DAYS = ALLOW
+        # 1 DAY  = ALLOW
+        # 0 DAY  = ALLOW
+        # -1 DAY = ALLOW
+        #
+        # IMPORTANT:
+        # DO NOT CHECK status == active here.
         # =========================================================
+
         if days_remaining > 3:
 
             return jsonify({
-                "status": "error",
-                "message": (
-                    "You can only renew your trainer rate "
-                    "when 3 days or less remain."
-                ),
-                "days_remaining": days_remaining
+
+                "status":
+                    "error",
+
+                "message":
+                    (
+                        "You can only renew "
+                        "your trainer rate "
+                        "when 3 days or less remain."
+                    ),
+
+                "days_remaining":
+                    days_remaining
+
             }), 400
 
 
         # =========================================================
         # GET SELECTED TRAINER RATE
         # =========================================================
+
         cursor.execute("""
             SELECT
                 id,
@@ -3847,46 +3962,45 @@ def renew_member_program():
         rate = cursor.fetchone()
 
 
+        # =========================================================
+        # RATE NOT FOUND
+        # =========================================================
+
         if not rate:
+
             return jsonify({
                 "status": "error",
-                "message": "Selected trainer rate not found."
+                "message": (
+                    "Selected trainer rate "
+                    "not found."
+                )
             }), 404
-
-
-        # =========================================================
-        # IMPORTANT DATE LOGIC
-        #
-        # ORIGINAL START DATE STAYS THE SAME.
-        #
-        # Example:
-        #
-        # Current:
-        # Start  = Sep 27
-        # End    = Sep 29
-        #
-        # 1 Week renewal:
-        # Start  = Sep 27  <-- SAME
-        # End    = Oct 6   <-- EXTENDED
-        #
-        # The renewal workout schedule itself begins
-        # on Sep 30, which is the day after the old end date.
-        # =========================================================
-
-        original_start_date = (
-            current["start_date"]
-        )
-
-        old_end_date = (
-            current["end_date"]
-        )
 
 
         # =========================================================
         # NEW VALID UNTIL
         #
-        # ONLY EXTEND THE CURRENT END DATE.
+        # IMPORTANT:
+        #
+        # START DATE DOES NOT CHANGE.
+        #
+        # ONLY END DATE IS EXTENDED.
+        #
+        # Example:
+        #
+        # Original:
+        # Sep 27 - Sep 29
+        #
+        # 1 Day:
+        # Sep 27 - Sep 30
+        #
+        # 1 Week:
+        # Sep 27 - Oct 6
+        #
+        # 1 Month:
+        # Sep 27 - Oct 29
         # =========================================================
+
         new_end_date = (
             old_end_date
             + timedelta(
@@ -3898,18 +4012,22 @@ def renew_member_program():
 
 
         # =========================================================
-        # WORKOUT SCHEDULE START
+        # NEW WORKOUT SCHEDULE START
         #
-        # This is NOT the trainer_trainees start_date.
+        # This is ONLY for the new workout schedule.
         #
-        # This is only where the newly renewed workout
-        # schedule begins.
+        # It DOES NOT replace trainer_trainees.start_date.
         # =========================================================
+
         renewal_schedule_start = (
             old_end_date
             + timedelta(days=1)
         )
 
+
+        # =========================================================
+        # DEBUG DATE RESULT
+        # =========================================================
 
         print(
             "ORIGINAL START DATE:",
@@ -3917,7 +4035,7 @@ def renew_member_program():
         )
 
         print(
-            "OLD END DATE:",
+            "OLD VALID UNTIL:",
             old_end_date
         )
 
@@ -3935,13 +4053,16 @@ def renew_member_program():
         # =========================================================
         # UPDATE TRAINER TRAINEE
         #
-        # DO NOT UPDATE start_date.
+        # VERY IMPORTANT:
         #
-        # ONLY:
-        # - plan_id
-        # - end_date
-        # - status
+        # start_date IS NOT UPDATED.
+        #
+        # Only:
+        # plan_id
+        # end_date
+        # status
         # =========================================================
+
         cursor.execute("""
             UPDATE trainer_trainees
             SET
@@ -3964,6 +4085,7 @@ def renew_member_program():
         # =========================================================
         # GET PROGRAM PLAN DAYS
         # =========================================================
+
         cursor.execute("""
             SELECT
                 id AS plan_day_id,
@@ -3986,19 +4108,15 @@ def renew_member_program():
         # =========================================================
         # GENERATE NEW WORKOUT SCHEDULE
         #
-        # Example:
+        # OLD:
+        # Sep 27 - Sep 29
         #
-        # Old Valid Until:
-        # Sep 29
+        # NEW:
+        # Sep 30 onward
         #
-        # New schedule:
-        # Sep 30
-        # Oct 1
-        # Oct 2
-        # ...
-        #
-        # No duplicate schedules for Sep 27-29.
+        # This prevents duplicate workouts.
         # =========================================================
+
         if plan_days:
 
             training_duration = int(
@@ -4021,6 +4139,7 @@ def renew_member_program():
                 # =================================================
                 # GET PLAN DAY
                 # =================================================
+
                 plan_day = plan_days[
                     day_index % len(plan_days)
                 ]
@@ -4029,6 +4148,7 @@ def renew_member_program():
                 # =================================================
                 # GET BODY PARTS
                 # =================================================
+
                 cursor.execute("""
                     SELECT
                         body_part
@@ -4044,8 +4164,9 @@ def renew_member_program():
 
 
                 # =================================================
-                # WORKOUT NAME
+                # BUILD WORKOUT NAME
                 # =================================================
+
                 if body_parts:
 
                     workout_name = ", ".join(
@@ -4061,8 +4182,9 @@ def renew_member_program():
 
 
                 # =================================================
-                # INSERT WORKOUT SCHEDULE
+                # INSERT WORKOUT
                 # =================================================
+
                 cursor.execute("""
                     INSERT INTO trainer_workout_schedule
                     (
@@ -4094,12 +4216,14 @@ def renew_member_program():
         # =========================================================
         # COMMIT
         # =========================================================
+
         conn.commit()
 
 
         # =========================================================
         # SUCCESS RESPONSE
         # =========================================================
+
         return jsonify({
 
             "status":
@@ -4127,17 +4251,21 @@ def renew_member_program():
             # =====================================================
             # ORIGINAL START DATE
             # =====================================================
+
             "start_date":
-                original_start_date.strftime(
-                    "%Y-%m-%d"
-                )
-                if original_start_date
-                else None,
+                (
+                    original_start_date.strftime(
+                        "%Y-%m-%d"
+                    )
+                    if original_start_date
+                    else None
+                ),
 
 
             # =====================================================
             # NEW VALID UNTIL
             # =====================================================
+
             "end_date":
                 new_end_date.strftime(
                     "%Y-%m-%d"
@@ -4145,8 +4273,9 @@ def renew_member_program():
 
 
             # =====================================================
-            # RENEWAL INFORMATION
+            # RENEWAL DEBUG INFO
             # =====================================================
+
             "days_remaining_before_renewal":
                 days_remaining,
 
@@ -4159,6 +4288,7 @@ def renew_member_program():
             # =====================================================
             # TRAINER RATE
             # =====================================================
+
             "trainer_rate": {
 
                 "id":
@@ -4173,17 +4303,20 @@ def renew_member_program():
                     ),
 
                 "price":
-                    float(
-                        rate["price"]
+                    (
+                        float(
+                            rate["price"]
+                        )
+                        if rate["price"] is not None
+                        else None
                     )
-                    if rate["price"] is not None
-                    else None
             },
 
 
             # =====================================================
-            # GENERATED WORKOUTS
+            # GENERATED SCHEDULE COUNT
             # =====================================================
+
             "generated_schedule_count":
                 generated_count
 
@@ -4193,6 +4326,7 @@ def renew_member_program():
     # =============================================================
     # ERROR HANDLING
     # =============================================================
+
     except Exception as e:
 
         if conn:
@@ -4204,14 +4338,20 @@ def renew_member_program():
         )
 
         return jsonify({
-            "status": "error",
-            "message": str(e)
+
+            "status":
+                "error",
+
+            "message":
+                str(e)
+
         }), 500
 
 
     # =============================================================
     # CLOSE DATABASE
     # =============================================================
+
     finally:
 
         if cursor:
@@ -4219,8 +4359,6 @@ def renew_member_program():
 
         if conn:
             conn.close()
-
-
 # =========================================================
 # TRAINER FEE REMINDER
 # =========================================================
