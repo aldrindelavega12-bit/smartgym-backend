@@ -4914,6 +4914,9 @@ def get_member_workout_schedule(member_id):
 
     try:
 
+        # =========================================================
+        # VALIDATE MEMBER ID
+        # =========================================================
         member_id = str(
             member_id
         ).strip()
@@ -4927,6 +4930,9 @@ def get_member_workout_schedule(member_id):
             }), 400
 
 
+        # =========================================================
+        # DATABASE
+        # =========================================================
         conn = get_connection()
 
         cursor = conn.cursor(
@@ -4934,21 +4940,39 @@ def get_member_workout_schedule(member_id):
         )
 
 
+        # =========================================================
+        # GET CURRENT TRAINER PROGRAM
+        #
+        # IMPORTANT:
+        # Only schedules inside the CURRENT trainer
+        # program period will be returned.
+        #
+        # workout_date:
+        #     >= start_date
+        #     <= end_date
+        # =========================================================
         cursor.execute("""
             SELECT
+                tws.id,
+                tws.member_id,
+                tws.trainer_id,
+                tws.workout_date,
+                tws.workout_name,
+                tws.status
 
-                id,
-                member_id,
-                trainer_id,
-                workout_date,
-                workout_name,
-                status
+            FROM trainer_workout_schedule tws
 
-            FROM trainer_workout_schedule
+            INNER JOIN trainer_trainees tt
+                ON tws.member_id = tt.member_id
+                AND tws.trainer_id = tt.trainer_id
 
-            WHERE member_id = %s
+            WHERE tws.member_id = %s
 
-            ORDER BY workout_date ASC
+              AND tws.workout_date >= tt.start_date
+
+              AND tws.workout_date <= tt.end_date
+
+            ORDER BY tws.workout_date ASC
 
         """, (
             member_id,
@@ -4958,28 +4982,40 @@ def get_member_workout_schedule(member_id):
         rows = cursor.fetchall()
 
 
+        # =========================================================
+        # FORMAT DATE
+        # =========================================================
         for row in rows:
 
             if row["workout_date"] is not None:
 
-                row["workout_date"] = row[
-                    "workout_date"
-                ].strftime(
-                    "%Y-%m-%d"
+                row["workout_date"] = (
+                    row["workout_date"].strftime(
+                        "%Y-%m-%d"
+                    )
                 )
 
 
+        # =========================================================
+        # RESPONSE
+        # =========================================================
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
-            "member_id": member_id,
+            "member_id":
+                member_id,
 
-            "workouts": rows
+            "workouts":
+                rows
 
         }), 200
 
 
+    # =============================================================
+    # ERROR
+    # =============================================================
     except Exception as e:
 
         print(
@@ -4987,16 +5023,20 @@ def get_member_workout_schedule(member_id):
             e
         )
 
-
         return jsonify({
 
-            "status": "error",
+            "status":
+                "error",
 
-            "message": str(e)
+            "message":
+                str(e)
 
         }), 500
 
 
+    # =============================================================
+    # CLOSE
+    # =============================================================
     finally:
 
         if cursor:
@@ -5004,6 +5044,7 @@ def get_member_workout_schedule(member_id):
 
         if conn:
             conn.close()
+
  
 
 @app.route(
