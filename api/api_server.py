@@ -3755,10 +3755,14 @@ def renew_member_program():
 
 
         # =========================================================
-        # CHECK DAYS REMAINING
+        # RENEWAL ELIGIBILITY
         #
-        # Renewal is allowed when there are 3 days or less
-        # remaining.
+        # 3 DAYS OR LESS  = ALLOWED
+        # MORE THAN 3     = BLOCKED
+        #
+        # IMPORTANT:
+        # Do NOT block simply because the current status
+        # is still active.
         # =========================================================
         today = date.today()
 
@@ -3768,17 +3772,46 @@ def renew_member_program():
 
 
         print(
-            "RENEWAL CHECK:",
-            member_id,
+            "========================================"
+        )
+
+        print(
+            "RENEWAL CHECK"
+        )
+
+        print(
+            "Member ID:",
+            member_id
+        )
+
+        print(
             "Today:",
-            today,
-            "Current End:",
-            current["end_date"],
+            today
+        )
+
+        print(
+            "Current Start Date:",
+            current["start_date"]
+        )
+
+        print(
+            "Current End Date:",
+            current["end_date"]
+        )
+
+        print(
             "Days Remaining:",
             days_remaining
         )
 
+        print(
+            "========================================"
+        )
 
+
+        # =========================================================
+        # BLOCK ONLY IF MORE THAN 3 DAYS REMAIN
+        # =========================================================
         if days_remaining > 3:
 
             return jsonify({
@@ -3822,55 +3855,92 @@ def renew_member_program():
 
 
         # =========================================================
-        # IMPORTANT:
+        # IMPORTANT DATE LOGIC
         #
-        # DO NOT CHANGE start_date.
+        # ORIGINAL START DATE STAYS THE SAME.
         #
-        # Existing:
-        # start_date = Sep 26
-        # end_date   = Sep 29
+        # Example:
+        #
+        # Current:
+        # Start  = Sep 27
+        # End    = Sep 29
         #
         # 1 Week renewal:
-        # start_date = Sep 26   <-- STAYS
-        # end_date   = Oct 6    <-- EXTENDED
+        # Start  = Sep 27  <-- SAME
+        # End    = Oct 6   <-- EXTENDED
         #
+        # The renewal workout schedule itself begins
+        # on Sep 30, which is the day after the old end date.
         # =========================================================
 
-        original_start_date = current["start_date"]
-
-        old_end_date = current["end_date"]
-
-        renewal_start_date = (
-            old_end_date + timedelta(days=1)
+        original_start_date = (
+            current["start_date"]
         )
 
+        old_end_date = (
+            current["end_date"]
+        )
+
+
+        # =========================================================
+        # NEW VALID UNTIL
+        #
+        # ONLY EXTEND THE CURRENT END DATE.
+        # =========================================================
         new_end_date = (
             old_end_date
             + timedelta(
-                days=int(rate["duration_days"])
+                days=int(
+                    rate["duration_days"]
+                )
             )
         )
 
 
+        # =========================================================
+        # WORKOUT SCHEDULE START
+        #
+        # This is NOT the trainer_trainees start_date.
+        #
+        # This is only where the newly renewed workout
+        # schedule begins.
+        # =========================================================
+        renewal_schedule_start = (
+            old_end_date
+            + timedelta(days=1)
+        )
+
+
         print(
-            "RENEWAL DATES:",
-            "Original Start:",
-            original_start_date,
-            "Old End:",
-            old_end_date,
-            "Renewal Schedule Start:",
-            renewal_start_date,
-            "New End:",
+            "ORIGINAL START DATE:",
+            original_start_date
+        )
+
+        print(
+            "OLD END DATE:",
+            old_end_date
+        )
+
+        print(
+            "NEW VALID UNTIL:",
             new_end_date
+        )
+
+        print(
+            "NEW SCHEDULE START:",
+            renewal_schedule_start
         )
 
 
         # =========================================================
         # UPDATE TRAINER TRAINEE
         #
-        # ONLY plan_id, end_date and status are changed.
+        # DO NOT UPDATE start_date.
         #
-        # start_date REMAINS THE ORIGINAL START DATE.
+        # ONLY:
+        # - plan_id
+        # - end_date
+        # - status
         # =========================================================
         cursor.execute("""
             UPDATE trainer_trainees
@@ -3886,7 +3956,9 @@ def renew_member_program():
         ))
 
 
-        new_training_id = current["id"]
+        new_training_id = (
+            current["id"]
+        )
 
 
         # =========================================================
@@ -3912,17 +3984,20 @@ def renew_member_program():
 
 
         # =========================================================
-        # GENERATE ONLY THE NEW RENEWAL SCHEDULE
+        # GENERATE NEW WORKOUT SCHEDULE
         #
         # Example:
         #
-        # Existing valid until:
+        # Old Valid Until:
         # Sep 29
         #
-        # Renewal:
-        # Sep 30 -> Oct 6
+        # New schedule:
+        # Sep 30
+        # Oct 1
+        # Oct 2
+        # ...
         #
-        # We DO NOT generate Sep 26 -> Sep 29 again.
+        # No duplicate schedules for Sep 27-29.
         # =========================================================
         if plan_days:
 
@@ -3936,11 +4011,16 @@ def renew_member_program():
             ):
 
                 workout_date = (
-                    renewal_start_date
-                    + timedelta(days=day_index)
+                    renewal_schedule_start
+                    + timedelta(
+                        days=day_index
+                    )
                 )
 
 
+                # =================================================
+                # GET PLAN DAY
+                # =================================================
                 plan_day = plan_days[
                     day_index % len(plan_days)
                 ]
@@ -3950,7 +4030,8 @@ def renew_member_program():
                 # GET BODY PARTS
                 # =================================================
                 cursor.execute("""
-                    SELECT body_part
+                    SELECT
+                        body_part
                     FROM plan_day_body_parts
                     WHERE plan_day_id = %s
                     AND active = 1
@@ -4021,7 +4102,8 @@ def renew_member_program():
         # =========================================================
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
             "message":
                 "Trainer rate renewed successfully.",
@@ -4041,9 +4123,10 @@ def renew_member_program():
             "program_plan_id":
                 current["program_plan_id"],
 
-            # =============================================
+
+            # =====================================================
             # ORIGINAL START DATE
-            # =============================================
+            # =====================================================
             "start_date":
                 original_start_date.strftime(
                     "%Y-%m-%d"
@@ -4051,20 +4134,31 @@ def renew_member_program():
                 if original_start_date
                 else None,
 
-            # =============================================
+
+            # =====================================================
             # NEW VALID UNTIL
-            # =============================================
+            # =====================================================
             "end_date":
                 new_end_date.strftime(
                     "%Y-%m-%d"
                 ),
 
+
+            # =====================================================
+            # RENEWAL INFORMATION
+            # =====================================================
             "days_remaining_before_renewal":
                 days_remaining,
 
-            # =============================================
+            "renewal_schedule_start":
+                renewal_schedule_start.strftime(
+                    "%Y-%m-%d"
+                ),
+
+
+            # =====================================================
             # TRAINER RATE
-            # =============================================
+            # =====================================================
             "trainer_rate": {
 
                 "id":
@@ -4074,14 +4168,22 @@ def renew_member_program():
                     rate["plan_name"],
 
                 "duration_days":
-                    int(rate["duration_days"]),
+                    int(
+                        rate["duration_days"]
+                    ),
 
                 "price":
-                    float(rate["price"])
+                    float(
+                        rate["price"]
+                    )
                     if rate["price"] is not None
                     else None
             },
 
+
+            # =====================================================
+            # GENERATED WORKOUTS
+            # =====================================================
             "generated_schedule_count":
                 generated_count
 
