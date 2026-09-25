@@ -4352,6 +4352,40 @@ def check_trainer_fee_reminders():
 
         if conn:
             conn.close()
+            
+            
+            
+# =========================================================
+# MANUAL / CRON TRIGGER - TRAINER FEE REMINDERS
+# =========================================================
+
+@app.route(
+    "/api/system/trainer-fee-reminders",
+    methods=["POST"]
+)
+def trainer_fee_reminders_api():
+
+    try:
+
+        check_trainer_fee_reminders()
+
+        return jsonify({
+            "status": "success",
+            "message":
+                "Trainer fee reminders checked successfully."
+        }), 200
+
+    except Exception as e:
+
+        print(
+            "TRAINER FEE REMINDER API ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 # =========================================================
 # REJECT TRAINER REQUEST
 # =========================================================
