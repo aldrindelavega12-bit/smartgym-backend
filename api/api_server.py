@@ -4606,7 +4606,7 @@ def renew_member_program():
 # TRAINER FEE REMINDER
 # =========================================================
 
-         def check_trainer_fee_reminders():
+def check_trainer_fee_reminders():
 
     conn = None
     cursor = None
