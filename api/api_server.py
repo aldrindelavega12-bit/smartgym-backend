@@ -2809,6 +2809,11 @@ def create_trainer_request():
 # MEMBER CHANGES TRAINER
 # CURRENT PROGRAM + SPLIT MUST REMAIN THE SAME
 # =========================================================
+# =========================================================
+# CHANGE TRAINER
+# MEMBER CHANGES TRAINER
+# CURRENT PROGRAM + SPLIT MUST REMAIN THE SAME
+# =========================================================
 
 @app.route(
     "/api/member/change-trainer",
@@ -2943,7 +2948,11 @@ def change_member_trainer():
         # PROGRAM MUST REMAIN THE SAME
         # =====================================================
 
-        if str(current["program_id"]) != str(program_id):
+        if str(
+            current["program_id"]
+        ) != str(
+            program_id
+        ):
 
             return jsonify({
                 "status": "error",
@@ -3151,18 +3160,17 @@ def change_member_trainer():
 
 
         # =====================================================
-        # END CURRENT TRAINER
+        # REMOVE CURRENT TRAINER
         #
-        # We DO NOT DELETE the old record.
-        # We preserve history.
+        # IMPORTANT:
+        # OLD TRAINER ASSIGNMENT IS DELETED.
+        #
+        # We do NOT mark it completed.
+        # The member has changed trainer.
         # =====================================================
 
         cursor.execute("""
-            UPDATE trainer_trainees
-
-            SET
-                status = 'completed',
-                end_date = %s
+            DELETE FROM trainer_trainees
 
             WHERE id = %s
 
@@ -3170,7 +3178,6 @@ def change_member_trainer():
 
               AND status = 'active'
         """, (
-            start_date_obj - timedelta(days=1),
             current["id"],
             member_id
         ))
@@ -3184,7 +3191,7 @@ def change_member_trainer():
                 "status": "error",
                 "message": (
                     "Current trainer assignment "
-                    "could not be updated."
+                    "could not be removed."
                 )
             }), 400
 
@@ -3193,9 +3200,9 @@ def change_member_trainer():
         # CREATE NEW TRAINER REQUEST
         #
         # IMPORTANT:
-        # status = pending
+        # NEW TRAINER IS NOT ACTIVE YET.
         #
-        # The new trainer is NOT active yet.
+        # STATUS = pending
         # =====================================================
 
         cursor.execute("""
@@ -3362,9 +3369,9 @@ def change_member_trainer():
         }), 201
 
 
-    # =========================================================
+    # =====================================================
     # ERROR
-    # =========================================================
+    # =====================================================
 
     except Exception as e:
 
@@ -3377,17 +3384,14 @@ def change_member_trainer():
         )
 
         return jsonify({
-
             "status": "error",
-
             "message": str(e)
-
         }), 500
 
 
-    # =========================================================
+    # =====================================================
     # CLOSE
-    # =========================================================
+    # =====================================================
 
     finally:
 
@@ -3396,6 +3400,7 @@ def change_member_trainer():
 
         if conn:
             conn.close()
+
 
 from datetime import datetime, date, timedelta
 
