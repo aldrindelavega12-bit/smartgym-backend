@@ -4421,6 +4421,9 @@ def get_trainer_requests(trainer_id):
 # =========================================================
 # ACCEPT TRAINER REQUEST
 # =========================================================
+# =========================================================
+# ACCEPT TRAINER REQUEST
+# =========================================================
 
 @app.route(
     "/api/trainer/request/<int:request_id>/accept",
@@ -4478,9 +4481,12 @@ def accept_trainer_request(request_id):
                 start_date,
                 end_date,
                 status
+
             FROM trainer_trainees
+
             WHERE id = %s
               AND trainer_id = %s
+
             LIMIT 1
         """, (
             request_id,
@@ -4540,12 +4546,9 @@ def accept_trainer_request(request_id):
         #
         # IMPORTANT:
         #
-        # We need this BEFORE updating the pending request
-        # so we can determine whether the member changed:
+        # Get this BEFORE activating the pending request.
         #
-        # PROGRAM
-        # or
-        # SPLIT
+        # This is the OLD active/completed assignment.
         # =====================================================
 
         cursor.execute("""
@@ -4585,6 +4588,7 @@ def accept_trainer_request(request_id):
         # =====================================================
 
         program_changed = False
+
         split_changed = False
 
 
@@ -4657,6 +4661,13 @@ def accept_trainer_request(request_id):
         print(
             "MEMBER ID:",
             member_id
+        )
+
+        print(
+            "OLD TRAINER:",
+            previous["trainer_id"]
+            if previous
+            else None
         )
 
         print(
@@ -4835,15 +4846,12 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # IF PROGRAM OR SPLIT CHANGED
+        # DELETE OLD PROGRAM SCHEDULE
         #
-        # REMOVE OLD SCHEDULE
+        # ONLY WHEN PROGRAM OR SPLIT CHANGED.
         #
-        # IMPORTANT:
-        #
-        # We delete ONLY the old program's schedule.
-        #
-        # We do NOT delete the member's entire history.
+        # This removes the schedule belonging to the
+        # previous program.
         # =====================================================
 
         if (
@@ -4925,18 +4933,62 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # GENERATE SCHEDULE
+        # DELETE OLD PROGRAM ASSIGNMENT
+        #
+        # IMPORTANT:
+        #
+        # ONLY DELETE THE OLD ASSIGNMENT WHEN:
+        #
+        #     PROGRAM CHANGED
+        #     OR
+        #     SPLIT CHANGED
+        #
+        # The new request is already active at this point.
+        #
+        # Therefore:
+        #
+        # previous["id"] = OLD RECORD
+        # request_id     = NEW RECORD
+        #
+        # We delete by ID so we NEVER delete the new record.
+        # =====================================================
+
+        if (
+            previous
+            and
+            program_or_split_changed
+        ):
+
+            cursor.execute("""
+                DELETE FROM trainer_trainees
+
+                WHERE id = %s
+
+                  AND member_id = %s
+
+                  AND status IN (
+                      'active',
+                      'completed'
+                  )
+            """, (
+                previous["id"],
+                member_id
+            ))
+
+
+            print(
+                "OLD PROGRAM ASSIGNMENT DELETED:",
+                cursor.rowcount
+            )
+
+
+        # =====================================================
+        # GENERATE NEW SCHEDULE
         #
         # IMPORTANT:
         #
         # The schedule is generated from the NEW
         # program_plan_id.
-        #
-        # Therefore:
-        #
-        # General Fitness + Full Body
-        #
-        # will use the Full Body plan days.
         # =====================================================
 
         current_date = start_date
@@ -5005,11 +5057,6 @@ def accept_trainer_request(request_id):
 
             # =================================================
             # INSERT NEW SCHEDULE
-            #
-            # DO NOT SKIP BASED ON OLD SCHEDULE.
-            #
-            # If program/split changed, old schedule has
-            # already been deleted.
             # =================================================
 
             cursor.execute("""
