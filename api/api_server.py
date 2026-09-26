@@ -6745,7 +6745,6 @@ def get_member_workout_schedule(member_id):
 
             conn.close()
 
-
 @app.route(
     "/api/member/trainer-status/<member_id>",
     methods=["GET"]
@@ -6786,13 +6785,17 @@ def get_member_trainer_status(member_id):
 
 
         # =================================================
-        # GET LATEST TRAINER ASSIGNMENT
+        # GET CURRENT TRAINER ASSIGNMENT
         #
         # IMPORTANT:
-        # DO NOT FILTER BY ACTIVE/PENDING
+        # ACTIVE MUST HAVE PRIORITY OVER PENDING.
         #
-        # completed = completed trainer fee
-        # NOT completed program
+        # If there is an active trainer assignment and
+        # there is also a pending Change Program request,
+        # return the ACTIVE assignment.
+        #
+        # This keeps the current trainer/program visible
+        # until the trainer accepts the request.
         # =================================================
 
         cursor.execute("""
@@ -6839,6 +6842,13 @@ def get_member_trainer_status(member_id):
             WHERE tt.member_id = %s
 
             ORDER BY
+
+                CASE
+                    WHEN tt.status = 'active' THEN 1
+                    WHEN tt.status = 'pending' THEN 2
+                    ELSE 3
+                END,
+
                 tt.created_at DESC,
                 tt.id DESC
 
