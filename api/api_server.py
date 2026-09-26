@@ -2804,7 +2804,600 @@ def create_trainer_request():
         if conn:
             conn.close()
          
+# =========================================================
+# CHANGE TRAINER
+# MEMBER CHANGES TRAINER
+# CURRENT PROGRAM + SPLIT MUST REMAIN THE SAME
+# =========================================================
 
+@app.route(
+    "/api/member/change-trainer",
+    methods=["POST"]
+)
+def change_member_trainer():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        # =====================================================
+        # GET REQUEST DATA
+        # =====================================================
+
+        data = request.get_json() or {}
+
+        member_id = str(
+            data.get("member_id", "")
+        ).strip()
+
+        new_trainer_id = str(
+            data.get("new_trainer_id", "")
+        ).strip()
+
+        program_id = data.get("program_id")
+        program_plan_id = data.get("program_plan_id")
+        plan_id = data.get("plan_id")
+
+
+        # =====================================================
+        # VALIDATION
+        # =====================================================
+
+        if not member_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+
+        if not new_trainer_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "New trainer is required."
+            }), 400
+
+
+        if not program_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program ID is required."
+            }), 400
+
+
+        if not program_plan_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program plan ID is required."
+            }), 400
+
+
+        if not plan_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer rate is required."
+            }), 400
+
+
+        # =====================================================
+        # DATABASE
+        # =====================================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =====================================================
+        # GET CURRENT TRAINER
+        #
+        # ONLY ACTIVE TRAINER IS CONSIDERED CURRENT
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status
+
+            FROM trainer_trainees
+
+            WHERE member_id = %s
+
+              AND status = 'active'
+
+            ORDER BY
+                end_date DESC,
+                id DESC
+
+            LIMIT 1
+        """, (
+            member_id,
+        ))
+
+        current = cursor.fetchone()
+
+
+        if not current:
+
+            return jsonify({
+                "status": "error",
+                "message": "No active trainer assignment found."
+            }), 404
+
+
+        # =====================================================
+        # PROGRAM MUST REMAIN THE SAME
+        # =====================================================
+
+        if str(current["program_id"]) != str(program_id):
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Program cannot be changed "
+                    "when changing trainer."
+                )
+            }), 400
+
+
+        # =====================================================
+        # SPLIT MUST REMAIN THE SAME
+        # =====================================================
+
+        if str(
+            current["program_plan_id"]
+        ) != str(
+            program_plan_id
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Program split cannot be changed "
+                    "when changing trainer."
+                )
+            }), 400
+
+
+        # =====================================================
+        # NEW TRAINER MUST BE DIFFERENT
+        # =====================================================
+
+        if str(
+            current["trainer_id"]
+        ) == str(
+            new_trainer_id
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "You are already assigned "
+                    "to this trainer."
+                )
+            }), 400
+
+
+        # =====================================================
+        # GET NEW TRAINER
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                user_id,
+                fullname
+
+            FROM user_accounts
+
+            WHERE user_id = %s
+
+              AND role = 'trainer'
+
+            LIMIT 1
+        """, (
+            new_trainer_id,
+        ))
+
+        new_trainer = cursor.fetchone()
+
+
+        if not new_trainer:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer not found."
+            }), 404
+
+
+        # =====================================================
+        # VERIFY TRAINER IS AVAILABLE FOR THIS PROGRAM
+        #
+        # trainer_programs connects trainer + program
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                tp.id,
+                tp.trainer_id,
+                tp.program_id
+
+            FROM trainer_programs tp
+
+            WHERE tp.trainer_id = %s
+
+              AND tp.program_id = %s
+
+            LIMIT 1
+        """, (
+            new_trainer_id,
+            program_id
+        ))
+
+        trainer_program = cursor.fetchone()
+
+
+        if not trainer_program:
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Selected trainer is not available "
+                    "for this program."
+                )
+            }), 400
+
+
+        # =====================================================
+        # VERIFY TRAINER RATE
+        #
+        # trainer_plans = trainer's rate
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                plan_name,
+                duration_days,
+                price
+
+            FROM trainer_plans
+
+            WHERE id = %s
+
+              AND trainer_id = %s
+
+            LIMIT 1
+        """, (
+            plan_id,
+            new_trainer_id
+        ))
+
+        trainer_rate = cursor.fetchone()
+
+
+        if not trainer_rate:
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Selected trainer rate "
+                    "is not valid."
+                )
+            }), 400
+
+
+        # =====================================================
+        # GET MEMBER
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                full_name
+
+            FROM members
+
+            WHERE id = %s
+
+            LIMIT 1
+        """, (
+            member_id,
+        ))
+
+        member = cursor.fetchone()
+
+
+        if not member:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member not found."
+            }), 404
+
+
+        # =====================================================
+        # CALCULATE NEW TRAINING PERIOD
+        #
+        # Change starts TODAY.
+        # Duration comes from selected trainer rate.
+        # =====================================================
+
+        start_date_obj = date.today()
+
+        training_duration = int(
+            trainer_rate["duration_days"]
+        )
+
+        end_date_obj = (
+            start_date_obj +
+            timedelta(
+                days=training_duration - 1
+            )
+        )
+
+
+        # =====================================================
+        # END CURRENT TRAINER
+        #
+        # We DO NOT DELETE the old record.
+        # We preserve history.
+        # =====================================================
+
+        cursor.execute("""
+            UPDATE trainer_trainees
+
+            SET
+                status = 'completed',
+                end_date = %s
+
+            WHERE id = %s
+
+              AND member_id = %s
+
+              AND status = 'active'
+        """, (
+            start_date_obj - timedelta(days=1),
+            current["id"],
+            member_id
+        ))
+
+
+        if cursor.rowcount == 0:
+
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Current trainer assignment "
+                    "could not be updated."
+                )
+            }), 400
+
+
+        # =====================================================
+        # CREATE NEW TRAINER REQUEST
+        #
+        # IMPORTANT:
+        # status = pending
+        #
+        # The new trainer is NOT active yet.
+        # =====================================================
+
+        cursor.execute("""
+            INSERT INTO trainer_trainees
+            (
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                'pending'
+            )
+        """, (
+            new_trainer_id,
+            member_id,
+            program_id,
+            program_plan_id,
+            plan_id,
+            start_date_obj,
+            end_date_obj
+        ))
+
+        request_id = cursor.lastrowid
+
+
+        # =====================================================
+        # SEND MESSAGE TO NEW TRAINER
+        # =====================================================
+
+        cursor.execute("""
+            INSERT INTO messages
+            (
+                user_id,
+                sender_id,
+                sender_name,
+                sender_role,
+                title,
+                message,
+                reason,
+                receiver_role,
+                is_read
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                0
+            )
+        """, (
+
+            # RECEIVER = NEW TRAINER
+            new_trainer["user_id"],
+
+            # SENDER = MEMBER
+            member_id,
+
+            # MEMBER NAME
+            member["full_name"],
+
+            # SENDER ROLE
+            "member",
+
+            # TITLE
+            "TRAINER CHANGE REQUEST",
+
+            # MESSAGE
+            (
+                f"{member['full_name']} "
+                f"requested to change trainer "
+                f"to you."
+            ),
+
+            # REASON
+            "Member requested a trainer change.",
+
+            # RECEIVER ROLE
+            "trainer"
+        ))
+
+
+        # =====================================================
+        # COMMIT
+        # =====================================================
+
+        conn.commit()
+
+
+        # =====================================================
+        # SUCCESS
+        # =====================================================
+
+        return jsonify({
+
+            "status": "success",
+
+            "message": (
+                "Trainer change request "
+                "submitted successfully."
+            ),
+
+            "action": "changed_trainer",
+
+            "request_id": request_id,
+
+            "member_id": member_id,
+
+            "old_trainer_id":
+                current["trainer_id"],
+
+            "new_trainer_id":
+                new_trainer_id,
+
+            "new_trainer_name":
+                new_trainer["fullname"],
+
+            "program_id":
+                current["program_id"],
+
+            "program_plan_id":
+                current["program_plan_id"],
+
+            "plan_id":
+                trainer_rate["id"],
+
+            "plan_name":
+                trainer_rate["plan_name"],
+
+            "price":
+                str(trainer_rate["price"]),
+
+            "start_date":
+                start_date_obj.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "end_date":
+                end_date_obj.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "status": "pending"
+
+        }), 201
+
+
+    # =========================================================
+    # ERROR
+    # =========================================================
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "CHANGE TRAINER ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    # =========================================================
+    # CLOSE
+    # =========================================================
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+from datetime import datetime, date, timedelta
 
 @app.route(
     "/api/trainer/trainees/<trainer_id>",
