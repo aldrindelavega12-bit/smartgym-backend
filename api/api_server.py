@@ -9197,6 +9197,9 @@ def missed_trainer_workout(workout_id):
 #
 # This is compatible with the recurring trainer schedule.
 # =========================================================
+# =========================================================
+# RESCHEDULE MISSED WORKOUT TO NEXT DAY
+# =========================================================
 
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
@@ -9209,9 +9212,9 @@ def reschedule_trainer_workout(workout_id):
 
     try:
 
-        # =====================================================
+        # =========================
         # DATABASE
-        # =====================================================
+        # =========================
 
         conn = get_connection()
 
@@ -9220,9 +9223,9 @@ def reschedule_trainer_workout(workout_id):
         )
 
 
-        # =====================================================
+        # =========================
         # GET MISSED WORKOUT
-        # =====================================================
+        # =========================
 
         cursor.execute("""
             SELECT
@@ -9241,42 +9244,46 @@ def reschedule_trainer_workout(workout_id):
             workout_id,
         ))
 
-
         workout = cursor.fetchone()
 
 
-        # =====================================================
+        # =========================
         # WORKOUT NOT FOUND
-        # =====================================================
+        # =========================
 
         if not workout:
 
             return jsonify({
+
                 "status": "error",
-                "message": "Workout not found."
+
+                "message":
+                    "Workout not found."
+
             }), 404
 
 
-        # =====================================================
+        # =========================
         # ONLY MISSED WORKOUT
-        # =====================================================
+        # =========================
 
         if workout["status"] != "missed":
 
             return jsonify({
+
                 "status": "error",
+
                 "message":
                     "Only missed workouts can be rescheduled."
+
             }), 400
 
 
-        # =====================================================
+        # =========================
         # CURRENT DATE
-        # =====================================================
+        # =========================
 
-        current_date = workout[
-            "workout_date"
-        ]
+        current_date = workout["workout_date"]
 
 
         if isinstance(
@@ -9290,9 +9297,9 @@ def reschedule_trainer_workout(workout_id):
             ).date()
 
 
-        # =====================================================
+        # =========================
         # NEXT DAY
-        # =====================================================
+        # =========================
 
         next_date = (
             current_date
@@ -9301,83 +9308,15 @@ def reschedule_trainer_workout(workout_id):
         )
 
 
-        # =====================================================
-        # CHECK TRAINER FEE VALIDITY
-        #
-        # Reschedule is allowed only if the next day
-        # is still within the member's trainer fee validity.
-        # =====================================================
-
-        cursor.execute("""
-            SELECT
-                start_date,
-                end_date,
-                status
-
-            FROM trainer_trainees
-
-            WHERE member_id = %s
-
-              AND trainer_id = %s
-
-              AND status = 'active'
-
-              AND start_date IS NOT NULL
-
-              AND end_date IS NOT NULL
-
-              AND start_date <= %s
-
-              AND end_date >= %s
-
-            ORDER BY
-                id DESC
-
-            LIMIT 1
-
-        """, (
-            workout["member_id"],
-            workout["trainer_id"],
-            next_date,
-            next_date
-        ))
-
-
-        trainer_fee = cursor.fetchone()
-
-
-        # =====================================================
-        # TRAINER FEE EXPIRED
-        # =====================================================
-
-        if not trainer_fee:
-
-            return jsonify({
-                "status": "error",
-                "message":
-                    "Workout cannot be rescheduled because the trainer fee is no longer valid for the next day."
-            }), 400
-
-
-        # =====================================================
-        # CHECK IF SAME RESCHEDULED WORKOUT ALREADY EXISTS
-        #
-        # Prevent duplicate manual reschedules.
-        #
-        # NOTE:
-        # We DO NOT reject the date just because a normal
-        # recurring workout already exists.
-        #
-        # Multiple workouts on the same day are allowed
-        # when one is the rescheduled missed workout.
-        # =====================================================
+        # =========================
+        # CHECK IF NEXT DAY
+        # ALREADY HAS THIS
+        # MEMBER'S WORKOUT
+        # =========================
 
         cursor.execute("""
             SELECT
                 id,
-                member_id,
-                trainer_id,
-                workout_date,
                 workout_name,
                 status
 
@@ -9389,29 +9328,25 @@ def reschedule_trainer_workout(workout_id):
 
               AND workout_date = %s
 
-              AND workout_name = %s
-
-              AND status = 'scheduled'
-
-            ORDER BY
-                id DESC
-
             LIMIT 1
 
         """, (
+
             workout["member_id"],
+
             workout["trainer_id"],
-            next_date,
-            workout["workout_name"]
+
+            next_date
+
         ))
 
 
         existing = cursor.fetchone()
 
 
-        # =====================================================
-        # ALREADY SCHEDULED
-        # =====================================================
+        # =========================
+        # IF NEXT DAY ALREADY EXISTS
+        # =========================
 
         if existing:
 
@@ -9420,42 +9355,37 @@ def reschedule_trainer_workout(workout_id):
                 "status": "success",
 
                 "message":
-                    "Workout is already scheduled for the next day.",
+                    "Next day already has a scheduled workout.",
 
                 "workout": {
+
                     "id":
                         existing["id"],
 
                     "member_id":
-                        existing["member_id"],
+                        workout["member_id"],
 
                     "trainer_id":
-                        existing["trainer_id"],
+                        workout["trainer_id"],
 
                     "workout_date":
-                        str(
-                            existing["workout_date"]
-                        ),
+                        str(next_date),
 
                     "workout_name":
                         existing["workout_name"],
 
                     "status":
                         existing["status"]
+
                 }
 
             }), 200
 
 
-        # =====================================================
-        # CREATE NEW RESCHEDULED WORKOUT
-        #
-        # IMPORTANT:
-        #
-        # The original workout_id remains MISSED.
-        #
-        # We create a NEW row instead of moving the old row.
-        # =====================================================
+        # =========================
+        # INSERT NEW RESCHEDULED
+        # WORKOUT
+        # =========================
 
         cursor.execute("""
             INSERT INTO trainer_workout_schedule
@@ -9477,30 +9407,36 @@ def reschedule_trainer_workout(workout_id):
             )
 
         """, (
+
             workout["member_id"],
+
             workout["trainer_id"],
+
             next_date,
+
             workout["workout_name"]
+
         ))
 
 
         new_workout_id = cursor.lastrowid
 
 
-        # =====================================================
+        # =========================
         # COMMIT
-        # =====================================================
+        # =========================
 
         conn.commit()
 
 
-        # =====================================================
+        # =========================
         # RESPONSE
-        # =====================================================
+        # =========================
 
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
             "message":
                 "Workout rescheduled to the next day.",
@@ -9524,23 +9460,17 @@ def reschedule_trainer_workout(workout_id):
 
                 "status":
                     "scheduled"
+
             }
 
         }), 200
 
 
-    # =========================================================
-    # ERROR
-    # =========================================================
-
     except Exception as e:
 
         if conn:
 
-            try:
-                conn.rollback()
-            except:
-                pass
+            conn.rollback()
 
 
         print(
@@ -9550,21 +9480,24 @@ def reschedule_trainer_workout(workout_id):
 
 
         return jsonify({
-            "status": "error",
-            "message": str(e)
+
+            "status":
+                "error",
+
+            "message":
+                str(e)
+
         }), 500
 
-
-    # =========================================================
-    # CLOSE
-    # =========================================================
 
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
+
             conn.close()
 
 
