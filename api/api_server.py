@@ -9203,6 +9203,9 @@ def missed_trainer_workout(workout_id):
 # =========================================================
 # RESCHEDULE MISSED WORKOUT TO NEXT DAY
 # =========================================================
+# =========================================================
+# RESCHEDULE MISSED WORKOUT TO NEXT DAY
+# =========================================================
 
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
@@ -9251,34 +9254,27 @@ def reschedule_trainer_workout(workout_id):
 
 
         # =========================
-        # NOT FOUND
+        # WORKOUT NOT FOUND
         # =========================
 
         if not workout:
 
             return jsonify({
-
                 "status": "error",
-
-                "message":
-                    "Workout not found."
-
+                "message": "Workout not found."
             }), 404
 
 
         # =========================
-        # MUST BE MISSED
+        # ONLY MISSED WORKOUT
         # =========================
 
         if workout["status"] != "missed":
 
             return jsonify({
-
                 "status": "error",
-
                 "message":
                     "Only missed workouts can be rescheduled."
-
             }), 400
 
 
@@ -9289,10 +9285,7 @@ def reschedule_trainer_workout(workout_id):
         current_date = workout["workout_date"]
 
 
-        if isinstance(
-            current_date,
-            str
-        ):
+        if isinstance(current_date, str):
 
             current_date = datetime.strptime(
                 current_date,
@@ -9304,23 +9297,22 @@ def reschedule_trainer_workout(workout_id):
         # NEXT DAY
         # =========================
 
-        next_date = (
-            current_date
-            +
-            timedelta(days=1)
+        next_date = current_date + timedelta(
+            days=1
         )
 
 
-        # =========================
-        # CHECK DUPLICATE
-        #
-        # ONLY CHECK SAME TRAINER
-        # AND SAME WORKOUT
-        # =========================
+        # =====================================================
+        # CHECK IF SAME RESCHEDULED WORKOUT ALREADY EXISTS
+        # =====================================================
 
         cursor.execute("""
             SELECT
                 id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
                 status
 
             FROM trainer_workout_schedule
@@ -9333,37 +9325,34 @@ def reschedule_trainer_workout(workout_id):
 
               AND workout_name = %s
 
+              AND status = 'scheduled'
+
+            ORDER BY id DESC
+
             LIMIT 1
 
         """, (
-
             workout["member_id"],
-
             workout["trainer_id"],
-
             next_date,
-
             workout["workout_name"]
-
         ))
-
 
         existing = cursor.fetchone()
 
 
-        # =========================
+        # =====================================================
         # ALREADY RESCHEDULED
-        # =========================
+        # =====================================================
 
         if existing:
 
             return jsonify({
 
-                "status":
-                    "success",
+                "status": "success",
 
                 "message":
-                    "Workout is already rescheduled.",
+                    "Workout has already been rescheduled.",
 
                 "workout": {
 
@@ -9371,16 +9360,16 @@ def reschedule_trainer_workout(workout_id):
                         existing["id"],
 
                     "member_id":
-                        workout["member_id"],
+                        existing["member_id"],
 
                     "trainer_id":
-                        workout["trainer_id"],
+                        existing["trainer_id"],
 
                     "workout_date":
                         str(next_date),
 
                     "workout_name":
-                        workout["workout_name"],
+                        existing["workout_name"],
 
                     "status":
                         existing["status"]
@@ -9390,9 +9379,18 @@ def reschedule_trainer_workout(workout_id):
             }), 200
 
 
-        # =========================
-        # CREATE NEW ROW
-        # =========================
+        # =====================================================
+        # INSERT NEW RESCHEDULED WORKOUT
+        #
+        # IMPORTANT:
+        # DO NOT UPDATE THE MISSED ROW.
+        #
+        # Example:
+        #
+        # ID 10 | Sep 27 | Legs  | missed
+        # ID 11 | Sep 28 | Legs  | scheduled
+        #
+        # =====================================================
 
         cursor.execute("""
             INSERT INTO trainer_workout_schedule
@@ -9414,17 +9412,16 @@ def reschedule_trainer_workout(workout_id):
             )
 
         """, (
-
             workout["member_id"],
-
             workout["trainer_id"],
-
             next_date,
-
             workout["workout_name"]
-
         ))
 
+
+        # =========================
+        # GET NEW ROW ID
+        # =========================
 
         new_workout_id = cursor.lastrowid
 
@@ -9442,8 +9439,7 @@ def reschedule_trainer_workout(workout_id):
 
         return jsonify({
 
-            "status":
-                "success",
+            "status": "success",
 
             "message":
                 "Workout rescheduled to the next day.",
@@ -9473,10 +9469,13 @@ def reschedule_trainer_workout(workout_id):
         }), 200
 
 
+    # =========================
+    # ERROR
+    # =========================
+
     except Exception as e:
 
         if conn:
-
             conn.rollback()
 
 
@@ -9488,8 +9487,7 @@ def reschedule_trainer_workout(workout_id):
 
         return jsonify({
 
-            "status":
-                "error",
+            "status": "error",
 
             "message":
                 str(e)
@@ -9497,15 +9495,19 @@ def reschedule_trainer_workout(workout_id):
         }), 500
 
 
+    # =========================
+    # CLOSE DATABASE
+    # =========================
+
     finally:
 
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
+
+
 
 
 @app.route("/api/user_accounts", methods=["GET"])
