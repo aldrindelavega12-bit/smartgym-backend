@@ -8108,6 +8108,10 @@ def get_trainer_workouts(trainer_id):
 
     try:
 
+        # =====================================================
+        # VALIDATE TRAINER ID
+        # =====================================================
+
         trainer_id = str(
             trainer_id
         ).strip()
@@ -8120,9 +8124,9 @@ def get_trainer_workouts(trainer_id):
             }), 400
 
 
-        # =========================
+        # =====================================================
         # DATABASE
-        # =========================
+        # =====================================================
 
         conn = get_connection()
 
@@ -8131,54 +8135,27 @@ def get_trainer_workouts(trainer_id):
         )
 
 
-        # =========================
-        # SELECTED DATE
-        # =========================
-
-        selected_date = request.args.get(
-            "date"
-        )
-
-        if selected_date:
-
-            try:
-
-                selected_date = datetime.strptime(
-                    selected_date,
-                    "%Y-%m-%d"
-                ).date()
-
-            except ValueError:
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid date format. Use YYYY-MM-DD."
-                }), 400
-
-        else:
-
-            selected_date = date.today()
-
-
-        # =========================
-        # GET ACTIVE TRAINEES
-        # =========================
+        # =====================================================
+        # GET ACTIVE TRAINER TRAINEES
+        #
+        # IMPORTANT:
+        #
+        # TRAINER FEE VALIDITY ang nagdidikta kung hanggang
+        # kailan may schedule.
+        #
+        # PLAN DAYS ay recurring pattern lamang.
+        # =====================================================
 
         cursor.execute("""
             SELECT
-                tt.id,
+                tt.id AS trainer_trainee_id,
                 tt.member_id,
-                tt.trainer_id,
-
                 m.full_name AS member_name,
-
+                tt.trainer_id,
                 tt.program_id,
                 tt.program_plan_id,
-
                 tt.start_date,
-                tt.end_date,
-
-                tt.status
+                tt.end_date
 
             FROM trainer_trainees tt
 
@@ -8194,340 +8171,583 @@ def get_trainer_workouts(trainer_id):
               AND tt.end_date IS NOT NULL
 
             ORDER BY
-                tt.member_id ASC
+                tt.member_id ASC,
+                tt.id DESC
 
         """, (
             trainer_id,
         ))
 
-        trainees = cursor.fetchall()
+        trainee_rows = cursor.fetchall()
 
+
+        # =====================================================
+        # IF NO ACTIVE TRAINEES
+        # =====================================================
+
+        if not trainee_rows:
+
+            return jsonify({
+                "status": "success",
+                "trainer_id": trainer_id,
+                "workouts": []
+            }), 200
+
+
+        # =====================================================
+        # PREVENT DUPLICATE TRAINEE ASSIGNMENTS
+        #
+        # If a member has multiple active records,
+        # use the latest trainer_trainees record.
+        # =====================================================
+
+        trainees = {}
+
+        for trainee in trainee_rows:
+
+            member_id = trainee["member_id"]
+
+            if member_id not in trainees:
+
+                trainees[member_id] = trainee
+
+
+        # =====================================================
+        # GET EXISTING TRAINER WORKOUTS
+        #
+        # We load them first so:
+        #
+        # completed -> stays completed
+        # missed    -> stays missed
+        # scheduled -> stays scheduled
+        #
+        # We do NOT reset existing statuses.
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                tws.id,
+                tws.member_id,
+                tws.trainer_id,
+                tws.workout_date,
+                tws.workout_name,
+                tws.status
+
+            FROM trainer_workout_schedule tws
+
+            WHERE tws.trainer_id = %s
+
+            ORDER BY
+                tws.id ASC
+
+        """, (
+            trainer_id,
+        ))
+
+        existing_rows = cursor.fetchall()
+
+
+        # =====================================================
+        # CREATE LOOKUP
+        #
+        # KEY:
+        #
+        # (member_id, workout_date)
+        # =====================================================
+
+        existing_map = {}
+
+        for row in existing_rows:
+
+            key = (
+                row["member_id"],
+                row["workout_date"]
+            )
+
+            existing_map[key] = row
+
+
+        # =====================================================
+        # PLAN CACHE
+        #
+        # Avoid repeatedly querying the same plan.
+        # =====================================================
+
+        plan_cache = {}
+
+
+        # =====================================================
+        # FINAL WORKOUT LIST
+        # =====================================================
 
         workouts = []
 
 
-        # =========================
-        # PROCESS EACH MEMBER
-        # =========================
+        # =====================================================
+        # GENERATE RECURRING SCHEDULE
+        #
+        # IMPORTANT:
+        #
+        # start_date -> end_date
+        #
+        # NOT:
+        #
+        # start_date -> plan duration
+        #
+        # Plan Days repeat continuously.
+        # =====================================================
 
-        for trainee in trainees:
+        for member_id, trainee in trainees.items():
 
-            start_date = trainee[
-                "start_date"
-            ]
+            program_plan_id = (
+                trainee["program_plan_id"]
+            )
 
-            end_date = trainee[
-                "end_date"
-            ]
+            start_date = (
+                trainee["start_date"]
+            )
+
+            end_date = (
+                trainee["end_date"]
+            )
 
 
-            # =========================
-            # FEE NOT YET STARTED
-            # =========================
+            # =================================================
+            # SAFETY CHECK
+            # =================================================
 
-            if selected_date < start_date:
+            if not start_date or not end_date:
                 continue
 
 
-            # =========================
-            # FEE EXPIRED
-            # =========================
-
-            if selected_date > end_date:
+            if start_date > end_date:
                 continue
 
 
-            program_plan_id = trainee[
-                "program_plan_id"
-            ]
-
-            if not program_plan_id:
-                continue
-
-
-            # =========================
+            # =================================================
             # GET PLAN DAYS
-            # =========================
+            # =================================================
 
-            cursor.execute("""
-                SELECT
-                    id AS plan_day_id,
-                    day_number,
-                    day_name
-
-                FROM plan_days
-
-                WHERE plan_id = %s
-
-                  AND active = 1
-
-                ORDER BY
-                    day_number ASC
-
-            """, (
-                program_plan_id,
-            ))
-
-            plan_days = cursor.fetchall()
-
-
-            if not plan_days:
-                continue
-
-
-            # =========================
-            # GET BODY PARTS
-            # =========================
-
-            for day in plan_days:
+            if program_plan_id not in plan_cache:
 
                 cursor.execute("""
                     SELECT
-                        body_part
+                        id AS plan_day_id,
+                        day_number,
+                        day_name
 
-                    FROM plan_day_body_parts
+                    FROM plan_days
 
-                    WHERE plan_day_id = %s
+                    WHERE plan_id = %s
 
                       AND active = 1
 
                     ORDER BY
-                        id ASC
+                        day_number ASC
 
                 """, (
-                    day["plan_day_id"],
+                    program_plan_id,
                 ))
 
-                body_parts = cursor.fetchall()
+                plan_days = cursor.fetchall()
 
 
-                day["body_parts"] = [
+                # =============================================
+                # GET BODY PARTS
+                # =============================================
 
-                    row["body_part"]
+                for day in plan_days:
 
-                    for row in body_parts
+                    cursor.execute("""
+                        SELECT
+                            body_part
 
-                ]
+                        FROM plan_day_body_parts
 
+                        WHERE plan_day_id = %s
 
-            # =========================
-            # RECURRING PATTERN
-            # =========================
+                          AND active = 1
 
-            days_since_start = (
-                selected_date
-                -
-                start_date
-            ).days
+                        ORDER BY
+                            id ASC
 
+                    """, (
+                        day["plan_day_id"],
+                    ))
 
-            pattern_index = (
-                days_since_start
-                %
-                len(plan_days)
-            )
-
-
-            selected_plan_day = plan_days[
-                pattern_index
-            ]
+                    body_parts = cursor.fetchall()
 
 
-            day_name = (
-                selected_plan_day["day_name"]
-                or
-                ""
-            ).strip()
-
-
-            # =========================
-            # WORKOUT NAME
-            # =========================
-
-            if day_name.lower() == "rest":
-
-                workout_name = "Rest"
-
-            elif selected_plan_day[
-                "body_parts"
-            ]:
-
-                workout_name = ", ".join(
-                    selected_plan_day[
-                        "body_parts"
+                    day["body_parts"] = [
+                        row["body_part"]
+                        for row in body_parts
                     ]
-                )
+
+
+                plan_cache[
+                    program_plan_id
+                ] = plan_days
+
 
             else:
 
-                workout_name = (
-                    day_name
-                    or
-                    "Workout"
-                )
+                plan_days = plan_cache[
+                    program_plan_id
+                ]
 
 
-            # =========================
-            # CHECK EXISTING RECORD
+            # =================================================
+            # NO PLAN DAYS
+            # =================================================
+
+            if not plan_days:
+
+                continue
+
+
+            # =================================================
+            # GENERATE DATES
             #
-            # PRESERVE:
-            # completed
-            # missed
-            # scheduled
-            # =========================
+            # The cycle starts from start_date.
+            #
+            # Example:
+            #
+            # Day 1
+            # Day 2
+            # Day 3
+            # Rest
+            #
+            # then repeats again.
+            # =================================================
 
-            cursor.execute("""
-                SELECT
-                    id,
-                    workout_name,
-                    status
-
-                FROM trainer_workout_schedule
-
-                WHERE member_id = %s
-
-                  AND trainer_id = %s
-
-                  AND workout_date = %s
-
-                ORDER BY
-                    id DESC
-
-                LIMIT 1
-
-            """, (
-                trainee["member_id"],
-                trainer_id,
-                selected_date
-            ))
-
-            existing = cursor.fetchone()
+            current_date = start_date
 
 
-            # =========================
-            # EXISTING WORKOUT
-            # =========================
+            while current_date <= end_date:
 
-            if existing:
+                # =============================================
+                # DAYS SINCE TRAINER FEE START
+                # =============================================
 
-                workout_id = existing[
-                    "id"
-                ]
+                days_since_start = (
+                    current_date - start_date
+                ).days
 
-                workout_status = existing[
-                    "status"
-                ]
 
-                final_workout_name = (
-                    existing["workout_name"]
-                    or
-                    workout_name
+                # =============================================
+                # RECURRING PLAN INDEX
+                # =============================================
+
+                cycle_index = (
+                    days_since_start
+                    %
+                    len(plan_days)
                 )
 
 
-            # =========================
-            # GENERATED WORKOUT
-            # =========================
-
-            else:
-
-                workout_id = None
-
-                workout_status = "scheduled"
-
-                final_workout_name = (
-                    workout_name
-                )
+                plan_day = plan_days[
+                    cycle_index
+                ]
 
 
-            # =========================
-            # ADD WORKOUT
-            # =========================
+                # =============================================
+                # DAY NAME
+                # =============================================
 
-            workouts.append({
+                day_name = (
+                    plan_day["day_name"]
+                    or ""
+                ).strip()
 
-                "id":
-                    workout_id,
 
-                "member_id":
-                    trainee["member_id"],
+                # =============================================
+                # WORKOUT NAME
+                # =============================================
 
-                "member_name":
-                    trainee["member_name"],
+                if day_name.lower() == "rest":
 
-                "trainer_id":
-                    trainee["trainer_id"],
+                    workout_name = "Rest"
 
-                "program_id":
-                    trainee["program_id"],
+                elif plan_day["body_parts"]:
 
-                "program_plan_id":
-                    trainee["program_plan_id"],
-
-                "workout_date":
-                    selected_date.strftime(
-                        "%Y-%m-%d"
-                    ),
-
-                "workout_name":
-                    final_workout_name,
-
-                "day_name":
-                    day_name,
-
-                "day_number":
-                    selected_plan_day[
-                        "day_number"
-                    ],
-
-                "plan_day_id":
-                    selected_plan_day[
-                        "plan_day_id"
-                    ],
-
-                "status":
-                    workout_status,
-
-                "trainer_fee_start":
-                    start_date.strftime(
-                        "%Y-%m-%d"
-                    ),
-
-                "trainer_fee_end":
-                    end_date.strftime(
-                        "%Y-%m-%d"
+                    workout_name = ", ".join(
+                        plan_day["body_parts"]
                     )
 
-            })
+                else:
+
+                    workout_name = (
+                        day_name
+                        or
+                        "Workout"
+                    )
 
 
-        # =========================
+                # =============================================
+                # EXISTING RECORD?
+                # =============================================
+
+                key = (
+                    member_id,
+                    current_date
+                )
+
+                existing = existing_map.get(
+                    key
+                )
+
+
+                # =============================================
+                # IF EXISTING
+                #
+                # Preserve:
+                #
+                # id
+                # status
+                # workout_name
+                #
+                # especially completed/missed.
+                # =============================================
+
+                if existing:
+
+                    workout = {
+                        "id": existing["id"],
+
+                        "member_id": member_id,
+
+                        "member_name": (
+                            trainee["member_name"]
+                        ),
+
+                        "trainer_id": trainer_id,
+
+                        "program_id": (
+                            trainee["program_id"]
+                        ),
+
+                        "program_plan_id": (
+                            program_plan_id
+                        ),
+
+                        "workout_date": (
+                            current_date.strftime(
+                                "%Y-%m-%d"
+                            )
+                        ),
+
+                        "workout_name": (
+                            existing["workout_name"]
+                            or
+                            workout_name
+                        ),
+
+                        "day_name": day_name,
+
+                        "day_number": (
+                            plan_day["day_number"]
+                        ),
+
+                        "plan_day_id": (
+                            plan_day["plan_day_id"]
+                        ),
+
+                        "status": (
+                            existing["status"]
+                        ),
+
+                        "trainer_fee_start": (
+                            start_date.strftime(
+                                "%Y-%m-%d"
+                            )
+                        ),
+
+                        "trainer_fee_end": (
+                            end_date.strftime(
+                                "%Y-%m-%d"
+                            )
+                        )
+                    }
+
+
+                # =============================================
+                # MISSING RECORD
+                #
+                # Automatically create it so the trainer
+                # can still mark it completed/missed.
+                # =============================================
+
+                else:
+
+                    cursor.execute("""
+                        INSERT INTO
+                            trainer_workout_schedule
+                        (
+                            member_id,
+                            trainer_id,
+                            workout_date,
+                            workout_name,
+                            status
+                        )
+
+                        VALUES
+                        (
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            'scheduled'
+                        )
+
+                    """, (
+                        member_id,
+                        trainer_id,
+                        current_date,
+                        workout_name
+                    ))
+
+
+                    new_id = cursor.lastrowid
+
+
+                    # =========================================
+                    # ADD TO LOOKUP
+                    # =========================================
+
+                    new_row = {
+                        "id": new_id,
+
+                        "member_id": member_id,
+
+                        "trainer_id": trainer_id,
+
+                        "workout_date": current_date,
+
+                        "workout_name": workout_name,
+
+                        "status": "scheduled"
+                    }
+
+
+                    existing_map[key] = new_row
+
+
+                    # =========================================
+                    # RESPONSE OBJECT
+                    # =========================================
+
+                    workout = {
+                        "id": new_id,
+
+                        "member_id": member_id,
+
+                        "member_name": (
+                            trainee["member_name"]
+                        ),
+
+                        "trainer_id": trainer_id,
+
+                        "program_id": (
+                            trainee["program_id"]
+                        ),
+
+                        "program_plan_id": (
+                            program_plan_id
+                        ),
+
+                        "workout_date": (
+                            current_date.strftime(
+                                "%Y-%m-%d"
+                            )
+                        ),
+
+                        "workout_name": workout_name,
+
+                        "day_name": day_name,
+
+                        "day_number": (
+                            plan_day["day_number"]
+                        ),
+
+                        "plan_day_id": (
+                            plan_day["plan_day_id"]
+                        ),
+
+                        "status": "scheduled",
+
+                        "trainer_fee_start": (
+                            start_date.strftime(
+                                "%Y-%m-%d"
+                            )
+                        ),
+
+                        "trainer_fee_end": (
+                            end_date.strftime(
+                                "%Y-%m-%d"
+                            )
+                        )
+                    }
+
+
+                # =============================================
+                # ADD TO RESPONSE
+                # =============================================
+
+                workouts.append(
+                    workout
+                )
+
+
+                # =============================================
+                # NEXT DATE
+                # =============================================
+
+                current_date = (
+                    current_date
+                    +
+                    timedelta(days=1)
+                )
+
+
+        # =====================================================
+        # SAVE GENERATED ROWS
+        # =====================================================
+
+        conn.commit()
+
+
+        # =====================================================
+        # SORT
+        # =====================================================
+
+        workouts.sort(
+            key=lambda x: (
+                x["workout_date"],
+                x["member_name"] or "",
+                x["id"] or 0
+            )
+        )
+
+
+        # =====================================================
         # RESPONSE
-        # =========================
+        # =====================================================
 
         return jsonify({
-
-            "status":
-                "success",
-
-            "trainer_id":
-                trainer_id,
-
-            "selected_date":
-                selected_date.strftime(
-                    "%Y-%m-%d"
-                ),
-
-            "workouts":
-                workouts
-
+            "status": "success",
+            "trainer_id": trainer_id,
+            "workouts": workouts
         }), 200
 
 
     except Exception as e:
 
         if conn:
-            conn.rollback()
+
+            try:
+                conn.rollback()
+            except:
+                pass
 
 
         print(
@@ -8537,24 +8757,21 @@ def get_trainer_workouts(trainer_id):
 
 
         return jsonify({
-
-            "status":
-                "error",
-
-            "message":
-                str(e)
-
+            "status": "error",
+            "message": str(e)
         }), 500
 
 
     finally:
 
         if cursor:
+
             cursor.close()
 
-        if conn:
-            conn.close()
 
+        if conn:
+
+            conn.close()
 
 
 # =========================================================
