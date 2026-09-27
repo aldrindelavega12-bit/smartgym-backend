@@ -6308,12 +6308,12 @@ def get_member_workout_schedule(member_id):
         # =====================================================
         # GET CURRENT PROGRAM / SPLIT
         #
-        # IMPORTANT:
+        # The member's current trainer assignment determines:
         #
-        # trainer rate end_date is NOT used to determine
-        # how long the workout pattern exists.
-        #
-        # The program + split determine the workout pattern.
+        # - program
+        # - program plan
+        # - program start
+        # - trainer validity
         # =====================================================
 
         cursor.execute("""
@@ -6338,6 +6338,7 @@ def get_member_workout_schedule(member_id):
                 tt.id DESC
 
             LIMIT 1
+
         """, (
             member_id,
         ))
@@ -6346,7 +6347,7 @@ def get_member_workout_schedule(member_id):
 
 
         # =====================================================
-        # NO PROGRAM
+        # NO CURRENT PROGRAM
         # =====================================================
 
         if not current:
@@ -6368,6 +6369,12 @@ def get_member_workout_schedule(member_id):
                 "schedule_type":
                     "recurring",
 
+                "schedule_pattern":
+                    [],
+
+                "workout_statuses":
+                    {},
+
                 "workouts":
                     []
 
@@ -6382,6 +6389,10 @@ def get_member_workout_schedule(member_id):
             current["program_plan_id"]
         )
 
+
+        # =====================================================
+        # NO PROGRAM PLAN
+        # =====================================================
 
         if not program_plan_id:
 
@@ -6402,6 +6413,12 @@ def get_member_workout_schedule(member_id):
                 "schedule_type":
                     "recurring",
 
+                "schedule_pattern":
+                    [],
+
+                "workout_statuses":
+                    {},
+
                 "workouts":
                     []
 
@@ -6411,23 +6428,20 @@ def get_member_workout_schedule(member_id):
         # =====================================================
         # GET PLAN DAYS
         #
-        # THIS IS THE ACTUAL SPLIT
+        # THIS IS THE ACTUAL MEMBER PROGRAM SCHEDULE
         #
         # Example:
         #
-        # Full Body
-        # Rest
+        # Day 1 → Upper
+        # Day 2 → Lower
+        # Day 3 → Rest
         #
-        # or
+        # or:
         #
-        # Chest
-        # Back
-        # Shoulders
-        # Arms
-        # Legs
-        # Rest
-        #
-        # This pattern is NOT limited by trainer fee duration.
+        # Day 1 → Push
+        # Day 2 → Pull
+        # Day 3 → Legs
+        # Day 4 → Rest
         # =====================================================
 
         cursor.execute("""
@@ -6444,6 +6458,7 @@ def get_member_workout_schedule(member_id):
 
             ORDER BY
                 day_number ASC
+
         """, (
             program_plan_id,
         ))
@@ -6474,6 +6489,12 @@ def get_member_workout_schedule(member_id):
                 "schedule_type":
                     "recurring",
 
+                "schedule_pattern":
+                    [],
+
+                "workout_statuses":
+                    {},
+
                 "workouts":
                     []
 
@@ -6498,6 +6519,7 @@ def get_member_workout_schedule(member_id):
 
                 ORDER BY
                     id ASC
+
             """, (
                 day["plan_day_id"],
             ))
@@ -6515,74 +6537,24 @@ def get_member_workout_schedule(member_id):
 
 
         # =====================================================
-        # DEBUG
-        # =====================================================
-
-        print(
-            "========================================"
-        )
-
-        print(
-            "RECURRING MEMBER WORKOUT SCHEDULE"
-        )
-
-        print(
-            "MEMBER ID:",
-            member_id
-        )
-
-        print(
-            "PROGRAM ID:",
-            current["program_id"]
-        )
-
-        print(
-            "PROGRAM PLAN ID:",
-            program_plan_id
-        )
-
-        print(
-            "TRAINER START:",
-            current["start_date"]
-        )
-
-        print(
-            "TRAINER END:",
-            current["end_date"]
-        )
-
-        print(
-            "PLAN DAYS:",
-            plan_days
-        )
-
-        print(
-            "========================================"
-        )
-
-
-        # =====================================================
-        # BUILD RECURRING PATTERN
+        # BUILD RECURRING PROGRAM PATTERN
         #
-        # IMPORTANT:
+        # SOURCE OF TRUTH:
         #
-        # We do NOT use:
+        # program_plan_id
+        #       ↓
+        # plan_days
+        #       ↓
+        # plan_day_body_parts
         #
-        # trainer_workout_schedule
-        #
-        # We do NOT limit it to:
-        #
-        # start_date -> end_date
-        #
-        # The selected program split is the source of truth.
+        # trainer_workout_schedule is NOT used
+        # to determine the workout pattern.
         # =====================================================
 
         schedule_pattern = []
 
 
-        for index, day in enumerate(
-            plan_days
-        ):
+        for day in plan_days:
 
             day_name = (
                 day["day_name"]
@@ -6642,18 +6614,149 @@ def get_member_workout_schedule(member_id):
 
 
         # =====================================================
-        # RETURN RECURRING PROGRAM PATTERN
+        # GET ACTUAL WORKOUT STATUS
         #
-        # THIS HAS NO END DATE.
+        # Trainer actions are stored here:
         #
-        # The frontend can display this pattern for:
+        # scheduled
+        # completed
+        # missed
         #
-        # Sep 26
-        # Sep 27
-        # Sep 28
-        # ...
-        #
-        # indefinitely.
+        # This does NOT change the recurring pattern.
+        # It only tells the Member Program what happened
+        # on a specific date.
+        # =====================================================
+
+        workout_statuses = {}
+
+
+        if (
+            current["start_date"]
+            and
+            current["end_date"]
+        ):
+
+            cursor.execute("""
+                SELECT
+                    workout_date,
+                    status
+
+                FROM trainer_workout_schedule
+
+                WHERE member_id = %s
+
+                  AND workout_date >= %s
+
+                  AND workout_date <= %s
+
+                ORDER BY
+                    workout_date ASC,
+                    id ASC
+
+            """, (
+                member_id,
+                current["start_date"],
+                current["end_date"]
+            ))
+
+            status_rows = cursor.fetchall()
+
+
+            # =================================================
+            # BUILD STATUS MAP
+            #
+            # Example:
+            #
+            # {
+            #     "2026-09-27": "completed",
+            #     "2026-09-28": "missed"
+            # }
+            # =================================================
+
+            for row in status_rows:
+
+                if not row["workout_date"]:
+
+                    continue
+
+
+                workout_date = (
+                    row["workout_date"].strftime(
+                        "%Y-%m-%d"
+                    )
+                )
+
+
+                # Keep the first record for a date.
+                #
+                # This prevents an extra/rescheduled record
+                # from replacing the primary recurring status.
+
+                if workout_date not in workout_statuses:
+
+                    workout_statuses[
+                        workout_date
+                    ] = (
+                        row["status"]
+                        or
+                        "scheduled"
+                    )
+
+
+        # =====================================================
+        # DEBUG
+        # =====================================================
+
+        print(
+            "========================================"
+        )
+
+        print(
+            "MEMBER WORKOUT SCHEDULE"
+        )
+
+        print(
+            "MEMBER ID:",
+            member_id
+        )
+
+        print(
+            "PROGRAM ID:",
+            current["program_id"]
+        )
+
+        print(
+            "PROGRAM PLAN ID:",
+            program_plan_id
+        )
+
+        print(
+            "TRAINER START:",
+            current["start_date"]
+        )
+
+        print(
+            "TRAINER END:",
+            current["end_date"]
+        )
+
+        print(
+            "PLAN DAYS:",
+            plan_days
+        )
+
+        print(
+            "WORKOUT STATUSES:",
+            workout_statuses
+        )
+
+        print(
+            "========================================"
+        )
+
+
+        # =====================================================
+        # RETURN
         # =====================================================
 
         return jsonify({
@@ -6696,6 +6799,9 @@ def get_member_workout_schedule(member_id):
 
             "schedule_pattern":
                 schedule_pattern,
+
+            "workout_statuses":
+                workout_statuses,
 
             "workouts":
                 schedule_pattern
