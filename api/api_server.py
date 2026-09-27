@@ -9200,6 +9200,9 @@ def missed_trainer_workout(workout_id):
 # =========================================================
 # RESCHEDULE MISSED WORKOUT TO NEXT DAY
 # =========================================================
+# =========================================================
+# RESCHEDULE MISSED WORKOUT TO NEXT DAY
+# =========================================================
 
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
@@ -9248,7 +9251,7 @@ def reschedule_trainer_workout(workout_id):
 
 
         # =========================
-        # WORKOUT NOT FOUND
+        # NOT FOUND
         # =========================
 
         if not workout:
@@ -9264,7 +9267,7 @@ def reschedule_trainer_workout(workout_id):
 
 
         # =========================
-        # ONLY MISSED WORKOUT
+        # MUST BE MISSED
         # =========================
 
         if workout["status"] != "missed":
@@ -9309,15 +9312,15 @@ def reschedule_trainer_workout(workout_id):
 
 
         # =========================
-        # CHECK IF NEXT DAY
-        # ALREADY HAS THIS
-        # MEMBER'S WORKOUT
+        # CHECK DUPLICATE
+        #
+        # ONLY CHECK SAME TRAINER
+        # AND SAME WORKOUT
         # =========================
 
         cursor.execute("""
             SELECT
                 id,
-                workout_name,
                 status
 
             FROM trainer_workout_schedule
@@ -9328,6 +9331,8 @@ def reschedule_trainer_workout(workout_id):
 
               AND workout_date = %s
 
+              AND workout_name = %s
+
             LIMIT 1
 
         """, (
@@ -9336,7 +9341,9 @@ def reschedule_trainer_workout(workout_id):
 
             workout["trainer_id"],
 
-            next_date
+            next_date,
+
+            workout["workout_name"]
 
         ))
 
@@ -9345,17 +9352,18 @@ def reschedule_trainer_workout(workout_id):
 
 
         # =========================
-        # IF NEXT DAY ALREADY EXISTS
+        # ALREADY RESCHEDULED
         # =========================
 
         if existing:
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
                 "message":
-                    "Next day already has a scheduled workout.",
+                    "Workout is already rescheduled.",
 
                 "workout": {
 
@@ -9372,7 +9380,7 @@ def reschedule_trainer_workout(workout_id):
                         str(next_date),
 
                     "workout_name":
-                        existing["workout_name"],
+                        workout["workout_name"],
 
                     "status":
                         existing["status"]
@@ -9383,8 +9391,7 @@ def reschedule_trainer_workout(workout_id):
 
 
         # =========================
-        # INSERT NEW RESCHEDULED
-        # WORKOUT
+        # CREATE NEW ROW
         # =========================
 
         cursor.execute("""
@@ -9499,7 +9506,6 @@ def reschedule_trainer_workout(workout_id):
         if conn:
 
             conn.close()
-
 
 
 @app.route("/api/user_accounts", methods=["GET"])
