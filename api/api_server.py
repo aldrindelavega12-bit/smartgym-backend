@@ -6265,7 +6265,6 @@ def create_trainer_workout():
         if conn:
             conn.close()
 
-
 @app.route(
     "/api/member/workout-schedule/<member_id>",
     methods=["GET"]
@@ -6284,7 +6283,6 @@ def get_member_workout_schedule(member_id):
         member_id = str(
             member_id
         ).strip()
-
 
         if not member_id:
 
@@ -6306,14 +6304,11 @@ def get_member_workout_schedule(member_id):
 
 
         # =====================================================
-        # GET CURRENT PROGRAM / SPLIT
+        # GET ACTIVE TRAINER ASSIGNMENT
         #
-        # IMPORTANT:
+        # TRAINER FEE VALIDITY IS THE ONLY LIMIT.
         #
-        # trainer rate end_date is NOT used to determine
-        # how long the workout pattern exists.
-        #
-        # The program + split determine the workout pattern.
+        # plan_days DO NOT determine the expiration.
         # =====================================================
 
         cursor.execute("""
@@ -6334,7 +6329,10 @@ def get_member_workout_schedule(member_id):
 
             WHERE tt.member_id = %s
 
+              AND tt.status = 'active'
+
             ORDER BY
+                tt.created_at DESC,
                 tt.id DESC
 
             LIMIT 1
@@ -6346,7 +6344,7 @@ def get_member_workout_schedule(member_id):
 
 
         # =====================================================
-        # NO PROGRAM
+        # NO ACTIVE TRAINER / FEE
         # =====================================================
 
         if not current:
@@ -6367,6 +6365,88 @@ def get_member_workout_schedule(member_id):
 
                 "schedule_type":
                     "recurring",
+
+                "workouts":
+                    []
+
+            }), 200
+
+
+        # =====================================================
+        # TRAINER FEE VALIDITY
+        #
+        # Example:
+        #
+        # Sep 27 -> Oct 1
+        #
+        # Schedule exists:
+        # Sep 27
+        # Sep 28
+        # Sep 29
+        # Sep 30
+        # Oct 1
+        #
+        # Oct 2 -> EMPTY
+        #
+        # Renewal extends end_date.
+        # =====================================================
+
+        today = date.today()
+
+        start_date = current["start_date"]
+        end_date = current["end_date"]
+
+
+        if not start_date or not end_date:
+
+            return jsonify({
+
+                "status":
+                    "success",
+
+                "member_id":
+                    member_id,
+
+                "program_id":
+                    current["program_id"],
+
+                "program_plan_id":
+                    current["program_plan_id"],
+
+                "schedule_type":
+                    "recurring",
+
+                "workouts":
+                    []
+
+            }), 200
+
+
+        # =====================================================
+        # FEE EXPIRED
+        # =====================================================
+
+        if today > end_date:
+
+            return jsonify({
+
+                "status":
+                    "success",
+
+                "member_id":
+                    member_id,
+
+                "program_id":
+                    current["program_id"],
+
+                "program_plan_id":
+                    current["program_plan_id"],
+
+                "schedule_type":
+                    "recurring",
+
+                "trainer_fee_valid":
+                    False,
 
                 "workouts":
                     []
@@ -6402,6 +6482,9 @@ def get_member_workout_schedule(member_id):
                 "schedule_type":
                     "recurring",
 
+                "trainer_fee_valid":
+                    True,
+
                 "workouts":
                     []
 
@@ -6411,23 +6494,9 @@ def get_member_workout_schedule(member_id):
         # =====================================================
         # GET PLAN DAYS
         #
-        # THIS IS THE ACTUAL SPLIT
+        # PLAN DAYS = RECURRING PATTERN ONLY
         #
-        # Example:
-        #
-        # Full Body
-        # Rest
-        #
-        # or
-        #
-        # Chest
-        # Back
-        # Shoulders
-        # Arms
-        # Legs
-        # Rest
-        #
-        # This pattern is NOT limited by trainer fee duration.
+        # They DO NOT determine how long the schedule lasts.
         # =====================================================
 
         cursor.execute("""
@@ -6444,16 +6513,13 @@ def get_member_workout_schedule(member_id):
 
             ORDER BY
                 day_number ASC
+
         """, (
             program_plan_id,
         ))
 
         plan_days = cursor.fetchall()
 
-
-        # =====================================================
-        # NO PLAN DAYS
-        # =====================================================
 
         if not plan_days:
 
@@ -6473,6 +6539,9 @@ def get_member_workout_schedule(member_id):
 
                 "schedule_type":
                     "recurring",
+
+                "trainer_fee_valid":
+                    True,
 
                 "workouts":
                     []
@@ -6498,6 +6567,7 @@ def get_member_workout_schedule(member_id):
 
                 ORDER BY
                     id ASC
+
             """, (
                 day["plan_day_id"],
             ))
@@ -6515,74 +6585,13 @@ def get_member_workout_schedule(member_id):
 
 
         # =====================================================
-        # DEBUG
-        # =====================================================
-
-        print(
-            "========================================"
-        )
-
-        print(
-            "RECURRING MEMBER WORKOUT SCHEDULE"
-        )
-
-        print(
-            "MEMBER ID:",
-            member_id
-        )
-
-        print(
-            "PROGRAM ID:",
-            current["program_id"]
-        )
-
-        print(
-            "PROGRAM PLAN ID:",
-            program_plan_id
-        )
-
-        print(
-            "TRAINER START:",
-            current["start_date"]
-        )
-
-        print(
-            "TRAINER END:",
-            current["end_date"]
-        )
-
-        print(
-            "PLAN DAYS:",
-            plan_days
-        )
-
-        print(
-            "========================================"
-        )
-
-
-        # =====================================================
         # BUILD RECURRING PATTERN
-        #
-        # IMPORTANT:
-        #
-        # We do NOT use:
-        #
-        # trainer_workout_schedule
-        #
-        # We do NOT limit it to:
-        #
-        # start_date -> end_date
-        #
-        # The selected program split is the source of truth.
         # =====================================================
 
         schedule_pattern = []
 
 
-        for index, day in enumerate(
-            plan_days
-        ):
+        for day in plan_days:
 
             day_name = (
                 day["day_name"]
@@ -6642,18 +6651,87 @@ def get_member_workout_schedule(member_id):
 
 
         # =====================================================
-        # RETURN RECURRING PROGRAM PATTERN
+        # BUILD ACTUAL DATES
         #
-        # THIS HAS NO END DATE.
+        # IMPORTANT:
         #
-        # The frontend can display this pattern for:
+        # start_date -> end_date
         #
-        # Sep 26
-        # Sep 27
-        # Sep 28
-        # ...
+        # The pattern repeats continuously.
         #
-        # indefinitely.
+        # It does NOT stop after the number of plan days.
+        # =====================================================
+
+        workouts = []
+
+
+        current_date = start_date
+
+        pattern_length = len(
+            schedule_pattern
+        )
+
+
+        while current_date <= end_date:
+
+            days_since_start = (
+                current_date - start_date
+            ).days
+
+
+            pattern_index = (
+                days_since_start
+                %
+                pattern_length
+            )
+
+
+            pattern = schedule_pattern[
+                pattern_index
+            ]
+
+
+            workouts.append({
+
+                "id":
+                    None,
+
+                "member_id":
+                    current["member_id"],
+
+                "trainer_id":
+                    current["trainer_id"],
+
+                "workout_date":
+                    current_date.strftime(
+                        "%Y-%m-%d"
+                    ),
+
+                "workout_name":
+                    pattern["workout_name"],
+
+                "day_name":
+                    pattern["day_name"],
+
+                "day_number":
+                    pattern["day_number"],
+
+                "plan_day_id":
+                    pattern["plan_day_id"],
+
+                "status":
+                    "scheduled"
+
+            })
+
+
+            current_date += timedelta(
+                days=1
+            )
+
+
+        # =====================================================
+        # RESPONSE
         # =====================================================
 
         return jsonify({
@@ -6673,32 +6751,27 @@ def get_member_workout_schedule(member_id):
             "program_plan_id":
                 current["program_plan_id"],
 
-            "trainer_start_date":
-                (
-                    current["start_date"].strftime(
-                        "%Y-%m-%d"
-                    )
-                    if current["start_date"]
-                    else None
-                ),
-
-            "trainer_end_date":
-                (
-                    current["end_date"].strftime(
-                        "%Y-%m-%d"
-                    )
-                    if current["end_date"]
-                    else None
-                ),
-
             "schedule_type":
                 "recurring",
+
+            "trainer_fee_valid":
+                True,
+
+            "trainer_fee_start":
+                start_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "trainer_fee_end":
+                end_date.strftime(
+                    "%Y-%m-%d"
+                ),
 
             "schedule_pattern":
                 schedule_pattern,
 
             "workouts":
-                schedule_pattern
+                workouts
 
         }), 200
 
@@ -6710,7 +6783,6 @@ def get_member_workout_schedule(member_id):
     except Exception as e:
 
         if conn:
-
             conn.rollback()
 
 
@@ -6738,12 +6810,12 @@ def get_member_workout_schedule(member_id):
     finally:
 
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
+
+
 
 @app.route(
     "/api/member/trainer-status/<member_id>",
