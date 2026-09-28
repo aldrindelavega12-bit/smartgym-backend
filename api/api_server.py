@@ -4424,7 +4424,6 @@ def get_trainer_requests(trainer_id):
 # =========================================================
 # ACCEPT TRAINER REQUEST
 # =========================================================
-
 @app.route(
     "/api/trainer/request/<int:request_id>/accept",
     methods=["POST"]
@@ -4445,7 +4444,6 @@ def accept_trainer_request(request_id):
         trainer_id = str(
             data.get("trainer_id", "")
         ).strip()
-
 
         if not trainer_id:
 
@@ -4543,12 +4541,6 @@ def accept_trainer_request(request_id):
 
         # =====================================================
         # GET PREVIOUS CURRENT TRAINER PROGRAM
-        #
-        # IMPORTANT:
-        #
-        # Get this BEFORE activating the pending request.
-        #
-        # This is the OLD active/completed assignment.
         # =====================================================
 
         cursor.execute("""
@@ -4611,28 +4603,6 @@ def accept_trainer_request(request_id):
 
                 split_changed = True
 
-
-        # =====================================================
-        # FINAL DECISION
-        #
-        # TRUE:
-        #     Program changed
-        #     OR
-        #     Split changed
-        #
-        # FALSE:
-        #     Same program
-        #     Same split
-        #
-        # Change Trainer only:
-        #     FALSE
-        #
-        # Change Program:
-        #     TRUE
-        #
-        # Change Split:
-        #     TRUE
-        # =====================================================
 
         program_or_split_changed = (
             program_changed
@@ -4746,23 +4716,20 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # TRAINING DURATION
+        # TRAINER FEE END DATE
+        #
+        # IMPORTANT:
+        #
+        # This is ONLY for trainer fee / subscription logic.
+        #
+        # It does NOT limit the workout schedule.
         # =====================================================
 
         training_duration = int(
             trainer_rate["duration_days"]
         )
 
-
-        # =====================================================
-        # CALCULATE END DATE
-        #
-        # 1 Day   = start + 0
-        # 1 Week  = start + 6
-        # 1 Month = start + 29
-        # =====================================================
-
-        end_date = (
+        trainer_end_date = (
             start_date
             +
             timedelta(
@@ -4848,10 +4815,7 @@ def accept_trainer_request(request_id):
         # =====================================================
         # DELETE OLD PROGRAM SCHEDULE
         #
-        # ONLY WHEN PROGRAM OR SPLIT CHANGED.
-        #
-        # This removes the schedule belonging to the
-        # previous program.
+        # ONLY WHEN PROGRAM OR SPLIT CHANGED
         # =====================================================
 
         if (
@@ -4883,7 +4847,6 @@ def accept_trainer_request(request_id):
                     previous["end_date"]
                 ))
 
-
                 print(
                     "OLD PROGRAM SCHEDULE DELETED:",
                     cursor.rowcount
@@ -4892,6 +4855,9 @@ def accept_trainer_request(request_id):
 
         # =====================================================
         # ACCEPT REQUEST
+        #
+        # end_date here remains the TRAINER FEE expiration.
+        # Workout schedule itself does NOT expire here.
         # =====================================================
 
         cursor.execute("""
@@ -4909,7 +4875,7 @@ def accept_trainer_request(request_id):
               AND status = 'pending'
         """, (
             start_date,
-            end_date,
+            trainer_end_date,
             request_id,
             trainer_id
         ))
@@ -4935,22 +4901,7 @@ def accept_trainer_request(request_id):
         # =====================================================
         # DELETE OLD PROGRAM ASSIGNMENT
         #
-        # IMPORTANT:
-        #
-        # ONLY DELETE THE OLD ASSIGNMENT WHEN:
-        #
-        #     PROGRAM CHANGED
-        #     OR
-        #     SPLIT CHANGED
-        #
-        # The new request is already active at this point.
-        #
-        # Therefore:
-        #
-        # previous["id"] = OLD RECORD
-        # request_id     = NEW RECORD
-        #
-        # We delete by ID so we NEVER delete the new record.
+        # ONLY WHEN PROGRAM OR SPLIT CHANGED
         # =====================================================
 
         if (
@@ -4975,7 +4926,6 @@ def accept_trainer_request(request_id):
                 member_id
             ))
 
-
             print(
                 "OLD PROGRAM ASSIGNMENT DELETED:",
                 cursor.rowcount
@@ -4983,13 +4933,20 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # GENERATE NEW SCHEDULE
+        # GENERATE WORKOUT SCHEDULE
         #
         # IMPORTANT:
         #
-        # The schedule is generated from the NEW
-        # program_plan_id.
+        # Workout plan has NO expiration.
+        #
+        # We generate a long rolling window here.
+        #
+        # 365 DAYS = 1 YEAR OF RECURRING WORKOUTS
+        #
+        # The trainer fee end_date DOES NOT control this.
         # =====================================================
+
+        SCHEDULE_DAYS = 365
 
         current_date = start_date
 
@@ -4998,7 +4955,16 @@ def accept_trainer_request(request_id):
         generated_count = 0
 
 
-        while current_date <= end_date:
+        schedule_end_date = (
+            start_date
+            +
+            timedelta(
+                days=SCHEDULE_DAYS - 1
+            )
+        )
+
+
+        while current_date <= schedule_end_date:
 
             # =================================================
             # GET PLAN DAY
@@ -5056,7 +5022,7 @@ def accept_trainer_request(request_id):
 
 
             # =================================================
-            # INSERT NEW SCHEDULE
+            # INSERT WORKOUT
             # =================================================
 
             cursor.execute("""
@@ -5089,7 +5055,7 @@ def accept_trainer_request(request_id):
 
 
             # =================================================
-            # NEXT DATE
+            # NEXT DAY
             # =================================================
 
             current_date += timedelta(
@@ -5118,7 +5084,7 @@ def accept_trainer_request(request_id):
             "message":
                 (
                     "Trainer request accepted "
-                    "and schedule generated."
+                    "and recurring workout schedule generated."
                 ),
 
             "request_id":
@@ -5172,7 +5138,12 @@ def accept_trainer_request(request_id):
                 ),
 
             "end_date":
-                end_date.strftime(
+                trainer_end_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "workout_schedule_until":
+                schedule_end_date.strftime(
                     "%Y-%m-%d"
                 ),
 
@@ -5223,6 +5194,8 @@ def accept_trainer_request(request_id):
         if conn:
 
             conn.close()
+
+
 
 
 @app.route(
@@ -9104,7 +9077,6 @@ def missed_trainer_workout(workout_id):
 # =========================================================
 # RESCHEDULE MISSED WORKOUT TO NEXT DAY
 # =========================================================
-
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
     methods=["POST"]
@@ -9116,9 +9088,9 @@ def reschedule_trainer_workout(workout_id):
 
     try:
 
-        # =========================
+        # =====================================================
         # DATABASE
-        # =========================
+        # =====================================================
 
         conn = get_connection()
 
@@ -9127,9 +9099,9 @@ def reschedule_trainer_workout(workout_id):
         )
 
 
-        # =========================
-        # GET MISSED WORKOUT
-        # =========================
+        # =====================================================
+        # GET WORKOUT
+        # =====================================================
 
         cursor.execute("""
             SELECT
@@ -9144,6 +9116,8 @@ def reschedule_trainer_workout(workout_id):
 
             WHERE id = %s
 
+            LIMIT 1
+
         """, (
             workout_id,
         ))
@@ -9151,67 +9125,85 @@ def reschedule_trainer_workout(workout_id):
         workout = cursor.fetchone()
 
 
-        # =========================
+        # =====================================================
         # WORKOUT NOT FOUND
-        # =========================
+        # =====================================================
 
         if not workout:
 
             return jsonify({
-                "status": "error",
-                "message": "Workout not found."
+
+                "status":
+                    "error",
+
+                "message":
+                    "Workout not found."
+
             }), 404
 
 
-        # =========================
-        # ONLY MISSED WORKOUT
-        # =========================
+        # =====================================================
+        # ONLY MISSED WORKOUT CAN BE RESCHEDULED
+        # =====================================================
 
         if workout["status"] != "missed":
 
             return jsonify({
-                "status": "error",
+
+                "status":
+                    "error",
+
                 "message":
                     "Only missed workouts can be rescheduled."
+
             }), 400
 
 
-        # =========================
-        # CURRENT DATE
-        # =========================
+        # =====================================================
+        # ORIGINAL MISSED DATE
+        # =====================================================
 
-        current_date = workout["workout_date"]
+        missed_date = workout["workout_date"]
 
 
-        if isinstance(current_date, str):
+        if isinstance(
+            missed_date,
+            str
+        ):
 
-            current_date = datetime.strptime(
-                current_date,
+            missed_date = datetime.strptime(
+                missed_date,
                 "%Y-%m-%d"
             ).date()
 
 
-        # =========================
-        # NEXT DAY
-        # =========================
-
-        next_date = current_date + timedelta(
-            days=1
-        )
-
-
         # =====================================================
-        # CHECK IF SAME RESCHEDULED WORKOUT ALREADY EXISTS
+        # GET ALL SUCCEEDING WORKOUTS
+        # =====================================================
+        #
+        # Example:
+        #
+        # Oct 1 = LEG       MISSED
+        # Oct 2 = REST
+        # Oct 3 = PUSH
+        # Oct 4 = PULL
+        # Oct 5 = REST
+        #
+        # We get:
+        #
+        # Oct 2
+        # Oct 3
+        # Oct 4
+        # Oct 5
+        #
+        # and move all of them +1 day.
+        #
         # =====================================================
 
         cursor.execute("""
             SELECT
                 id,
-                member_id,
-                trainer_id,
-                workout_date,
-                workout_name,
-                status
+                workout_date
 
             FROM trainer_workout_schedule
 
@@ -9219,133 +9211,138 @@ def reschedule_trainer_workout(workout_id):
 
               AND trainer_id = %s
 
-              AND workout_date = %s
+              AND workout_date > %s
 
-              AND workout_name = %s
-
-              AND status = 'scheduled'
-
-            ORDER BY id DESC
-
-            LIMIT 1
+            ORDER BY
+                workout_date DESC,
+                id DESC
 
         """, (
             workout["member_id"],
             workout["trainer_id"],
-            next_date,
-            workout["workout_name"]
+            missed_date
         ))
 
-        existing = cursor.fetchone()
+        succeeding_workouts = cursor.fetchall()
 
 
         # =====================================================
-        # ALREADY RESCHEDULED
+        # SHIFT SUCCEEDING WORKOUTS +1 DAY
         # =====================================================
-
-        if existing:
-
-            return jsonify({
-
-                "status": "success",
-
-                "message":
-                    "Workout has already been rescheduled.",
-
-                "workout": {
-
-                    "id":
-                        existing["id"],
-
-                    "member_id":
-                        existing["member_id"],
-
-                    "trainer_id":
-                        existing["trainer_id"],
-
-                    "workout_date":
-                        str(next_date),
-
-                    "workout_name":
-                        existing["workout_name"],
-
-                    "status":
-                        existing["status"]
-
-                }
-
-            }), 200
-
-
-        # =====================================================
-        # INSERT NEW RESCHEDULED WORKOUT
         #
         # IMPORTANT:
-        # DO NOT UPDATE THE MISSED ROW.
+        #
+        # We process from the LAST date going backwards.
         #
         # Example:
         #
-        # ID 10 | Sep 27 | Legs  | missed
-        # ID 11 | Sep 28 | Legs  | scheduled
+        # Oct 5 -> Oct 6
+        # Oct 4 -> Oct 5
+        # Oct 3 -> Oct 4
+        # Oct 2 -> Oct 3
+        #
+        # This prevents date collision.
         #
         # =====================================================
 
-        cursor.execute("""
-            INSERT INTO trainer_workout_schedule
-            (
-                member_id,
-                trainer_id,
-                workout_date,
-                workout_name,
-                status
+        for row in succeeding_workouts:
+
+            old_date = row["workout_date"]
+
+
+            if isinstance(
+                old_date,
+                str
+            ):
+
+                old_date = datetime.strptime(
+                    old_date,
+                    "%Y-%m-%d"
+                ).date()
+
+
+            new_date = (
+                old_date
+                + timedelta(
+                    days=1
+                )
             )
 
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                'scheduled'
+
+            cursor.execute("""
+                UPDATE trainer_workout_schedule
+
+                SET
+                    workout_date = %s
+
+                WHERE id = %s
+
+            """, (
+                new_date,
+                row["id"]
+            ))
+
+
+        # =====================================================
+        # MOVE MISSED WORKOUT TO NEXT DAY
+        # =====================================================
+        #
+        # Original:
+        #
+        # Oct 1 = LEG MISSED
+        #
+        # After reschedule:
+        #
+        # Oct 2 = LEG SCHEDULED
+        #
+        # =====================================================
+
+        next_date = (
+            missed_date
+            + timedelta(
+                days=1
             )
+        )
+
+
+        cursor.execute("""
+            UPDATE trainer_workout_schedule
+
+            SET
+                workout_date = %s,
+                status = 'scheduled'
+
+            WHERE id = %s
 
         """, (
-            workout["member_id"],
-            workout["trainer_id"],
             next_date,
-            workout["workout_name"]
+            workout_id
         ))
 
 
-        # =========================
-        # GET NEW ROW ID
-        # =========================
-
-        new_workout_id = cursor.lastrowid
-
-
-        # =========================
+        # =====================================================
         # COMMIT
-        # =========================
+        # =====================================================
 
         conn.commit()
 
 
-        # =========================
-        # RESPONSE
-        # =========================
+        # =====================================================
+        # SUCCESS
+        # =====================================================
 
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
             "message":
-                "Workout rescheduled to the next day.",
+                "Workout rescheduled successfully. All succeeding workouts were shifted by one day.",
 
             "workout": {
 
                 "id":
-                    new_workout_id,
+                    workout["id"],
 
                 "member_id":
                     workout["member_id"],
@@ -9367,9 +9364,9 @@ def reschedule_trainer_workout(workout_id):
         }), 200
 
 
-    # =========================
+    # =========================================================
     # ERROR
-    # =========================
+    # =========================================================
 
     except Exception as e:
 
@@ -9385,7 +9382,8 @@ def reschedule_trainer_workout(workout_id):
 
         return jsonify({
 
-            "status": "error",
+            "status":
+                "error",
 
             "message":
                 str(e)
@@ -9393,9 +9391,9 @@ def reschedule_trainer_workout(workout_id):
         }), 500
 
 
-    # =========================
+    # =========================================================
     # CLOSE DATABASE
-    # =========================
+    # =========================================================
 
     finally:
 
@@ -9404,7 +9402,6 @@ def reschedule_trainer_workout(workout_id):
 
         if conn:
             conn.close()
-
 
 
 
