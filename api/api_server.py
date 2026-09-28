@@ -9106,15 +9106,8 @@ def missed_trainer_workout(workout_id):
             # ======================================
             # BUILD WORKOUT NAME
             #
-            # SAME FORMAT AS CURRENT SCHEDULE
-            #
-            # Build Muscle — Push
-            # Build Muscle — Pull
-            # Build Muscle — Legs
-            # Build Muscle — REST
-            #
-            # Also works for:
-            # Build Muscle — Chest + Back
+            # SAME LOGIC AS THE ACTUAL
+            # WORKOUT SCHEDULE GENERATOR
             # ======================================
 
             day_name = (
@@ -9123,35 +9116,80 @@ def missed_trainer_workout(workout_id):
             ).strip()
 
 
-            if day_name:
+            # --------------------------------------
+            # REST
+            # --------------------------------------
 
-                day["workout_name"] = (
-                    f"{program_name} — {day_name}"
+            if day_name.lower() == "rest":
+
+                day["workout_name"] = "Rest"
+
+
+            # --------------------------------------
+            # BODY PARTS
+            #
+            # Example:
+            # Chest + Back
+            # Shoulders + Arms
+            #
+            # Database body_parts are joined here.
+            # --------------------------------------
+
+            elif day["body_parts"]:
+
+                day["workout_name"] = ", ".join(
+                    day["body_parts"]
                 )
+
+
+            # --------------------------------------
+            # PPL / UPPER-LOWER / OTHER DAY NAME
+            #
+            # Example:
+            # Push
+            # Pull
+            # Legs
+            # Upper
+            # Lower
+            # --------------------------------------
 
             else:
 
                 day["workout_name"] = (
-                    f"{program_name} — Workout"
+                    day_name
+                    or "Workout"
                 )
 
 
         # ==========================================
         # FIND MISSED WORKOUT POSITION
         #
-        # SUPPORTS:
+        # Supports:
+        #
+        # Chest, Back
+        # Shoulders, Arms
+        # Legs
+        # Rest
+        #
+        # Push
+        # Pull
+        # Legs
+        # Rest
+        #
+        # Upper
+        # Lower
+        # Rest
+        #
+        # Also supports actual DB names like:
         #
         # Build Muscle — Push
         # Build Muscle — Pull
         # Build Muscle — Legs
-        # Build Muscle — Upper
-        # Build Muscle — Lower
         # Build Muscle — REST
-        #
-        # AND BODY-PART BASED WORKOUTS
         # ==========================================
 
         missed_index = None
+
 
         actual_name = (
             missed_workout_name
@@ -9159,48 +9197,90 @@ def missed_trainer_workout(workout_id):
         ).strip().lower()
 
 
+        # ==========================================
+        # NORMALIZE ACTUAL WORKOUT NAME
+        #
+        # If DB contains:
+        #
+        # Build Muscle — Push
+        #
+        # convert to:
+        #
+        # Push
+        # ==========================================
+
+        if "—" in actual_name:
+
+            actual_name = (
+                actual_name
+                .split("—", 1)[1]
+                .strip()
+            )
+
+
+        # ==========================================
+        # FIND MATCH
+        # ==========================================
+
         for index, day in enumerate(plan_days):
 
-            plan_workout_name = (
+            plan_name = (
                 day["workout_name"]
                 or ""
             ).strip().lower()
 
-            day_name = (
-                day["day_name"]
-                or ""
-            ).strip().lower()
 
+            # --------------------------------------
+            # EXACT MATCH
+            # --------------------------------------
 
-            # ======================================
-            # 1. EXACT MATCH
-            # ======================================
-
-            if actual_name == plan_workout_name:
+            if actual_name == plan_name:
 
                 missed_index = index
 
                 break
 
 
-            # ======================================
-            # 2. MATCH DAY NAME
+            # --------------------------------------
+            # BODY-PART FORMAT FLEXIBILITY
             #
-            # Example:
+            # Supports:
             #
-            # Build Muscle — Push
-            #                  ↓
-            #                 Push
+            # Chest, Back
+            # Chest + Back
             #
-            # Build Muscle — Pull
-            #                  ↓
-            #                 Pull
-            # ======================================
+            # --------------------------------------
 
-            if day_name:
+            if day["body_parts"]:
 
-                if actual_name.endswith(
-                    "— " + day_name
+                body_parts_normalized = [
+                    str(part).strip().lower()
+                    for part in day["body_parts"]
+                    if part
+                ]
+
+
+                # Current generated format:
+                #
+                # Chest, Back
+
+                comma_format = ", ".join(
+                    body_parts_normalized
+                )
+
+
+                # UI / alternate format:
+                #
+                # Chest + Back
+
+                plus_format = " + ".join(
+                    body_parts_normalized
+                )
+
+
+                if actual_name in (
+                    comma_format,
+                    plus_format
                 ):
 
                     missed_index = index
@@ -9208,27 +9288,26 @@ def missed_trainer_workout(workout_id):
                     break
 
 
-            # ======================================
-            # 3. MATCH PART AFTER DASH
-            #
-            # Example:
-            #
-            # Build Muscle — Push
-            #
-            # becomes:
+            # --------------------------------------
+            # DAY NAME MATCH
             #
             # Push
-            # ======================================
+            # Pull
+            # Legs
+            # Upper
+            # Lower
+            # Rest
+            # --------------------------------------
 
-            if "—" in actual_name:
+            day_name = (
+                day["day_name"]
+                or ""
+            ).strip().lower()
 
-                actual_day_name = (
-                    actual_name
-                    .split("—", 1)[1]
-                    .strip()
-                )
 
-                if actual_day_name == day_name:
+            if day_name:
+
+                if actual_name == day_name:
 
                     missed_index = index
 
@@ -9450,6 +9529,12 @@ def missed_trainer_workout(workout_id):
 
 
         print(
+            "Normalized:",
+            actual_name
+        )
+
+
+        print(
             "Matched Plan Index:",
             missed_index
         )
@@ -9458,6 +9543,12 @@ def missed_trainer_workout(workout_id):
         print(
             "Matched Plan Day:",
             plan_days[missed_index]["day_name"]
+        )
+
+
+        print(
+            "Matched Workout Name:",
+            plan_days[missed_index]["workout_name"]
         )
 
 
@@ -9506,6 +9597,22 @@ def missed_trainer_workout(workout_id):
                     "missed"
             },
 
+            "matched_plan": {
+
+                "index":
+                    missed_index,
+
+                "day_name":
+                    plan_days[
+                        missed_index
+                    ]["day_name"],
+
+                "workout_name":
+                    plan_days[
+                        missed_index
+                    ]["workout_name"]
+            },
+
             "deleted_future_schedule":
                 deleted_count,
 
@@ -9547,6 +9654,8 @@ def missed_trainer_workout(workout_id):
         if conn:
 
             conn.close()
+
+
 
 
 @app.route(
