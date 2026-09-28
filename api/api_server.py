@@ -8916,6 +8916,11 @@ def complete_trainer_workout(workout_id):
 # MARK TRAINER WORKOUT AS MISSED
 # SHIFT ENTIRE SUCCEEDING SCHEDULE BY 1 DAY
 # =========================================================
+# =========================================================
+# MARK TRAINER WORKOUT AS MISSED
+# DELETE SUCCEEDING SCHEDULE
+# REGENERATE FROM MISSED WORKOUT
+# =========================================================
 
 @app.route(
     "/api/trainer/workout/<int:workout_id>/missed",
@@ -8928,22 +8933,16 @@ def missed_trainer_workout(workout_id):
 
     try:
 
-        # =================================================
-        # DATABASE
-        # =================================================
-
         conn = get_connection()
 
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
 
-        # Disable autocommit so everything happens
-        # inside ONE transaction.
         conn.begin()
 
         # =================================================
-        # GET THE WORKOUT
+        # GET MISSED WORKOUT
         # =================================================
 
         cursor.execute("""
@@ -8977,7 +8976,7 @@ def missed_trainer_workout(workout_id):
             }), 404
 
         # =================================================
-        # ONLY SCHEDULED WORKOUT CAN BE MARKED MISSED
+        # CHECK STATUS
         # =================================================
 
         if workout["status"] != "scheduled":
@@ -8986,7 +8985,8 @@ def missed_trainer_workout(workout_id):
 
             return jsonify({
                 "status": "error",
-                "message": "Only scheduled workouts can be marked as missed."
+                "message":
+                    "Only scheduled workouts can be marked as missed."
             }), 400
 
         # =================================================
@@ -9004,7 +9004,7 @@ def missed_trainer_workout(workout_id):
 
         # =================================================
         # STEP 1
-        # MARK ORIGINAL WORKOUT AS MISSED
+        # MARK CURRENT WORKOUT AS MISSED
         # =================================================
 
         cursor.execute("""
@@ -9020,36 +9020,21 @@ def missed_trainer_workout(workout_id):
 
         # =================================================
         # STEP 2
-        # GET ALL SUCCEEDING SCHEDULES
+        # DELETE EVERYTHING AFTER MISSED DATE
         #
-        # Example:
+        # KEEP:
+        # missed date and everything before it
         #
-        # Sep 29 Legs
-        # Sep 30 Rest
-        # Oct 01 Chest
-        #
-        # These will all move +1 day.
+        # DELETE:
+        # everything after missed date
         # =================================================
 
         cursor.execute("""
-            SELECT
-                id,
-                workout_date,
-                workout_name,
-                status
-
-            FROM trainer_workout_schedule
+            DELETE FROM trainer_workout_schedule
 
             WHERE member_id = %s
               AND trainer_id = %s
               AND workout_date > %s
-              AND status = 'scheduled'
-
-            ORDER BY
-                workout_date DESC,
-                id DESC
-
-            FOR UPDATE
 
         """, (
             workout["member_id"],
@@ -9057,65 +9042,16 @@ def missed_trainer_workout(workout_id):
             missed_date
         ))
 
-        succeeding_workouts = cursor.fetchall()
+        deleted_count = cursor.rowcount
 
         # =================================================
         # STEP 3
-        # SHIFT EVERY SUCCEEDING WORKOUT +1 DAY
-        #
-        # IMPORTANT:
-        # DESCENDING ORDER prevents date collisions.
+        # INSERT MISSED WORKOUT INTO NEXT DAY
         # =================================================
 
-        shifted = []
-
-        for row in succeeding_workouts:
-
-            old_date = row["workout_date"]
-
-            if isinstance(old_date, str):
-
-                old_date = datetime.strptime(
-                    old_date,
-                    "%Y-%m-%d"
-                ).date()
-
-            new_date = old_date + timedelta(
-                days=1
-            )
-
-            cursor.execute("""
-                UPDATE trainer_workout_schedule
-
-                SET workout_date = %s
-
-                WHERE id = %s
-
-            """, (
-                new_date,
-                row["id"]
-            ))
-
-            shifted.append({
-                "id": row["id"],
-                "old_date": old_date.strftime("%Y-%m-%d"),
-                "new_date": new_date.strftime("%Y-%m-%d"),
-                "workout_name": row["workout_name"]
-            })
-
-        # =================================================
-        # STEP 4
-        # PUT THE MISSED WORKOUT ON THE NEXT DAY
-        #
-        # Example:
-        #
-        # Sep 28 Chest MISSED
-        #
-        # Sep 29 becomes Chest
-        # =================================================
-
-        replacement_date = missed_date + timedelta(
-            days=1
+        replacement_date = (
+            missed_date +
+            timedelta(days=1)
         )
 
         cursor.execute("""
@@ -9147,7 +9083,251 @@ def missed_trainer_workout(workout_id):
         replacement_id = cursor.lastrowid
 
         # =================================================
-        # COMMIT EVERYTHING
+        # STEP 4
+        # GET PROGRAM / PLAN INFORMATION
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                tt.program_plan_id,
+                tt.start_date,
+                tt.end_date
+
+            FROM trainer_trainees tt
+
+            WHERE tt.member_id = %s
+              AND tt.trainer_id = %s
+              AND tt.status = 'active'
+
+            ORDER BY tt.id DESC
+
+            LIMIT 1
+
+        """, (
+            workout["member_id"],
+            workout["trainer_id"]
+        ))
+
+        trainee = cursor.fetchone()
+
+        # =================================================
+        # IF PROGRAM INFORMATION EXISTS,
+        # CONTINUE GENERATING THE ORIGINAL PLAN
+        # =================================================
+
+        generated_count = 0
+
+        if trainee and trainee["program_plan_id"]:
+
+            program_plan_id = (
+                trainee["program_plan_id"]
+            )
+
+            # =============================================
+            # GET PLAN DAYS
+            # =============================================
+
+            cursor.execute("""
+                SELECT
+                    id AS plan_day_id,
+                    day_number,
+                    day_name
+
+                FROM plan_days
+
+                WHERE plan_id = %s
+                  AND active = 1
+
+                ORDER BY day_number ASC
+
+            """, (
+                program_plan_id,
+            ))
+
+            plan_days = cursor.fetchall()
+
+            # =============================================
+            # GET BODY PARTS
+            # =============================================
+
+            for day in plan_days:
+
+                cursor.execute("""
+                    SELECT
+                        body_part
+
+                    FROM plan_day_body_parts
+
+                    WHERE plan_day_id = %s
+                      AND active = 1
+
+                    ORDER BY id ASC
+
+                """, (
+                    day["plan_day_id"],
+                ))
+
+                body_parts = cursor.fetchall()
+
+                day["body_parts"] = [
+                    row["body_part"]
+                    for row in body_parts
+                ]
+
+            # =============================================
+            # GENERATE CONTINUATION
+            #
+            # IMPORTANT:
+            # replacement day already contains the
+            # missed workout.
+            #
+            # So start generating the ORIGINAL PLAN
+            # from the day AFTER replacement.
+            # =============================================
+
+            if plan_days:
+
+                # Find the plan-day index that matches
+                # the missed workout.
+
+                missed_index = 0
+
+                for index, day in enumerate(plan_days):
+
+                    day_name = (
+                        day["day_name"] or ""
+                    ).strip()
+
+                    if day_name.lower() == "rest":
+
+                        generated_name = "Rest"
+
+                    elif day["body_parts"]:
+
+                        generated_name = ", ".join(
+                            day["body_parts"]
+                        )
+
+                    else:
+
+                        generated_name = (
+                            day_name
+                            or
+                            "Workout"
+                        )
+
+                    if generated_name == workout["workout_name"]:
+
+                        missed_index = index
+                        break
+
+                # =========================================
+                # START AFTER MISSED WORKOUT
+                # =========================================
+
+                current_date = (
+                    replacement_date +
+                    timedelta(days=1)
+                )
+
+                next_index = (
+                    missed_index + 1
+                ) % len(plan_days)
+
+                # =========================================
+                # GENERATE UNTIL ORIGINAL END DATE
+                # =========================================
+
+                end_date = trainee["end_date"]
+
+                if isinstance(end_date, str):
+
+                    end_date = datetime.strptime(
+                        end_date,
+                        "%Y-%m-%d"
+                    ).date()
+
+                # Extend one day because the missed
+                # workout was moved forward.
+
+                if end_date:
+
+                    new_end_date = (
+                        end_date +
+                        timedelta(days=1)
+                    )
+
+                else:
+
+                    new_end_date = (
+                        current_date +
+                        timedelta(days=30)
+                    )
+
+                while current_date <= new_end_date:
+
+                    day = plan_days[next_index]
+
+                    day_name = (
+                        day["day_name"] or ""
+                    ).strip()
+
+                    if day_name.lower() == "rest":
+
+                        workout_name = "Rest"
+
+                    elif day["body_parts"]:
+
+                        workout_name = ", ".join(
+                            day["body_parts"]
+                        )
+
+                    else:
+
+                        workout_name = (
+                            day_name
+                            or
+                            "Workout"
+                        )
+
+                    cursor.execute("""
+                        INSERT INTO trainer_workout_schedule
+                        (
+                            member_id,
+                            trainer_id,
+                            workout_date,
+                            workout_name,
+                            status
+                        )
+
+                        VALUES
+                        (
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            'scheduled'
+                        )
+
+                    """, (
+                        workout["member_id"],
+                        workout["trainer_id"],
+                        current_date,
+                        workout_name
+                    ))
+
+                    generated_count += 1
+
+                    current_date += timedelta(
+                        days=1
+                    )
+
+                    next_index = (
+                        next_index + 1
+                    ) % len(plan_days)
+
+        # =================================================
+        # COMMIT
         # =================================================
 
         conn.commit()
@@ -9162,18 +9342,13 @@ def missed_trainer_workout(workout_id):
 
             "message":
                 "Workout marked as missed. "
-                "The entire succeeding schedule was shifted by one day.",
+                "All succeeding workouts were deleted "
+                "and the schedule was regenerated.",
 
             "missed_workout": {
 
                 "id":
                     workout["id"],
-
-                "member_id":
-                    workout["member_id"],
-
-                "trainer_id":
-                    workout["trainer_id"],
 
                 "workout_date":
                     missed_date.strftime("%Y-%m-%d"),
@@ -9202,17 +9377,13 @@ def missed_trainer_workout(workout_id):
 
             },
 
-            "shifted_count":
-                len(shifted),
+            "deleted_count":
+                deleted_count,
 
-            "shifted_workouts":
-                shifted
+            "generated_count":
+                generated_count
 
         }), 200
-
-    # =====================================================
-    # ERROR
-    # =====================================================
 
     except Exception as e:
 
@@ -9233,10 +9404,6 @@ def missed_trainer_workout(workout_id):
 
         }), 500
 
-    # =====================================================
-    # CLEANUP
-    # =====================================================
-
     finally:
 
         if cursor:
@@ -9244,6 +9411,7 @@ def missed_trainer_workout(workout_id):
 
         if conn:
             conn.close()
+
 
 
 @app.route(
