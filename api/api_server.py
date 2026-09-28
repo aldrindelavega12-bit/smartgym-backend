@@ -9135,32 +9135,90 @@ def missed_trainer_workout(workout_id):
         # ==========================================
         # FIND MISSED WORKOUT POSITION
         # ==========================================
+        
+        # ==========================================
+		# FIND MISSED WORKOUT POSITION
+		# ==========================================
 
-        missed_index = None
+		missed_index = None
 
-
-        for index, day in enumerate(plan_days):
-
-            if (
-                day["workout_name"].strip().lower()
-                ==
-                missed_workout_name.strip().lower()
-            ):
-
-                missed_index = index
-
-                break
+		normalized_missed_name = (
+			missed_workout_name or ""
+		).strip().lower()
 
 
-        if missed_index is None:
+		for index, day in enumerate(plan_days):
 
-            return jsonify({
-                "status": "error",
-                "message": (
-                    "Missed workout does not match "
-                    "the current program plan."
-                )
-            }), 400
+			day_name = (
+				day.get("day_name") or ""
+			).strip()
+
+			body_part_name = ", ".join(
+				day.get("body_parts") or []
+			).strip()
+
+			possible_names = set()
+
+			# --------------------------------------
+			# DAY NAME
+			# --------------------------------------
+
+			if day_name:
+
+				possible_names.add(
+					day_name.lower()
+				)
+
+				possible_names.add(
+					f"{program_name} — {day_name}".lower()
+				)
+
+			# --------------------------------------
+			# BODY PARTS
+			# --------------------------------------
+
+			if body_part_name:
+
+				possible_names.add(
+					body_part_name.lower()
+				)
+
+				possible_names.add(
+					f"{program_name} — {body_part_name}".lower()
+				)
+
+			# --------------------------------------
+			# CURRENT GENERATED WORKOUT NAME
+			# --------------------------------------
+
+			if day.get("workout_name"):
+
+				possible_names.add(
+					day["workout_name"]
+					.strip()
+					.lower()
+				)
+
+			# --------------------------------------
+			# MATCH
+			# --------------------------------------
+
+			if normalized_missed_name in possible_names:
+
+				missed_index = index
+
+				break
+
+
+		if missed_index is None:
+
+			return jsonify({
+				"status": "error",
+				"message": (
+					"Missed workout does not match "
+					"the current program plan."
+				)
+			}), 400
 
 
         # ==========================================
