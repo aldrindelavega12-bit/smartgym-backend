@@ -4421,9 +4421,6 @@ def get_trainer_requests(trainer_id):
 # =========================================================
 # ACCEPT TRAINER REQUEST
 # =========================================================
-# =========================================================
-# ACCEPT TRAINER REQUEST
-# =========================================================
 @app.route(
     "/api/trainer/request/<int:request_id>/accept",
     methods=["POST"]
@@ -4716,7 +4713,11 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # TRAINING DURATION
+        # TRAINER PAYMENT DURATION
+        #
+        # THIS IS ONLY FOR TRAINER PAYMENT / ASSIGNMENT.
+        #
+        # IT DOES NOT CONTROL THE WORKOUT SCHEDULE.
         # =====================================================
 
         training_duration = int(
@@ -4725,12 +4726,9 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # CALCULATE END DATE
+        # TRAINER PAYMENT END DATE
         #
-        # IMPORTANT:
-        # DO NOT SET THIS TO NULL
-        #
-        # trainer_trainees.end_date is NOT NULL.
+        # KEEP THIS AS THE REAL TRAINER PAYMENT END DATE.
         # =====================================================
 
         end_date = (
@@ -4739,6 +4737,28 @@ def accept_trainer_request(request_id):
             timedelta(
                 days=training_duration - 1
             )
+        )
+
+
+        # =====================================================
+        # WORKOUT SCHEDULE END DATE
+        #
+        # 365 DAYS TOTAL
+        #
+        # Example:
+        #
+        # start_date = 2026-10-01
+        #
+        # schedule_end_date = 2027-09-30
+        #
+        # IMPORTANT:
+        # DO NOT USE trainer payment end_date HERE.
+        # =====================================================
+
+        schedule_end_date = (
+            start_date
+            +
+            timedelta(days=364)
         )
 
 
@@ -4760,6 +4780,7 @@ def accept_trainer_request(request_id):
 
             ORDER BY
                 day_number ASC
+
         """, (
             new_program_plan_id,
         ))
@@ -4800,6 +4821,7 @@ def accept_trainer_request(request_id):
 
                 ORDER BY
                     id ASC
+
             """, (
                 day["plan_day_id"],
             ))
@@ -4820,6 +4842,11 @@ def accept_trainer_request(request_id):
         # DELETE OLD PROGRAM SCHEDULE
         #
         # ONLY WHEN PROGRAM OR SPLIT CHANGED
+        #
+        # IMPORTANT:
+        # Delete the old workout schedule based on the
+        # previous workout's 1-year span, NOT its trainer
+        # payment end_date.
         # =====================================================
 
         if (
@@ -4828,11 +4855,13 @@ def accept_trainer_request(request_id):
             program_or_split_changed
         ):
 
-            if (
-                previous["start_date"]
-                and
-                previous["end_date"]
-            ):
+            if previous["start_date"]:
+
+                previous_schedule_end_date = (
+                    previous["start_date"]
+                    +
+                    timedelta(days=364)
+                )
 
                 cursor.execute("""
                     DELETE FROM trainer_workout_schedule
@@ -4844,11 +4873,12 @@ def accept_trainer_request(request_id):
                       AND workout_date >= %s
 
                       AND workout_date <= %s
+
                 """, (
                     member_id,
                     previous["trainer_id"],
                     previous["start_date"],
-                    previous["end_date"]
+                    previous_schedule_end_date
                 ))
 
 
@@ -4860,6 +4890,9 @@ def accept_trainer_request(request_id):
 
         # =====================================================
         # ACCEPT REQUEST
+        #
+        # trainer_trainees.end_date remains the trainer
+        # payment/assignment end date.
         # =====================================================
 
         cursor.execute("""
@@ -4875,6 +4908,7 @@ def accept_trainer_request(request_id):
               AND trainer_id = %s
 
               AND status = 'pending'
+
         """, (
             start_date,
             end_date,
@@ -4923,6 +4957,7 @@ def accept_trainer_request(request_id):
                       'active',
                       'completed'
                   )
+
             """, (
                 previous["id"],
                 member_id
@@ -4936,7 +4971,7 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # GENERATE NEW SCHEDULE
+        # GENERATE NEW 1-YEAR WORKOUT SCHEDULE
         # =====================================================
 
         current_date = start_date
@@ -4946,7 +4981,8 @@ def accept_trainer_request(request_id):
         generated_count = 0
 
 
-        while current_date <= end_date:
+        while current_date <= schedule_end_date:
+
 
             # =================================================
             # GET PLAN DAY
@@ -5025,6 +5061,7 @@ def accept_trainer_request(request_id):
                     %s,
                     'scheduled'
                 )
+
             """, (
                 member_id,
                 trainer_id,
@@ -5066,7 +5103,7 @@ def accept_trainer_request(request_id):
             "message":
                 (
                     "Trainer request accepted "
-                    "and schedule generated."
+                    "and 1-year workout schedule generated."
                 ),
 
             "request_id":
@@ -5119,8 +5156,15 @@ def accept_trainer_request(request_id):
                     "%Y-%m-%d"
                 ),
 
+            # Trainer payment end date
             "end_date":
                 end_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            # Actual workout schedule end date
+            "schedule_end_date":
+                schedule_end_date.strftime(
                     "%Y-%m-%d"
                 ),
 
@@ -5171,6 +5215,8 @@ def accept_trainer_request(request_id):
         if conn:
 
             conn.close()
+
+
 
 @app.route(
     "/api/member/program/renew",
@@ -8080,10 +8126,6 @@ def pending_members():
 # =========================================================
 # GET TRAINER WORKOUT SCHEDULES
 # =========================================================
-# =========================================================
-# GET TRAINER WORKOUT SCHEDULES
-# =========================================================
-
 @app.route(
     "/api/trainer/workouts/<trainer_id>",
     methods=["GET"]
@@ -8210,11 +8252,14 @@ def get_trainer_workouts(trainer_id):
         # =====================================================
         # GET EXISTING TRAINER WORKOUT RECORDS
         #
-        # IMPORTANT:
+        # These records are ONLY for:
         #
-        # READ ONLY.
+        # - workout_id
+        # - completed
+        # - missed
+        # - scheduled
         #
-        # This route MUST NOT create missing records.
+        # They DO NOT determine the workout pattern.
         # =====================================================
 
         cursor.execute("""
@@ -8289,17 +8334,39 @@ def get_trainer_workouts(trainer_id):
 
 
             # =================================================
-            # VALID DATE
+            # VALID START DATE
+            #
+            # end_date is trainer payment/assignment data.
+            # It MUST NOT control the workout schedule.
             # =================================================
 
-            if not start_date or not end_date:
+            if not start_date:
 
                 continue
 
 
-            if end_date < today:
+            # =================================================
+            # 1-YEAR WORKOUT SCHEDULE
+            #
+            # 365 DAYS INCLUSIVE
+            #
+            # Example:
+            #
+            # start_date = 2026-10-01
+            #
+            # schedule:
+            # 2026-10-01
+            #       ↓
+            # 2027-09-30
+            #
+            # Total = 365 days
+            # =================================================
 
-                continue
+            schedule_end_date = (
+                start_date
+                +
+                timedelta(days=364)
+            )
 
 
             # =================================================
@@ -8313,6 +8380,8 @@ def get_trainer_workouts(trainer_id):
 
             # =================================================
             # GET EXACT PLAN DAYS
+            #
+            # SAME SOURCE USED BY MEMBER MY PROGRAM
             # =================================================
 
             cursor.execute("""
@@ -8343,7 +8412,7 @@ def get_trainer_workouts(trainer_id):
 
 
             # =================================================
-            # GET BODY PARTS
+            # GET BODY PARTS FOR EACH PLAN DAY
             # =================================================
 
             for day in plan_days:
@@ -8375,20 +8444,24 @@ def get_trainer_workouts(trainer_id):
 
 
             # =================================================
-            # GENERATE DATE RANGE FOR DISPLAY ONLY
+            # GENERATE RECURRING SCHEDULE
             #
             # IMPORTANT:
             #
-            # This does NOT INSERT anything.
+            # start_date = Day 1
             #
-            # It only checks whether a record already exists.
+            # Plan Days repeat continuously
+            # for 365 days.
+            #
+            # Trainer payment end_date is NOT used here.
             # =================================================
 
             current_date = start_date
 
             cycle_index = 0
 
-            while current_date <= end_date:
+
+            while current_date <= schedule_end_date:
 
 
                 # =============================================
@@ -8440,7 +8513,7 @@ def get_trainer_workouts(trainer_id):
 
 
                 # =============================================
-                # EXISTING RECORDS ONLY
+                # EXISTING RECORDS FOR THIS DATE
                 # =============================================
 
                 key = (
@@ -8455,12 +8528,14 @@ def get_trainer_workouts(trainer_id):
 
 
                 # =============================================
-                # RECORD EXISTS
+                # PRIMARY RECURRING RECORD
                 # =============================================
 
                 if records:
 
                     primary = records[0]
+
+                    primary_id = primary["id"]
 
                     current_status = (
                         primary["status"]
@@ -8468,6 +8543,37 @@ def get_trainer_workouts(trainer_id):
                         "scheduled"
                     )
 
+
+                    # =========================================
+                    # SYNC WORKOUT NAME
+                    # =========================================
+
+                    if (
+                        primary["workout_name"]
+                        !=
+                        workout_name
+                    ):
+
+                        cursor.execute("""
+                            UPDATE trainer_workout_schedule
+
+                            SET workout_name = %s
+
+                            WHERE id = %s
+
+                        """, (
+                            workout_name,
+                            primary_id
+                        ))
+
+                        primary["workout_name"] = (
+                            workout_name
+                        )
+
+
+                    # =========================================
+                    # ADD PRIMARY RECORD
+                    # =========================================
 
                     workouts.append({
 
@@ -8489,7 +8595,7 @@ def get_trainer_workouts(trainer_id):
                             ),
 
                         "workout_name":
-                            primary["workout_name"],
+                            workout_name,
 
                         "status":
                             current_status
@@ -8499,6 +8605,8 @@ def get_trainer_workouts(trainer_id):
 
                     # =========================================
                     # KEEP EXTRA RECORDS
+                    #
+                    # These may be rescheduled workouts.
                     # =========================================
 
                     for extra in records[1:]:
@@ -8538,18 +8646,72 @@ def get_trainer_workouts(trainer_id):
 
 
                 # =============================================
-                # NO RECORD
+                # NO RECORD YET
                 #
-                # IMPORTANT:
-                #
-                # DO NOTHING.
-                #
-                # NO INSERT.
+                # Create the recurring trainer record.
                 # =============================================
 
                 else:
 
-                    pass
+                    cursor.execute("""
+                        INSERT INTO
+                        trainer_workout_schedule
+                        (
+                            member_id,
+                            trainer_id,
+                            workout_date,
+                            workout_name,
+                            status
+                        )
+
+                        VALUES
+                        (
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            'scheduled'
+                        )
+
+                    """, (
+                        member_id,
+                        trainer_id,
+                        current_date,
+                        workout_name
+                    ))
+
+
+                    workout_id = (
+                        cursor.lastrowid
+                    )
+
+
+                    workouts.append({
+
+                        "id":
+                            workout_id,
+
+                        "member_id":
+                            member_id,
+
+                        "member_name":
+                            member_name,
+
+                        "trainer_id":
+                            trainer_id,
+
+                        "workout_date":
+                            current_date.strftime(
+                                "%Y-%m-%d"
+                            ),
+
+                        "workout_name":
+                            workout_name,
+
+                        "status":
+                            "scheduled"
+
+                    })
 
 
                 # =============================================
@@ -8561,6 +8723,13 @@ def get_trainer_workouts(trainer_id):
                 )
 
                 cycle_index += 1
+
+
+        # =====================================================
+        # SAVE CREATED / UPDATED RECORDS
+        # =====================================================
+
+        conn.commit()
 
 
         # =====================================================
@@ -8635,7 +8804,6 @@ def get_trainer_workouts(trainer_id):
         if conn:
 
             conn.close()
-
 
 
 # =========================================================
