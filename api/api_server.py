@@ -8768,27 +8768,6 @@ def complete_trainer_workout(workout_id):
         if conn:
             conn.close()
 
-# =========================================================
-# MARK TRAINER WORKOUT AS MISSED
-# SHIFT ENTIRE SUCCEEDING SCHEDULE BY 1 DAY
-# =========================================================
-# =========================================================
-# MARK TRAINER WORKOUT AS MISSED
-# DELETE SUCCEEDING SCHEDULE
-# REGENERATE FROM MISSED WORKOUT
-# =========================================================
-# =========================================================
-# MARK TRAINER WORKOUT AS MISSED
-# DELETE + REBUILD SUCCEEDING SCHEDULE
-# =========================================================
-# =========================================================
-# MARK TRAINER WORKOUT AS MISSED
-# AND SHIFT ENTIRE SUCCEEDING SCHEDULE
-# =========================================================
-# =========================================================
-# MARK TRAINER WORKOUT AS MISSED
-# SHIFT ALL SUCCEEDING SCHEDULE +1 DAY
-# =========================================================
 @app.route(
     "/api/trainer/workout/<int:workout_id>/missed",
     methods=["POST"]
@@ -8839,7 +8818,7 @@ def missed_trainer_workout(workout_id):
             }), 404
 
         # ==========================================
-        # CHECK STATUS
+        # ONLY SCHEDULED CAN BE MISSED
         # ==========================================
 
         if workout["status"] != "scheduled":
@@ -8852,9 +8831,17 @@ def missed_trainer_workout(workout_id):
                 )
             }), 400
 
+        # ==========================================
+        # WORKOUT DATA
+        # ==========================================
+
         member_id = workout["member_id"]
+
         trainer_id = workout["trainer_id"]
+
         missed_date = workout["workout_date"]
+
+        missed_workout_name = workout["workout_name"]
 
         # ==========================================
         # MARK CURRENT WORKOUT AS MISSED
@@ -8862,31 +8849,49 @@ def missed_trainer_workout(workout_id):
 
         cursor.execute("""
             UPDATE trainer_workout_schedule
+
             SET status = 'missed'
+
             WHERE id = %s
+
+              AND status = 'scheduled'
         """, (
             workout_id,
         ))
+
+        if cursor.rowcount == 0:
+
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Workout could not be "
+                    "marked as missed."
+                )
+            }), 400
 
         # ==========================================
         # DELETE ALL FUTURE SCHEDULE
         #
         # Example:
         #
-        # Sep 29 = MISSED
+        # Sep 29 = Lower MISSED
         #
         # DELETE:
-        # Sep 30
-        # Oct 1
-        # Oct 2
-        # Oct 3
+        # Sep 30 = Upper
+        # Oct 1  = Lower
+        # Oct 2  = Upper
         # ...
         # ==========================================
 
         cursor.execute("""
             DELETE FROM trainer_workout_schedule
+
             WHERE member_id = %s
+
               AND trainer_id = %s
+
               AND workout_date > %s
         """, (
             member_id,
@@ -8895,6 +8900,52 @@ def missed_trainer_workout(workout_id):
         ))
 
         deleted_count = cursor.rowcount
+
+        # ==========================================
+        # CREATE NEXT SCHEDULE
+        #
+        # IMPORTANT:
+        #
+        # NEXT WORKOUT = MISSED WORKOUT
+        #
+        # Example:
+        #
+        # Lower MISSED
+        #     ↓
+        # Next day = Lower
+        # ==========================================
+
+        replacement_date = (
+            missed_date
+            + timedelta(days=1)
+        )
+
+        cursor.execute("""
+            INSERT INTO trainer_workout_schedule
+            (
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                'scheduled'
+            )
+        """, (
+            member_id,
+            trainer_id,
+            replacement_date,
+            missed_workout_name
+        ))
+
+        replacement_id = cursor.lastrowid
 
         # ==========================================
         # COMMIT
@@ -8912,13 +8963,23 @@ def missed_trainer_workout(workout_id):
         )
 
         print(
-            "MISSED DATE:",
-            missed_date
+            "MISSED WORKOUT NAME:",
+            missed_workout_name
         )
 
         print(
             "FUTURE SCHEDULE DELETED:",
             deleted_count
+        )
+
+        print(
+            "REPLACEMENT ID:",
+            replacement_id
+        )
+
+        print(
+            "REPLACEMENT DATE:",
+            replacement_date
         )
 
         # ==========================================
@@ -8930,44 +8991,59 @@ def missed_trainer_workout(workout_id):
             "status": "success",
 
             "message": (
-                "Workout marked as missed "
-                "and future schedule deleted."
+                "Workout marked as missed. "
+                "Next schedule is the missed workout."
             ),
 
-            "workout": {
+            "missed_workout": {
 
                 "id":
                     workout["id"],
 
                 "member_id":
-                    workout["member_id"],
+                    member_id,
 
                 "trainer_id":
-                    workout["trainer_id"],
+                    trainer_id,
 
                 "workout_date":
                     missed_date.strftime(
                         "%Y-%m-%d"
-                    )
-                    if missed_date
-                    else None,
+                    ),
 
                 "workout_name":
-                    workout["workout_name"],
+                    missed_workout_name,
 
                 "status":
                     "missed"
-
             },
 
             "deleted_future_schedule":
-                deleted_count
+                deleted_count,
+
+            "replacement_workout": {
+
+                "id":
+                    replacement_id,
+
+                "workout_date":
+                    replacement_date.strftime(
+                        "%Y-%m-%d"
+                    ),
+
+                "workout_name":
+                    missed_workout_name,
+
+                "status":
+                    "scheduled"
+            }
 
         }), 200
 
     except Exception as e:
 
         if conn:
+
             conn.rollback()
 
         print(
@@ -8987,8 +9063,6 @@ def missed_trainer_workout(workout_id):
 
         if conn:
             conn.close()
-
-
 
 
 @app.route(
