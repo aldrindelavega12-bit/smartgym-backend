@@ -8953,10 +8953,7 @@ def missed_trainer_workout(workout_id):
 
         missed_date = workout["workout_date"]
 
-        missed_workout_name = (
-            workout["workout_name"]
-            or ""
-        ).strip()
+        missed_workout_name = workout["workout_name"]
 
 
         # ==========================================
@@ -9109,13 +9106,15 @@ def missed_trainer_workout(workout_id):
             # ======================================
             # BUILD WORKOUT NAME
             #
-            # EXACT DATABASE FORMAT:
+            # SAME FORMAT AS CURRENT SCHEDULE
             #
             # Build Muscle — Push
             # Build Muscle — Pull
             # Build Muscle — Legs
             # Build Muscle — REST
             #
+            # Also works for:
+            # Build Muscle — Chest + Back
             # ======================================
 
             day_name = (
@@ -9140,47 +9139,105 @@ def missed_trainer_workout(workout_id):
         # ==========================================
         # FIND MISSED WORKOUT POSITION
         #
-        # MATCH EXACT DATABASE FORMAT
+        # SUPPORTS:
         #
-        # Example:
-        #
-        # DB:
+        # Build Muscle — Push
         # Build Muscle — Pull
+        # Build Muscle — Legs
+        # Build Muscle — Upper
+        # Build Muscle — Lower
+        # Build Muscle — REST
         #
-        # Generated:
-        # Build Muscle — Pull
-        #
-        # MATCH = TRUE
+        # AND BODY-PART BASED WORKOUTS
         # ==========================================
 
         missed_index = None
 
-
-        normalized_missed_name = (
+        actual_name = (
             missed_workout_name
-            .strip()
-            .lower()
-        )
+            or ""
+        ).strip().lower()
 
 
         for index, day in enumerate(plan_days):
 
-            generated_name = (
+            plan_workout_name = (
                 day["workout_name"]
                 or ""
             ).strip().lower()
 
+            day_name = (
+                day["day_name"]
+                or ""
+            ).strip().lower()
 
-            if (
-                generated_name
-                ==
-                normalized_missed_name
-            ):
+
+            # ======================================
+            # 1. EXACT MATCH
+            # ======================================
+
+            if actual_name == plan_workout_name:
 
                 missed_index = index
 
                 break
 
+
+            # ======================================
+            # 2. MATCH DAY NAME
+            #
+            # Example:
+            #
+            # Build Muscle — Push
+            #                  ↓
+            #                 Push
+            #
+            # Build Muscle — Pull
+            #                  ↓
+            #                 Pull
+            # ======================================
+
+            if day_name:
+
+                if actual_name.endswith(
+                    "— " + day_name
+                ):
+
+                    missed_index = index
+
+                    break
+
+
+            # ======================================
+            # 3. MATCH PART AFTER DASH
+            #
+            # Example:
+            #
+            # Build Muscle — Push
+            #
+            # becomes:
+            #
+            # Push
+            # ======================================
+
+            if "—" in actual_name:
+
+                actual_day_name = (
+                    actual_name
+                    .split("—", 1)[1]
+                    .strip()
+                )
+
+                if actual_day_name == day_name:
+
+                    missed_index = index
+
+                    break
+
+
+        # ==========================================
+        # CHECK MATCH
+        # ==========================================
 
         if missed_index is None:
 
@@ -9195,6 +9252,8 @@ def missed_trainer_workout(workout_id):
 
         # ==========================================
         # MARK ORIGINAL AS MISSED
+        #
+        # HINDI BINAGO
         # ==========================================
 
         cursor.execute("""
@@ -9251,11 +9310,14 @@ def missed_trainer_workout(workout_id):
         # REBUILD ALL FUTURE SCHEDULE
         #
         # HINDI BINAGO ANG PROCESS
+        #
+        # Start with the MISSED workout.
         # ==========================================
 
         current_date = (
             missed_date
-            + timedelta(days=1)
+            +
+            timedelta(days=1)
         )
 
 
@@ -9374,25 +9436,36 @@ def missed_trainer_workout(workout_id):
             "MISSED WORKOUT REBUILD:"
         )
 
+
         print(
             "Workout ID:",
             workout_id
         )
+
 
         print(
             "Missed:",
             missed_workout_name
         )
 
+
         print(
-            "Missed Index:",
+            "Matched Plan Index:",
             missed_index
         )
+
+
+        print(
+            "Matched Plan Day:",
+            plan_days[missed_index]["day_name"]
+        )
+
 
         print(
             "Deleted:",
             deleted_count
         )
+
 
         print(
             "Generated:",
@@ -9432,9 +9505,6 @@ def missed_trainer_workout(workout_id):
                 "status":
                     "missed"
             },
-
-            "missed_index":
-                missed_index,
 
             "deleted_future_schedule":
                 deleted_count,
