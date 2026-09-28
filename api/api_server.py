@@ -9171,7 +9171,6 @@ def missed_trainer_workout(workout_id):
             conn.close()
 
 
-
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
     methods=["POST"]
@@ -9182,14 +9181,17 @@ def reschedule_trainer_workout(workout_id):
     cursor = None
 
     try:
+
         conn = get_connection()
+
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
 
         # =========================================================
-        # 1. GET MISSED WORKOUT
+        # GET ORIGINAL MISSED WORKOUT
         # =========================================================
+
         cursor.execute("""
             SELECT
                 id,
@@ -9201,20 +9203,25 @@ def reschedule_trainer_workout(workout_id):
             FROM trainer_workout_schedule
             WHERE id = %s
             LIMIT 1
-        """, (workout_id,))
+        """, (
+            workout_id,
+        ))
 
         workout = cursor.fetchone()
 
         if not workout:
+
             return jsonify({
                 "status": "error",
                 "message": "Workout not found."
             }), 404
 
         # =========================================================
-        # 2. MUST BE MISSED
+        # MUST BE MISSED
         # =========================================================
+
         if workout["status"] != "missed":
+
             return jsonify({
                 "status": "error",
                 "message": (
@@ -9223,24 +9230,36 @@ def reschedule_trainer_workout(workout_id):
                 )
             }), 400
 
+        # =========================================================
+        # CONVERT DATE
+        # =========================================================
+
         missed_date = workout["workout_date"]
 
         if isinstance(missed_date, str):
+
             missed_date = datetime.strptime(
                 missed_date,
                 "%Y-%m-%d"
             ).date()
 
         # =========================================================
-        # 3. EXPECTED REPLACEMENT DATE
+        # AUTOMATIC REPLACEMENT DATE
         # =========================================================
+
         replacement_date = (
-            missed_date + timedelta(days=1)
+            missed_date +
+            timedelta(days=1)
         )
 
         # =========================================================
-        # 4. CHECK IF AUTOMATIC REPLACEMENT ALREADY EXISTS
+        # FIND THE REPLACEMENT CREATED BY /MISSED
+        #
+        # IMPORTANT:
+        # DO NOT MOVE ANYTHING HERE.
+        # /MISSED ALREADY DID THE SHIFTING.
         # =========================================================
+
         cursor.execute("""
             SELECT
                 id,
@@ -9267,61 +9286,111 @@ def reschedule_trainer_workout(workout_id):
         replacement = cursor.fetchone()
 
         # =========================================================
-        # 5. AUTOMATIC RESCHEDULE ALREADY DONE
+        # REPLACEMENT ALREADY EXISTS
+        #
+        # This is the NORMAL case because /missed already
+        # automatically rescheduled it.
         # =========================================================
+
         if replacement:
 
-            if replacement["workout_date"]:
-                replacement["workout_date"] = (
-                    replacement["workout_date"]
-                    if isinstance(
-                        replacement["workout_date"],
-                        str
-                    )
-                    else replacement["workout_date"].strftime(
+            replacement_date_value = (
+                replacement["workout_date"]
+            )
+
+            if isinstance(
+                replacement_date_value,
+                str
+            ):
+
+                replacement_date_value = (
+                    datetime.strptime(
+                        replacement_date_value,
                         "%Y-%m-%d"
-                    )
+                    ).date()
                 )
 
             return jsonify({
+
                 "status": "success",
+
                 "message": (
-                    "Workout was already automatically "
-                    "rescheduled."
+                    "Workout was already "
+                    "automatically rescheduled."
                 ),
+
                 "missed_workout": {
-                    "id": workout["id"],
-                    "member_id": workout["member_id"],
-                    "trainer_id": workout["trainer_id"],
-                    "workout_date": missed_date.strftime(
-                        "%Y-%m-%d"
-                    ),
-                    "workout_name": workout["workout_name"],
-                    "status": "missed"
+
+                    "id":
+                        workout["id"],
+
+                    "member_id":
+                        workout["member_id"],
+
+                    "trainer_id":
+                        workout["trainer_id"],
+
+                    "workout_date":
+                        missed_date.strftime(
+                            "%Y-%m-%d"
+                        ),
+
+                    "workout_name":
+                        workout["workout_name"],
+
+                    "status":
+                        "missed"
+
                 },
+
                 "rescheduled_workout": {
-                    "id": replacement["id"],
-                    "member_id": replacement["member_id"],
-                    "trainer_id": replacement["trainer_id"],
-                    "workout_date": replacement["workout_date"],
-                    "workout_name": replacement["workout_name"],
-                    "status": replacement["status"]
+
+                    "id":
+                        replacement["id"],
+
+                    "member_id":
+                        replacement["member_id"],
+
+                    "trainer_id":
+                        replacement["trainer_id"],
+
+                    "workout_date":
+                        replacement_date_value.strftime(
+                            "%Y-%m-%d"
+                        ),
+
+                    "workout_name":
+                        replacement["workout_name"],
+
+                    "status":
+                        replacement["status"]
+
                 }
+
             }), 200
 
         # =========================================================
-        # 6. NO REPLACEMENT FOUND
+        # NO REPLACEMENT FOUND
+        #
+        # DO NOT CREATE ANOTHER ONE HERE.
+        # Otherwise we could duplicate the schedule.
         # =========================================================
-        conn.rollback()
 
         return jsonify({
+
             "status": "error",
+
             "message": (
-                "No automatic replacement workout "
-                "was found. The missed workout may not "
-                "have been processed by the missed endpoint."
+                "Automatic replacement workout "
+                "was not found. The missed workout "
+                "may not have been processed correctly."
             )
+
         }), 409
+
+    # =============================================================
+    # ERROR
+    # =============================================================
 
     except Exception as e:
 
@@ -9334,9 +9403,16 @@ def reschedule_trainer_workout(workout_id):
         )
 
         return jsonify({
+
             "status": "error",
+
             "message": str(e)
+
         }), 500
+
+    # =============================================================
+    # CLOSE
+    # =============================================================
 
     finally:
 
@@ -9345,6 +9421,9 @@ def reschedule_trainer_workout(workout_id):
 
         if conn:
             conn.close()
+
+
+
 
 @app.route("/api/user_accounts", methods=["GET"])
 def get_user_accounts():
