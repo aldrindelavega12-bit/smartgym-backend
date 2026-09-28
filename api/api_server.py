@@ -4446,6 +4446,7 @@ def accept_trainer_request(request_id):
         ).strip()
 
         if not trainer_id:
+
             return jsonify({
                 "status": "error",
                 "message": "Trainer ID is required."
@@ -4514,7 +4515,7 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # BASIC DATA
+        # BASIC REQUEST DATA
         # =====================================================
 
         member_id = request_row["member_id"]
@@ -4539,7 +4540,7 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # GET CURRENT ACTIVE PROGRAM
+        # GET PREVIOUS CURRENT TRAINER PROGRAM
         # =====================================================
 
         cursor.execute("""
@@ -4563,6 +4564,7 @@ def accept_trainer_request(request_id):
               )
 
             ORDER BY
+                end_date DESC,
                 id DESC
 
             LIMIT 1
@@ -4574,12 +4576,12 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # DETERMINE CHANGES
+        # DETERMINE IF PROGRAM / SPLIT CHANGED
         # =====================================================
 
         program_changed = False
+
         split_changed = False
-        trainer_changed = False
 
 
         if previous:
@@ -4589,6 +4591,7 @@ def accept_trainer_request(request_id):
             ) != str(
                 new_program_id
             ):
+
                 program_changed = True
 
 
@@ -4597,15 +4600,8 @@ def accept_trainer_request(request_id):
             ) != str(
                 new_program_plan_id
             ):
+
                 split_changed = True
-
-
-            if str(
-                previous["trainer_id"]
-            ) != str(
-                trainer_id
-            ):
-                trainer_changed = True
 
 
         program_or_split_changed = (
@@ -4645,11 +4641,6 @@ def accept_trainer_request(request_id):
         )
 
         print(
-            "NEW TRAINER:",
-            trainer_id
-        )
-
-        print(
             "OLD PROGRAM:",
             previous["program_id"]
             if previous
@@ -4681,11 +4672,6 @@ def accept_trainer_request(request_id):
         print(
             "SPLIT CHANGED:",
             split_changed
-        )
-
-        print(
-            "TRAINER CHANGED:",
-            trainer_changed
         )
 
         print(
@@ -4730,12 +4716,7 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # TRAINER RATE DURATION
-        #
-        # IMPORTANT:
-        # This is for PAYMENT / TRAINER PLAN information.
-        #
-        # It DOES NOT control workout schedule expiration.
+        # TRAINING DURATION
         # =====================================================
 
         training_duration = int(
@@ -4744,7 +4725,25 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # GET PROGRAM PLAN DAYS
+        # CALCULATE END DATE
+        #
+        # IMPORTANT:
+        # DO NOT SET THIS TO NULL
+        #
+        # trainer_trainees.end_date is NOT NULL.
+        # =====================================================
+
+        end_date = (
+            start_date
+            +
+            timedelta(
+                days=training_duration - 1
+            )
+        )
+
+
+        # =====================================================
+        # GET NEW PROGRAM SPLIT DAYS
         # =====================================================
 
         cursor.execute("""
@@ -4768,6 +4767,10 @@ def accept_trainer_request(request_id):
         plan_days = cursor.fetchall()
 
 
+        # =====================================================
+        # CHECK PLAN DAYS
+        # =====================================================
+
         if not plan_days:
 
             return jsonify({
@@ -4780,7 +4783,7 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # GET BODY PARTS
+        # GET BODY PARTS FOR EACH PLAN DAY
         # =====================================================
 
         for day in plan_days:
@@ -4805,36 +4808,58 @@ def accept_trainer_request(request_id):
 
 
             day["body_parts"] = [
+
                 row["body_part"]
+
                 for row in body_parts
+
             ]
 
 
         # =====================================================
-        # ACCEPT REQUEST
+        # DELETE OLD PROGRAM SCHEDULE
+        #
+        # ONLY WHEN PROGRAM OR SPLIT CHANGED
         # =====================================================
 
-        #
-        # IMPORTANT RULE:
-        #
-        # The trainer request is activated.
-        #
-        # The workout schedule is generated ONLY if:
-        #
-        #   1. There is NO previous program
-        #
-        # OR
-        #
-        #   2. PROGRAM changed
-        #
-        # OR
-        #
-        #   3. SPLIT changed
-        #
-        #
-        # Changing trainer ONLY does NOT regenerate
-        # the workout pattern.
-        #
+        if (
+            previous
+            and
+            program_or_split_changed
+        ):
+
+            if (
+                previous["start_date"]
+                and
+                previous["end_date"]
+            ):
+
+                cursor.execute("""
+                    DELETE FROM trainer_workout_schedule
+
+                    WHERE member_id = %s
+
+                      AND trainer_id = %s
+
+                      AND workout_date >= %s
+
+                      AND workout_date <= %s
+                """, (
+                    member_id,
+                    previous["trainer_id"],
+                    previous["start_date"],
+                    previous["end_date"]
+                ))
+
+
+                print(
+                    "OLD PROGRAM SCHEDULE DELETED:",
+                    cursor.rowcount
+                )
+
+
+        # =====================================================
+        # ACCEPT REQUEST
         # =====================================================
 
         cursor.execute("""
@@ -4843,7 +4868,7 @@ def accept_trainer_request(request_id):
             SET
                 status = 'active',
                 start_date = %s,
-                end_date = NULL
+                end_date = %s
 
             WHERE id = %s
 
@@ -4852,10 +4877,15 @@ def accept_trainer_request(request_id):
               AND status = 'pending'
         """, (
             start_date,
+            end_date,
             request_id,
             trainer_id
         ))
 
+
+        # =====================================================
+        # CHECK UPDATE
+        # =====================================================
 
         if cursor.rowcount == 0:
 
@@ -4873,7 +4903,7 @@ def accept_trainer_request(request_id):
         # =====================================================
         # DELETE OLD PROGRAM ASSIGNMENT
         #
-        # ONLY WHEN PROGRAM OR SPLIT CHANGED
+        # ONLY DELETE IF PROGRAM OR SPLIT CHANGED
         # =====================================================
 
         if (
@@ -4906,199 +4936,115 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # DELETE OLD WORKOUT SCHEDULE
-        #
-        # ONLY WHEN PROGRAM OR SPLIT CHANGED
-        #
-        # This means:
-        #
-        # SAME PROGRAM + SAME SPLIT
-        #     -> DO NOT TOUCH EXISTING SCHEDULE
-        #
-        # NEW PROGRAM / NEW SPLIT
-        #     -> CREATE NEW SCHEDULE
-        #
+        # GENERATE NEW SCHEDULE
         # =====================================================
 
-        if (
-            previous
-            and
-            program_or_split_changed
-        ):
+        current_date = start_date
 
-            cursor.execute("""
-                DELETE FROM trainer_workout_schedule
-
-                WHERE member_id = %s
-
-                  AND trainer_id = %s
-            """, (
-                member_id,
-                previous["trainer_id"]
-            ))
-
-
-            print(
-                "OLD WORKOUT SCHEDULE DELETED:",
-                cursor.rowcount
-            )
-
-
-        # =====================================================
-        # GENERATE INITIAL / NEW PROGRAM SCHEDULE
-        #
-        # IMPORTANT:
-        #
-        # NO END DATE.
-        #
-        # The schedule follows the plan continuously.
-        #
-        # We generate a rolling schedule instead of stopping
-        # at the trainer payment duration.
-        #
-        # =====================================================
-
-        should_generate_schedule = (
-            previous is None
-            or
-            program_or_split_changed
-        )
-
+        cycle_index = 0
 
         generated_count = 0
 
 
-        if should_generate_schedule:
+        while current_date <= end_date:
 
             # =================================================
-            # INITIAL GENERATION WINDOW
-            #
-            # 365 DAYS OF SCHEDULE
-            #
-            # The plan itself has NO EXPIRATION.
-            #
-            # This is simply the stored schedule window.
+            # GET PLAN DAY
             # =================================================
 
-            schedule_days = 365
-
-            current_date = start_date
-
-            cycle_index = 0
-
-
-            while cycle_index < schedule_days:
-
-                # =============================================
-                # GET CURRENT PLAN DAY
-                # =============================================
-
-                day = plan_days[
-                    cycle_index
-                    %
-                    len(plan_days)
-                ]
+            day = plan_days[
+                cycle_index
+                %
+                len(plan_days)
+            ]
 
 
-                # =============================================
-                # DAY NAME
-                # =============================================
+            # =================================================
+            # DAY NAME
+            # =================================================
 
-                day_name = (
-                    day["day_name"]
-                    or
-                    ""
-                ).strip()
-
-
-                # =============================================
-                # REST
-                # =============================================
-
-                if day_name.lower() == "rest":
-
-                    workout_name = "Rest"
+            day_name = (
+                day["day_name"]
+                or
+                ""
+            ).strip()
 
 
-                # =============================================
-                # BODY PARTS
-                # =============================================
+            # =================================================
+            # REST DAY
+            # =================================================
 
-                elif day["body_parts"]:
+            if day_name.lower() == "rest":
 
-                    workout_name = ", ".join(
-                        day["body_parts"]
-                    )
+                workout_name = "Rest"
 
 
-                # =============================================
-                # FALLBACK
-                # =============================================
+            # =================================================
+            # BODY PARTS
+            # =================================================
 
-                else:
+            elif day["body_parts"]:
 
-                    workout_name = (
-                        day_name
-                        or
-                        "Workout"
-                    )
-
-
-                # =============================================
-                # INSERT
-                # =============================================
-
-                cursor.execute("""
-                    INSERT INTO trainer_workout_schedule
-                    (
-                        member_id,
-                        trainer_id,
-                        workout_date,
-                        workout_name,
-                        status
-                    )
-
-                    VALUES
-                    (
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        'scheduled'
-                    )
-                """, (
-                    member_id,
-                    trainer_id,
-                    current_date,
-                    workout_name
-                ))
-
-
-                generated_count += 1
-
-
-                # =============================================
-                # NEXT DAY
-                # =============================================
-
-                current_date += timedelta(
-                    days=1
+                workout_name = ", ".join(
+                    day["body_parts"]
                 )
 
-                cycle_index += 1
+
+            # =================================================
+            # FALLBACK
+            # =================================================
+
+            else:
+
+                workout_name = (
+                    day_name
+                    or
+                    "Workout"
+                )
 
 
-        # =====================================================
-        # SAME PROGRAM / SAME SPLIT
-        #
-        # DO NOT REGENERATE SCHEDULE
-        # =====================================================
+            # =================================================
+            # INSERT NEW SCHEDULE
+            # =================================================
 
-        else:
+            cursor.execute("""
+                INSERT INTO trainer_workout_schedule
+                (
+                    member_id,
+                    trainer_id,
+                    workout_date,
+                    workout_name,
+                    status
+                )
 
-            print(
-                "EXISTING WORKOUT SCHEDULE PRESERVED"
+                VALUES
+                (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    'scheduled'
+                )
+            """, (
+                member_id,
+                trainer_id,
+                current_date,
+                workout_name
+            ))
+
+
+            generated_count += 1
+
+
+            # =================================================
+            # NEXT DATE
+            # =================================================
+
+            current_date += timedelta(
+                days=1
             )
+
+            cycle_index += 1
 
 
         # =====================================================
@@ -5109,7 +5055,7 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
-        # SUCCESS
+        # SUCCESS RESPONSE
         # =====================================================
 
         return jsonify({
@@ -5119,7 +5065,8 @@ def accept_trainer_request(request_id):
 
             "message":
                 (
-                    "Trainer request accepted."
+                    "Trainer request accepted "
+                    "and schedule generated."
                 ),
 
             "request_id":
@@ -5143,22 +5090,8 @@ def accept_trainer_request(request_id):
             "split_changed":
                 split_changed,
 
-            "trainer_changed":
-                trainer_changed,
-
-            "schedule_generated":
-                should_generate_schedule,
-
-            "generated_schedule_count":
-                generated_count,
-
-            "start_date":
-                start_date.strftime(
-                    "%Y-%m-%d"
-                ),
-
-            "end_date":
-                None,
+            "schedule_rebuilt":
+                program_or_split_changed,
 
             "trainer_rate": {
 
@@ -5179,7 +5112,20 @@ def accept_trainer_request(request_id):
                         if trainer_rate["price"] is not None
                         else None
                     )
-            }
+            },
+
+            "start_date":
+                start_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "end_date":
+                end_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "generated_schedule_count":
+                generated_count
 
         }), 200
 
@@ -5225,7 +5171,6 @@ def accept_trainer_request(request_id):
         if conn:
 
             conn.close()
-
 
 @app.route(
     "/api/member/program/renew",
