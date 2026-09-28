@@ -8093,7 +8093,6 @@ def pending_members():
         cursor.close()
         conn.close()
         
-
 @app.route(
     "/api/trainer/workouts/<trainer_id>",
     methods=["GET"]
