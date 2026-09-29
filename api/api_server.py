@@ -4565,6 +4565,7 @@ def accept_trainer_request(request_id):
                 id DESC
 
             LIMIT 1
+
         """, (
             member_id,
         ))
@@ -4697,6 +4698,7 @@ def accept_trainer_request(request_id):
             WHERE id = %s
 
             LIMIT 1
+
         """, (
             plan_id,
         ))
@@ -4727,8 +4729,6 @@ def accept_trainer_request(request_id):
 
         # =====================================================
         # TRAINER PAYMENT END DATE
-        #
-        # KEEP THIS AS THE REAL TRAINER PAYMENT END DATE.
         # =====================================================
 
         end_date = (
@@ -4744,15 +4744,6 @@ def accept_trainer_request(request_id):
         # WORKOUT SCHEDULE END DATE
         #
         # 365 DAYS TOTAL
-        #
-        # Example:
-        #
-        # start_date = 2026-10-01
-        #
-        # schedule_end_date = 2027-09-30
-        #
-        # IMPORTANT:
-        # DO NOT USE trainer payment end_date HERE.
         # =====================================================
 
         schedule_end_date = (
@@ -4805,6 +4796,8 @@ def accept_trainer_request(request_id):
 
         # =====================================================
         # GET BODY PARTS FOR EACH PLAN DAY
+        #
+        # KEEP THIS BECAUSE OTHER PROCESS MAY USE IT.
         # =====================================================
 
         for day in plan_days:
@@ -4842,11 +4835,6 @@ def accept_trainer_request(request_id):
         # DELETE OLD PROGRAM SCHEDULE
         #
         # ONLY WHEN PROGRAM OR SPLIT CHANGED
-        #
-        # IMPORTANT:
-        # Delete the old workout schedule based on the
-        # previous workout's 1-year span, NOT its trainer
-        # payment end_date.
         # =====================================================
 
         if (
@@ -4862,6 +4850,7 @@ def accept_trainer_request(request_id):
                     +
                     timedelta(days=364)
                 )
+
 
                 cursor.execute("""
                     DELETE FROM trainer_workout_schedule
@@ -5007,36 +4996,16 @@ def accept_trainer_request(request_id):
 
 
             # =================================================
-            # REST DAY
+            # BUILD WORKOUT NAME
+            #
+            # USE PLAN DAY NAME
             # =================================================
 
-            if day_name.lower() == "rest":
-
-                workout_name = "Rest"
-
-
-            # =================================================
-            # BODY PARTS
-            # =================================================
-
-            elif day["body_parts"]:
-
-                workout_name = ", ".join(
-                    day["body_parts"]
-                )
-
-
-            # =================================================
-            # FALLBACK
-            # =================================================
-
-            else:
-
-                workout_name = (
-                    day_name
-                    or
-                    "Workout"
-                )
+            workout_name = (
+                day_name
+                or
+                "Workout"
+            )
 
 
             # =================================================
@@ -5212,9 +5181,11 @@ def accept_trainer_request(request_id):
 
             cursor.close()
 
+
         if conn:
 
             conn.close()
+
 
 
 # =========================================================
