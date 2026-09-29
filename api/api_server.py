@@ -5191,6 +5191,16 @@ def accept_trainer_request(request_id):
 # =========================================================
 # RENEW MEMBER PROGRAM
 # =========================================================
+# =========================================================
+# RENEW MEMBER PROGRAM
+# MEMBER REQUESTS TRAINER RENEWAL
+#
+# IMPORTANT:
+# - DOES NOT RENEW IMMEDIATELY
+# - CREATES PENDING REQUEST
+# - TRAINER MUST ACCEPT FIRST
+# =========================================================
+
 @app.route(
     "/api/member/program/renew",
     methods=["POST"]
@@ -5247,7 +5257,37 @@ def renew_member_program():
 
 
         # =====================================================
-        # GET CURRENT TRAINER PROGRAM
+        # CHECK EXISTING PENDING REQUEST
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id
+            FROM trainer_trainees
+            WHERE member_id = %s
+              AND status = 'pending'
+            ORDER BY
+                created_at DESC,
+                id DESC
+            LIMIT 1
+        """, (
+            member_id,
+        ))
+
+        pending = cursor.fetchone()
+
+
+        if pending:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "You already have a pending program or trainer request."
+            }), 409
+
+
+        # =====================================================
+        # GET CURRENT ACTIVE TRAINER ASSIGNMENT
         # =====================================================
 
         cursor.execute("""
@@ -5265,13 +5305,13 @@ def renew_member_program():
             FROM trainer_trainees
 
             WHERE member_id = %s
+              AND status = 'active'
 
             ORDER BY
-                end_date DESC,
+                created_at DESC,
                 id DESC
 
             LIMIT 1
-
         """, (
             member_id,
         ))
@@ -5280,225 +5320,23 @@ def renew_member_program():
 
 
         # =====================================================
-        # NO TRAINER ASSIGNMENT
+        # NO ACTIVE TRAINER
         # =====================================================
 
         if not current:
 
             return jsonify({
                 "status": "error",
-                "message": "No trainer assignment found."
+                "message":
+                    "No active trainer assignment found."
             }), 404
 
 
-        # =====================================================
-        # CHECK END DATE
-        # =====================================================
-
-        if not current["end_date"]:
-
-            return jsonify({
-                "status": "error",
-                "message": (
-                    "Current trainer rate "
-                    "end date is missing."
-                )
-            }), 400
-
-
-        # =====================================================
-        # NORMALIZE START DATE
-        # =====================================================
-
-        if current["start_date"]:
-
-            if hasattr(
-                current["start_date"],
-                "date"
-            ):
-
-                original_start_date = (
-                    current["start_date"].date()
-                )
-
-            else:
-
-                original_start_date = (
-                    date.fromisoformat(
-                        str(
-                            current["start_date"]
-                        ).split(" ")[0]
-                    )
-                )
-
-        else:
-
-            original_start_date = None
-
-
-        # =====================================================
-        # NORMALIZE END DATE
-        # =====================================================
-
-        if hasattr(
-            current["end_date"],
-            "date"
-        ):
-
-            old_end_date = (
-                current["end_date"].date()
-            )
-
-        else:
-
-            old_end_date = (
-                date.fromisoformat(
-                    str(
-                        current["end_date"]
-                    ).split(" ")[0]
-                )
-            )
-
-
-        # =====================================================
-        # PHILIPPINE DATE
-        #
-        # Do not depend on Render/server timezone.
-        # =====================================================
-
-        from datetime import datetime, timezone
-        from zoneinfo import ZoneInfo
-
-        philippines_now = (
-            datetime.now(
-                timezone.utc
-            ).astimezone(
-                ZoneInfo("Asia/Manila")
-            )
-        )
-
-        today = (
-            philippines_now.date()
-        )
-
-
-        # =====================================================
-        # CALCULATE DAYS REMAINING
-        #
-        # Example:
-        #
-        # Today       = Sep 26
-        # Valid Until = Sep 29
-        #
-        # Result = 3
-        #
-        # 3 days or less = ALLOWED
-        # More than 3    = BLOCKED
-        # =====================================================
-
-        days_remaining = (
-            old_end_date - today
-        ).days
-
-
-        # =====================================================
-        # DEBUG
-        # =====================================================
-
-        print(
-            "========================================"
-        )
-
-        print(
-            "RENEW MEMBER PROGRAM"
-        )
-
-        print(
-            "Member ID:",
-            member_id
-        )
-
-        print(
-            "Philippine Date:",
-            today
-        )
-
-        print(
-            "Current Start Date:",
-            original_start_date
-        )
-
-        print(
-            "Current End Date:",
-            old_end_date
-        )
-
-        print(
-            "Days Remaining:",
-            days_remaining
-        )
-
-        print(
-            "Current Program ID:",
-            current["program_id"]
-        )
-
-        print(
-            "Current Program Plan ID:",
-            current["program_plan_id"]
-        )
-
-        print(
-            "Current Trainer Rate ID:",
-            current["plan_id"]
-        )
-
-        print(
-            "Selected Trainer Rate ID:",
-            plan_id
-        )
-
-        print(
-            "========================================"
-        )
-
-
-        # =====================================================
-        # RENEWAL ELIGIBILITY
-        #
-        # MORE THAN 3 DAYS = BLOCK
-        #
-        # 3 DAYS = ALLOW
-        # 2 DAYS = ALLOW
-        # 1 DAY  = ALLOW
-        # 0 DAY  = ALLOW
-        # EXPIRED = ALLOW
-        # =====================================================
-
-        if days_remaining > 3:
-
-            return jsonify({
-
-                "status":
-                    "error",
-
-                "message":
-                    (
-                        "You can only renew "
-                        "your trainer rate "
-                        "when 3 days or less remain."
-                    ),
-
-                "days_remaining":
-                    days_remaining
-
-            }), 400
+        trainer_id = current["trainer_id"]
 
 
         # =====================================================
         # GET SELECTED TRAINER RATE
-        #
-        # The trainer must remain the same.
         # =====================================================
 
         cursor.execute("""
@@ -5507,21 +5345,19 @@ def renew_member_program():
                 trainer_id,
                 plan_name,
                 duration_days,
-                price
+                price,
+                active
 
             FROM trainer_plans
 
             WHERE id = %s
-
               AND trainer_id = %s
-
               AND active = 1
 
             LIMIT 1
-
         """, (
             plan_id,
-            current["trainer_id"]
+            trainer_id
         ))
 
         rate = cursor.fetchone()
@@ -5535,25 +5371,55 @@ def renew_member_program():
 
             return jsonify({
                 "status": "error",
-                "message": (
-                    "Selected trainer rate "
-                    "not found."
-                )
+                "message":
+                    "Selected trainer rate not found."
             }), 404
 
 
         # =====================================================
-        # CALCULATE NEW VALID UNTIL
+        # CURRENT VALIDITY
         #
-        # START DATE DOES NOT CHANGE.
+        # We only use this to determine the requested
+        # renewal validity.
         #
-        # ONLY THE EXISTING END DATE IS EXTENDED.
+        # We DO NOT modify the active record here.
         # =====================================================
 
-        new_end_date = (
+        old_end_date = current["end_date"]
+
+
+        if hasattr(
+            old_end_date,
+            "date"
+        ):
+
+            old_end_date = (
+                old_end_date.date()
+            )
+
+
+        if not old_end_date:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "Current trainer rate end date is missing."
+            }), 400
+
+
+        # =====================================================
+        # CALCULATE REQUESTED RENEWAL DATES
+        # =====================================================
+
+        requested_start_date = (
             old_end_date
-            +
-            timedelta(
+            + timedelta(days=1)
+        )
+
+
+        requested_end_date = (
+            old_end_date
+            + timedelta(
                 days=int(
                     rate["duration_days"]
                 )
@@ -5562,79 +5428,163 @@ def renew_member_program():
 
 
         # =====================================================
-        # IMPORTANT:
-        #
-        # NO NEW WORKOUT SCHEDULE IS GENERATED HERE.
-        #
-        # Existing trainer_workout_schedule records
-        # remain exactly as they are.
-        #
-        # Renewal only extends trainer fee validity.
-        # =====================================================
-
-
-        # =====================================================
-        # UPDATE TRAINER TRAINEE
-        #
-        # DO NOT TOUCH:
-        # - start_date
-        # - program_id
-        # - program_plan_id
-        # - trainer_id
-        #
-        # ONLY CHANGE:
-        # - plan_id
-        # - end_date
-        # - status
+        # INSERT PENDING RENEWAL REQUEST
         # =====================================================
 
         cursor.execute("""
-            UPDATE trainer_trainees
+            INSERT INTO trainer_trainees
+            (
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status,
+                request_type
+            )
 
-            SET
-                plan_id = %s,
-                end_date = %s,
-                status = 'active'
-
-            WHERE id = %s
-
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                'pending',
+                'renewal'
+            )
         """, (
+
+            trainer_id,
+
+            member_id,
+
+            current["program_id"],
+
+            current["program_plan_id"],
+
             rate["id"],
-            new_end_date,
-            current["id"]
+
+            requested_start_date,
+
+            requested_end_date
+
         ))
 
 
+        request_id = cursor.lastrowid
+
+
         # =====================================================
-        # CHECK IF UPDATE ACTUALLY HAPPENED
+        # GET MEMBER NAME
         # =====================================================
 
-        if cursor.rowcount == 0:
+        cursor.execute("""
+            SELECT
+                id,
+                full_name
+
+            FROM members
+
+            WHERE id = %s
+
+            LIMIT 1
+        """, (
+            member_id,
+        ))
+
+        member = cursor.fetchone()
+
+
+        if not member:
 
             conn.rollback()
 
             return jsonify({
                 "status": "error",
-                "message": (
-                    "Trainer renewal "
-                    "could not be updated."
-                )
-            }), 400
+                "message": "Member not found."
+            }), 404
+
+
+        # =====================================================
+        # CREATE MESSAGE FOR TRAINER
+        # =====================================================
+
+        cursor.execute("""
+            INSERT INTO messages
+            (
+                user_id,
+                sender_id,
+                sender_name,
+                sender_role,
+                title,
+                message,
+                reason,
+                receiver_role,
+                is_read
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                0
+            )
+        """, (
+
+            # RECEIVER = TRAINER
+            trainer_id,
+
+            # SENDER = MEMBER
+            member_id,
+
+            # MEMBER NAME
+            member["full_name"],
+
+            # SENDER ROLE
+            "member",
+
+            # TITLE
+            "TRAINER RENEWAL REQUEST",
+
+            # MESSAGE
+            (
+                f"{member['full_name']} "
+                f"requested to renew their trainer "
+                f"rate with you."
+            ),
+
+            # REASON
+            (
+                f"Trainer renewal request - "
+                f"{rate['plan_name']}"
+            ),
+
+            # RECEIVER ROLE
+            "trainer"
+
+        ))
 
 
         # =====================================================
         # COMMIT
-        #
-        # ONLY trainer_trainees was changed.
-        #
-        # trainer_workout_schedule was NOT changed.
         # =====================================================
 
         conn.commit()
 
 
         # =====================================================
-        # SUCCESS RESPONSE
+        # SUCCESS
         # =====================================================
 
         return jsonify({
@@ -5643,70 +5593,50 @@ def renew_member_program():
                 "success",
 
             "message":
-                "Trainer rate renewed successfully.",
+                (
+                    "Trainer renewal request "
+                    "submitted successfully."
+                ),
 
-            "training_id":
-                current["id"],
+            "request_id":
+                request_id,
 
             "member_id":
                 member_id,
 
             "trainer_id":
-                current["trainer_id"],
+                trainer_id,
 
-            "program_id":
-                current["program_id"],
+            "plan_id":
+                rate["id"],
 
-            "program_plan_id":
-                current["program_plan_id"],
+            "plan_name":
+                rate["plan_name"],
 
-            "start_date":
+            "price":
                 (
-                    original_start_date.strftime(
-                        "%Y-%m-%d"
-                    )
-                    if original_start_date
+                    float(rate["price"])
+                    if rate["price"] is not None
                     else None
                 ),
 
-            "end_date":
-                new_end_date.strftime(
+            "start_date":
+                requested_start_date.strftime(
                     "%Y-%m-%d"
                 ),
 
-            "days_remaining_before_renewal":
-                days_remaining,
+            "end_date":
+                requested_end_date.strftime(
+                    "%Y-%m-%d"
+                ),
 
-            "trainer_rate": {
+            "status":
+                "pending",
 
-                "id":
-                    rate["id"],
+            "request_type":
+                "renewal"
 
-                "name":
-                    rate["plan_name"],
-
-                "duration_days":
-                    int(
-                        rate["duration_days"]
-                    ),
-
-                "price":
-                    (
-                        float(
-                            rate["price"]
-                        )
-                        if rate["price"] is not None
-                        else None
-                    )
-            },
-
-            "schedule_updated":
-                False,
-
-            "generated_schedule_count":
-                0
-
-        }), 200
+        }), 201
 
 
     # =========================================================
@@ -5738,15 +5668,17 @@ def renew_member_program():
 
 
     # =========================================================
-    # CLOSE DATABASE
+    # CLOSE
     # =========================================================
 
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
+
             conn.close()
 
 # =========================================================
