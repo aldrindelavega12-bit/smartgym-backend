@@ -4305,6 +4305,7 @@ def get_trainer_requests(trainer_id):
                 tt.end_date,
 
                 tt.status,
+                tt.request_type,
                 tt.created_at
 
             FROM trainer_trainees tt
