@@ -8933,6 +8933,7 @@ def missed_trainer_workout(workout_id):
         trainer_id = workout["trainer_id"]
 
         missed_date = workout["workout_date"]
+        missed_workout_name = workout["workout_name"]
 
 
         # ==========================================
