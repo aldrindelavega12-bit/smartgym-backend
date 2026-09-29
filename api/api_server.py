@@ -8976,6 +8976,38 @@ def missed_trainer_workout(workout_id):
 
 
         deleted_count = cursor.rowcount
+        
+        # ==========================================
+        # GENERATE NEXT DAY ONLY
+        # ==========================================
+
+        next_date = missed_date + timedelta(days=1)
+
+        cursor.execute("""
+            INSERT INTO trainer_workout_schedule
+            (
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+            )
+
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                'scheduled'
+            )
+
+        """, (
+            member_id,
+            trainer_id,
+            next_date,
+            workout["workout_name"]
+        ))
 
 
         # ==========================================
