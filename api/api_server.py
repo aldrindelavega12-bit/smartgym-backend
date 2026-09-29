@@ -8828,6 +8828,7 @@ def complete_trainer_workout(workout_id):
         if conn:
             conn.close()
 
+         
 @app.route(
     "/api/trainer/workout/<int:workout_id>/missed",
     methods=["POST"]
@@ -8872,6 +8873,7 @@ def missed_trainer_workout(workout_id):
         """, (
             workout_id,
         ))
+
 
         workout = cursor.fetchone()
 
@@ -8920,7 +8922,10 @@ def missed_trainer_workout(workout_id):
         # NORMALIZE DATE
         # ==========================================
 
-        if isinstance(missed_date, str):
+        if isinstance(
+            missed_date,
+            str
+        ):
 
             missed_date = datetime.strptime(
                 missed_date,
@@ -8935,7 +8940,8 @@ def missed_trainer_workout(workout_id):
         cursor.execute("""
             UPDATE trainer_workout_schedule
 
-            SET status = 'missed'
+            SET
+                status = 'missed'
 
             WHERE id = %s
 
@@ -8989,49 +8995,9 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
-        # GENERATE NEXT DAY ONLY
+        # NO GENERATION YET
         #
-        # USE EXACT MISSED WORKOUT NAME
-        # ==========================================
-
-        next_date = (
-            missed_date
-            + timedelta(days=1)
-        )
-
-
-        cursor.execute("""
-            INSERT INTO trainer_workout_schedule
-            (
-                member_id,
-                trainer_id,
-                workout_date,
-                workout_name,
-                status
-            )
-
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                'scheduled'
-            )
-
-        """, (
-            member_id,
-            trainer_id,
-            next_date,
-            missed_workout_name
-        ))
-
-
-        generated_id = cursor.lastrowid
-
-
-        # ==========================================
-        # COMMIT
+        # ONLY MARK MISSED + DELETE FUTURE
         # ==========================================
 
         conn.commit()
@@ -9075,16 +9041,6 @@ def missed_trainer_workout(workout_id):
             deleted_count
         )
 
-        print(
-            "Generated Next Day:",
-            next_date
-        )
-
-        print(
-            "Generated Workout ID:",
-            generated_id
-        )
-
 
         # ==========================================
         # RESPONSE
@@ -9097,9 +9053,9 @@ def missed_trainer_workout(workout_id):
 
             "message":
                 (
-                    "Workout marked as missed, "
-                    "future schedules deleted, "
-                    "and one next-day workout generated."
+                    "Workout marked as missed "
+                    "and all future schedules "
+                    "were deleted."
                 ),
 
             "missed_workout": {
@@ -9117,27 +9073,11 @@ def missed_trainer_workout(workout_id):
 
                 "status":
                     "missed"
+
             },
 
             "deleted_future_schedule":
-                deleted_count,
-
-            "generated_workout": {
-
-                "id":
-                    generated_id,
-
-                "workout_date":
-                    next_date.strftime(
-                        "%Y-%m-%d"
-                    ),
-
-                "workout_name":
-                    missed_workout_name,
-
-                "status":
-                    "scheduled"
-            }
+                deleted_count
 
         }), 200
 
@@ -9160,13 +9100,8 @@ def missed_trainer_workout(workout_id):
 
 
         return jsonify({
-
-            "status":
-                "error",
-
-            "message":
-                str(e)
-
+            "status": "error",
+            "message": str(e)
         }), 500
 
 
@@ -9180,11 +9115,10 @@ def missed_trainer_workout(workout_id):
 
             cursor.close()
 
+
         if conn:
 
-            conn.close()
-            
-            
+            conn.close()            
             
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
