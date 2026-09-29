@@ -8872,7 +8872,7 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
-        # GET CURRENT WORKOUT
+        # GET WORKOUT
         # ==========================================
 
         cursor.execute("""
@@ -8910,7 +8910,7 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
-        # MUST BE SCHEDULED
+        # CHECK STATUS
         # ==========================================
 
         if workout["status"] != "scheduled":
@@ -8925,7 +8925,7 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
-        # GET DATA
+        # GET WORKOUT DATA
         # ==========================================
 
         member_id = workout["member_id"]
@@ -8933,7 +8933,20 @@ def missed_trainer_workout(workout_id):
         trainer_id = workout["trainer_id"]
 
         missed_date = workout["workout_date"]
+
         missed_workout_name = workout["workout_name"]
+
+
+        # ==========================================
+        # NORMALIZE DATE
+        # ==========================================
+
+        if isinstance(missed_date, str):
+
+            missed_date = datetime.strptime(
+                missed_date,
+                "%Y-%m-%d"
+            ).date()
 
 
         # ==========================================
@@ -8955,9 +8968,26 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
+        # CHECK UPDATE
+        # ==========================================
+
+        if cursor.rowcount == 0:
+
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Workout could not be "
+                    "marked as missed."
+                )
+            }), 400
+
+
+        # ==========================================
         # DELETE ALL FUTURE SCHEDULE
         #
-        # KEEP CURRENT MISSED WORKOUT
+        # CURRENT MISSED WORKOUT IS PRESERVED
         # ==========================================
 
         cursor.execute("""
@@ -8977,13 +9007,19 @@ def missed_trainer_workout(workout_id):
 
 
         deleted_count = cursor.rowcount
-        
+
 
         # ==========================================
         # GENERATE NEXT DAY ONLY
+        #
+        # USE EXACT MISSED WORKOUT NAME
         # ==========================================
 
-        next_date = missed_date + timedelta(days=1)
+        next_date = (
+            missed_date
+            + timedelta(days=1)
+        )
+
 
         cursor.execute("""
             INSERT INTO trainer_workout_schedule
@@ -9012,6 +9048,9 @@ def missed_trainer_workout(workout_id):
         ))
 
 
+        generated_id = cursor.lastrowid
+
+
         # ==========================================
         # COMMIT
         # ==========================================
@@ -9020,43 +9059,131 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
+        # LOG
+        # ==========================================
+
+        print(
+            "MISSED WORKOUT:"
+        )
+
+        print(
+            "Workout ID:",
+            workout_id
+        )
+
+        print(
+            "Member ID:",
+            member_id
+        )
+
+        print(
+            "Trainer ID:",
+            trainer_id
+        )
+
+        print(
+            "Workout Date:",
+            missed_date
+        )
+
+        print(
+            "Workout Name:",
+            missed_workout_name
+        )
+
+        print(
+            "Deleted Future Schedule:",
+            deleted_count
+        )
+
+        print(
+            "Generated Next Day:",
+            next_date
+        )
+
+        print(
+            "Generated Workout ID:",
+            generated_id
+        )
+
+
+        # ==========================================
         # RESPONSE
-        #
-        # NO GENERATION
         # ==========================================
 
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
-            "message": (
-                "Workout marked as missed "
-                "and future schedules deleted."
-            ),
+            "message":
+                (
+                    "Workout marked as missed, "
+                    "future schedules deleted, "
+                    "and one next-day workout generated."
+                ),
 
-            "workout_id": workout_id,
+            "missed_workout": {
+
+                "id":
+                    workout_id,
+
+                "workout_date":
+                    missed_date.strftime(
+                        "%Y-%m-%d"
+                    ),
+
+                "workout_name":
+                    missed_workout_name,
+
+                "status":
+                    "missed"
+            },
 
             "deleted_future_schedule":
-                deleted_count
+                deleted_count,
+
+            "generated_workout": {
+
+                "id":
+                    generated_id,
+
+                "workout_date":
+                    next_date.strftime(
+                        "%Y-%m-%d"
+                    ),
+
+                "workout_name":
+                    missed_workout_name,
+
+                "status":
+                    "scheduled"
+            }
 
         }), 200
 
 
+    # ==========================================
+    # ERROR
+    # ==========================================
+
     except Exception as e:
 
         if conn:
+
             conn.rollback()
 
 
         print(
-            "MISSED WORKOUT ERROR:",
+            "MISSED TRAINER WORKOUT ERROR:",
             e
         )
 
 
         return jsonify({
 
-            "status": "error",
+            "status":
+                "error",
 
             "message":
                 str(e)
@@ -9064,15 +9191,22 @@ def missed_trainer_workout(workout_id):
         }), 500
 
 
+    # ==========================================
+    # CLOSE
+    # ==========================================
+
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
+
             conn.close()
-
-
+            
+            
+            
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
     methods=["POST"]
