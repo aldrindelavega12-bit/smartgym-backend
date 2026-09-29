@@ -8800,11 +8800,6 @@ def complete_trainer_workout(workout_id):
             conn.close()
 
          
-# =========================================================
-# MARK TRAINER WORKOUT AS MISSED
-# DELETE FUTURE SCHEDULE
-# REGENERATE FROM MISSED WORKOUT
-# =========================================================
 @app.route(
     "/api/trainer/workout/<int:workout_id>/missed",
     methods=["POST"]
@@ -8946,13 +8941,13 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
-        # DELETE ALL FUTURE SCHEDULE
-        #
-        # KEEP THE MISSED WORKOUT
+        # SHIFT ALL FUTURE SCHEDULES BY +1 DAY
         # ==========================================
 
         cursor.execute("""
-            DELETE FROM trainer_workout_schedule
+            UPDATE trainer_workout_schedule
+
+            SET workout_date = DATE_ADD(workout_date, INTERVAL 1 DAY)
 
             WHERE member_id = %s
 
@@ -8966,7 +8961,7 @@ def missed_trainer_workout(workout_id):
         ))
 
 
-        deleted_count = cursor.rowcount
+        shifted_count = cursor.rowcount
 
 
         # ==========================================
@@ -9055,8 +9050,8 @@ def missed_trainer_workout(workout_id):
         )
 
         print(
-            "Deleted Future:",
-            deleted_count
+            "Shifted Future Count:",
+            shifted_count
         )
 
         print(
@@ -9081,7 +9076,7 @@ def missed_trainer_workout(workout_id):
             "message":
                 (
                     "Workout marked as missed, "
-                    "future schedules deleted, "
+                    "future schedules shifted by 1 day, "
                     "and the missed workout was "
                     "inserted for the next day."
                 ),
@@ -9104,8 +9099,8 @@ def missed_trainer_workout(workout_id):
 
             },
 
-            "deleted_future_schedule":
-                deleted_count,
+            "shifted_future_schedule":
+                shifted_count,
 
             "new_workout": {
 
@@ -9164,8 +9159,6 @@ def missed_trainer_workout(workout_id):
         if conn:
 
             conn.close()
-
-
             
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
