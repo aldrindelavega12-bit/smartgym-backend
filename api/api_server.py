@@ -8977,6 +8977,7 @@ def missed_trainer_workout(workout_id):
 
         deleted_count = cursor.rowcount
         
+
         # ==========================================
         # GENERATE NEXT DAY ONLY
         # ==========================================
@@ -9006,7 +9007,7 @@ def missed_trainer_workout(workout_id):
             member_id,
             trainer_id,
             next_date,
-            workout["workout_name"]
+            missed_workout_name
         ))
 
 
