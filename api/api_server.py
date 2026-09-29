@@ -8465,27 +8465,12 @@ def get_trainer_workouts(trainer_id):
                     # SYNC WORKOUT NAME
                     # =========================================
 
-                    if (
+                    workout_name = (
                         primary["workout_name"]
-                        !=
+                        or
                         workout_name
-                    ):
+                    )
 
-                        cursor.execute("""
-                            UPDATE trainer_workout_schedule
-
-                            SET workout_name = %s
-
-                            WHERE id = %s
-
-                        """, (
-                            workout_name,
-                            primary_id
-                        ))
-
-                        primary["workout_name"] = (
-                            workout_name
-                        )
 
 
                     # =========================================
