@@ -4679,7 +4679,7 @@ def accept_trainer_request(request_id):
             # =================================================
 
             cursor.execute("""
-                UPDATE trainer_trainees
+                DELETE trainer_trainees
 
                 WHERE id = %s
                   AND trainer_id = %s
