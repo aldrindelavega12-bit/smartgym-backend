@@ -4428,7 +4428,6 @@ def get_trainer_requests(trainer_id):
 # =========================================================
 # ACCEPT TRAINER REQUEST
 # =========================================================
-
 @app.route(
     "/api/trainer/request/<int:request_id>/accept",
     methods=["POST"]
@@ -4712,6 +4711,47 @@ def accept_trainer_request(request_id):
                         "be removed."
                     )
                 }), 400
+
+
+            # =================================================
+            # SEND ACCEPTANCE MESSAGE TO MEMBER
+            #
+            # ADDED ONLY
+            # =================================================
+
+            cursor.execute("""
+                INSERT INTO messages
+                (
+                    user_id,
+                    sender_id,
+                    sender_name,
+                    sender_role,
+                    title,
+                    message,
+                    reason,
+                    is_read,
+                    created_at
+                )
+                VALUES
+                (
+                    %s,
+                    %s,
+                    %s,
+                    'trainer',
+                    %s,
+                    %s,
+                    %s,
+                    0,
+                    NOW()
+                )
+            """, (
+                member_id,
+                trainer_id,
+                "Trainer",
+                "Trainer Renewal Accepted",
+                "Your trainer renewal request has been accepted by your trainer.",
+                "renewal"
+            ))
 
 
             # =================================================
@@ -5329,6 +5369,74 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
+        # SEND ACCEPTANCE MESSAGE TO MEMBER
+        #
+        # ADDED ONLY
+        # =====================================================
+
+        if request_type == "program_change":
+
+            message_title = (
+                "Program Change Accepted"
+            )
+
+            message_text = (
+                "Your program change request has "
+                "been accepted by your trainer."
+            )
+
+            message_reason = "program_change"
+
+        else:
+
+            message_title = (
+                "Trainer Request Accepted"
+            )
+
+            message_text = (
+                "Your trainer request has "
+                "been accepted by your trainer."
+            )
+
+            message_reason = "normal"
+
+
+        cursor.execute("""
+            INSERT INTO messages
+            (
+                user_id,
+                sender_id,
+                sender_name,
+                sender_role,
+                title,
+                message,
+                reason,
+                is_read,
+                created_at
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                'trainer',
+                %s,
+                %s,
+                %s,
+                0,
+                NOW()
+            )
+        """, (
+            member_id,
+            trainer_id,
+            "Trainer",
+            message_title,
+            message_text,
+            message_reason
+        ))
+
+
+        # =====================================================
         # COMMIT
         # =====================================================
 
@@ -5460,8 +5568,6 @@ def accept_trainer_request(request_id):
         if conn:
 
             conn.close()
-
-
 
 
 @app.route(
