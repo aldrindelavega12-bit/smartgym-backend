@@ -140,6 +140,10 @@ def get_member_attendance(user_id):
 # Nothing is hardcoded.
 # ============================================================
 
+# ============================================================
+# TODAY'S WORKOUT
+# ============================================================
+
 @app.route(
     "/api/member/today-workout/<member_id>",
     methods=["GET"]
@@ -150,23 +154,6 @@ def get_member_today_workout(member_id):
     cursor = None
 
     try:
-
-        # ====================================================
-        # MEMBER ID
-        # ====================================================
-
-        member_id = str(
-            member_id
-        ).strip()
-
-
-        if not member_id:
-
-            return jsonify({
-                "status": "error",
-                "message": "Member ID is required."
-            }), 400
-
 
         # ====================================================
         # DATABASE
@@ -180,102 +167,164 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # GET CURRENT PROGRAM
+        # GET ACTIVE TRAINER PROGRAM
         # ====================================================
 
         cursor.execute("""
             SELECT
-                tt.id,
-                tt.member_id,
-                tt.trainer_id,
-                tt.program_id,
-                tt.program_plan_id,
-                tt.start_date,
-                tt.end_date,
-                tt.status
+                id,
+                program_id,
+                program_plan_id,
+                start_date,
+                end_date,
+                status
 
-            FROM trainer_trainees tt
+            FROM trainer_trainees
 
-            WHERE tt.member_id = %s
+            WHERE member_id = %s
+
+              AND status = 'active'
 
             ORDER BY
-                tt.id DESC
+                id DESC
 
             LIMIT 1
         """, (
             member_id,
         ))
 
-        current = cursor.fetchone()
+        trainee = cursor.fetchone()
 
 
         # ====================================================
-        # NO CURRENT PROGRAM
+        # NO ACTIVE PROGRAM
         # ====================================================
 
-        if not current:
+        if not trainee:
 
             return jsonify({
 
-                "status":
-                    "success",
+                "status": "success",
 
-                "member_id":
-                    member_id,
+                "has_workout": False,
 
-                "has_workout":
-                    False,
-
-                "message":
-                    "No active program found.",
-
-                "today":
-                    None
+                "message": (
+                    "No active trainer program "
+                    "was found."
+                )
 
             }), 200
 
 
         # ====================================================
-        # GET PROGRAM PLAN
+        # PROGRAM DATA
         # ====================================================
 
         program_plan_id = (
-            current["program_plan_id"]
+            trainee["program_plan_id"]
         )
 
+        start_date = (
+            trainee["start_date"]
+        )
+
+        end_date = (
+            trainee["end_date"]
+        )
+
+
+        # ====================================================
+        # VALIDATE PROGRAM PLAN
+        # ====================================================
 
         if not program_plan_id:
 
             return jsonify({
 
-                "status":
-                    "success",
+                "status": "success",
 
-                "member_id":
-                    member_id,
+                "has_workout": False,
 
-                "has_workout":
-                    False,
-
-                "message":
-                    "No program split found.",
-
-                "today":
-                    None
+                "message": (
+                    "No program plan is assigned."
+                )
 
             }), 200
 
 
         # ====================================================
-        # GET PLAN DAYS
+        # VALIDATE START DATE
+        # ====================================================
+
+        if not start_date:
+
+            return jsonify({
+
+                "status": "success",
+
+                "has_workout": False,
+
+                "message": (
+                    "Program has no start date."
+                )
+
+            }), 200
+
+
+        # ====================================================
+        # NORMALIZE START DATE
+        # ====================================================
+
+        if hasattr(
+            start_date,
+            "date"
+        ):
+
+            start_date = start_date.date()
+
+
+        # ====================================================
+        # TODAY
+        # ====================================================
+
+        today = date.today()
+
+
+        # ====================================================
+        # PROGRAM HAS NOT STARTED YET
+        # ====================================================
+
+        if today < start_date:
+
+            return jsonify({
+
+                "status": "success",
+
+                "has_workout": False,
+
+                "today": str(today),
+
+                "message": (
+                    "Program has not started yet."
+                )
+
+            }), 200
+
+
+        # ====================================================
+        # GET EXACT PLAN DAYS
         #
-        # THIS IS THE SELECTED SPLIT
+        # Source:
+        # plan_days
         # ====================================================
 
         cursor.execute("""
             SELECT
+
                 id AS plan_day_id,
+
                 day_number,
+
                 day_name
 
             FROM plan_days
@@ -286,6 +335,7 @@ def get_member_today_workout(member_id):
 
             ORDER BY
                 day_number ASC
+
         """, (
             program_plan_id,
         ))
@@ -301,34 +351,34 @@ def get_member_today_workout(member_id):
 
             return jsonify({
 
-                "status":
-                    "success",
+                "status": "success",
 
-                "member_id":
-                    member_id,
+                "has_workout": False,
 
-                "has_workout":
-                    False,
+                "today": str(today),
 
-                "message":
-                    "No workout split found.",
-
-                "today":
-                    None
+                "message": (
+                    "No active plan days "
+                    "were found."
+                )
 
             }), 200
 
 
         # ====================================================
-        # GET BODY PARTS FROM DATABASE
+        # GET BODY PARTS FOR EACH PLAN DAY
         #
-        # NO HARDCODING
+        # Source:
+        # plan_day_body_parts
+        #
+        # NOTHING IS HARDCODED HERE.
         # ====================================================
 
         for day in plan_days:
 
             cursor.execute("""
                 SELECT
+
                     body_part
 
                 FROM plan_day_body_parts
@@ -339,6 +389,7 @@ def get_member_today_workout(member_id):
 
                 ORDER BY
                     id ASC
+
             """, (
                 day["plan_day_id"],
             ))
@@ -352,106 +403,66 @@ def get_member_today_workout(member_id):
 
                 for row in body_parts
 
+                if row["body_part"]
+
             ]
 
 
-        # ====================================================
-        # TODAY
-        # ====================================================
+            # =================================================
+            # CLEAN DAY NAME
+            # =================================================
 
-        from datetime import date
-
-        today = date.today()
-
-
-        # ====================================================
-        # PROGRAM START DATE
-        # ====================================================
-
-        start_date = (
-            current["start_date"]
-        )
+            day_name = (
+                day["day_name"]
+                or ""
+            ).strip()
 
 
-        if not start_date:
+            # =================================================
+            # BUILD WORKOUT NAME
+            # =================================================
 
-            return jsonify({
+            if (
+                day_name.lower()
+                == "rest"
+            ):
 
-                "status":
-                    "success",
+                day["workout_name"] = (
+                    "Rest"
+                )
 
-                "member_id":
-                    member_id,
 
-                "has_workout":
-                    False,
+            elif day["body_parts"]:
 
-                "message":
-                    "Program start date is not available.",
-
-                "today":
-                    today.strftime(
-                        "%Y-%m-%d"
+                day["workout_name"] = (
+                    ", ".join(
+                        day["body_parts"]
                     )
+                )
 
-            }), 200
 
+            else:
 
-        # ====================================================
-        # CONVERT DATETIME TO DATE
-        # ====================================================
-
-        if hasattr(
-            start_date,
-            "date"
-        ):
-
-            start_date =
-                start_date.date()
+                day["workout_name"] = (
+                    day_name
+                    or
+                    "Workout"
+                )
 
 
         # ====================================================
-        # BEFORE PROGRAM START
-        # ====================================================
-
-        if today < start_date:
-
-            return jsonify({
-
-                "status":
-                    "success",
-
-                "member_id":
-                    member_id,
-
-                "has_workout":
-                    False,
-
-                "message":
-                    "Program has not started yet.",
-
-                "today":
-                    today.strftime(
-                        "%Y-%m-%d"
-                    ),
-
-                "start_date":
-                    start_date.strftime(
-                        "%Y-%m-%d"
-                    )
-
-            }), 200
-
-
-        # ====================================================
-        # CALCULATE DAY FROM PROGRAM START
+        # CALCULATE TODAY'S POSITION
+        #
+        # start_date = Day 1
         #
         # Example:
         #
-        # Sep 29 = Day 1
-        # Sep 30 = Day 2
-        # Oct 1  = Day 3
+        # Day 1 = Push
+        # Day 2 = Pull
+        # Day 3 = Legs
+        # Day 4 = Rest
         #
+        # Then repeat.
         # ====================================================
 
         days_since_start = (
@@ -474,135 +485,108 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # GET SPLIT NAME
+        # TODAY'S DATA
         # ====================================================
 
-        split_name = (
+        day_name = (
             today_plan_day["day_name"]
-            or
-            "Workout"
+            or ""
         ).strip()
+
+        body_parts = (
+            today_plan_day["body_parts"]
+        )
+
+        workout_name = (
+            today_plan_day["workout_name"]
+        )
 
 
         # ====================================================
         # REST DAY
         # ====================================================
 
-        if split_name.lower() == "rest":
+        if (
+            day_name.lower()
+            == "rest"
+        ):
 
             return jsonify({
 
-                "status":
-                    "success",
+                "status": "success",
 
-                "member_id":
-                    member_id,
+                "has_workout": True,
 
-                "has_workout":
-                    True,
+                "today": str(today),
 
-                "today":
-                    today.strftime(
-                        "%Y-%m-%d"
-                    ),
-
-                "day_number":
+                "day_number": (
                     today_plan_day[
                         "day_number"
-                    ],
+                    ]
+                ),
 
-                "plan_day_id":
+                "plan_day_id": (
                     today_plan_day[
                         "plan_day_id"
-                    ],
+                    ]
+                ),
 
-                "split":
-                    "Rest",
+                "split": "Rest",
 
-                "body_parts":
-                    [],
+                "workout_name": "Rest",
 
-                "workout_name":
-                    "Rest",
+                "body_parts": [],
 
-                "status":
-                    "rest"
+                "status_type": "rest"
 
             }), 200
 
 
         # ====================================================
-        # DATABASE BODY PARTS
-        # ====================================================
-
-        body_parts = (
-            today_plan_day[
-                "body_parts"
-            ]
-        )
-
-
-        # ====================================================
-        # WORKOUT NAME
-        #
-        # Keep split as the main workout name.
-        # ====================================================
-
-        workout_name = split_name
-
-
-        # ====================================================
-        # RESPONSE
+        # NORMAL WORKOUT DAY
         # ====================================================
 
         return jsonify({
 
-            "status":
-                "success",
+            "status": "success",
 
-            "member_id":
-                member_id,
+            "has_workout": True,
 
-            "has_workout":
-                True,
+            "today": str(today),
 
-            "today":
-                today.strftime(
-                    "%Y-%m-%d"
-                ),
-
-            "day_number":
+            "day_number": (
                 today_plan_day[
                     "day_number"
-                ],
+                ]
+            ),
 
-            "plan_day_id":
+            "plan_day_id": (
                 today_plan_day[
                     "plan_day_id"
-                ],
+                ]
+            ),
 
-            "split":
-                split_name,
+            "split": day_name,
 
-            "workout_name":
-                workout_name,
+            "workout_name": workout_name,
 
-            "body_parts":
-                body_parts,
+            "body_parts": body_parts,
 
-            "status":
-                "workout"
+            "status_type": "workout"
 
         }), 200
 
 
+    # ========================================================
+    # ERROR
+    # ========================================================
+
     except Exception as e:
 
         print(
-            "TODAY'S WORKOUT ERROR:",
+            "TODAY WORKOUT ERROR:",
             str(e)
         )
-
 
         if conn:
 
@@ -611,17 +595,22 @@ def get_member_today_workout(member_id):
 
         return jsonify({
 
-            "status":
-                "error",
+            "status": "error",
 
-            "message":
-                "Failed to load today's workout.",
+            "has_workout": False,
 
-            "error":
-                str(e)
+            "message": (
+                "Failed to load today's workout."
+            ),
+
+            "error": str(e)
 
         }), 500
 
+
+    # ========================================================
+    # CLOSE DATABASE
+    # ========================================================
 
     finally:
 
@@ -629,10 +618,10 @@ def get_member_today_workout(member_id):
 
             cursor.close()
 
-
         if conn:
 
             conn.close()
+
 
 
 @app.route("/api/staff_member_messages")
