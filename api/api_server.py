@@ -4681,9 +4681,6 @@ def accept_trainer_request(request_id):
             cursor.execute("""
                 UPDATE trainer_trainees
 
-                SET
-                    status = 'accepted'
-
                 WHERE id = %s
                   AND trainer_id = %s
                   AND status = 'pending'
