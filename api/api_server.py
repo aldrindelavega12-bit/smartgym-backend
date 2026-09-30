@@ -4476,7 +4476,8 @@ def accept_trainer_request(request_id):
                 plan_id,
                 start_date,
                 end_date,
-                status
+                status,
+                request_type
 
             FROM trainer_trainees
 
@@ -4510,6 +4511,273 @@ def accept_trainer_request(request_id):
                 "status": "error",
                 "message": "This request is no longer pending."
             }), 409
+
+
+        # =====================================================
+        # REQUEST TYPE
+        #
+        # ADDED ONLY
+        # =====================================================
+
+        request_type = (
+            request_row.get("request_type")
+            or "normal"
+        ).strip().lower()
+
+
+        # =====================================================
+        # RENEWAL REQUEST
+        #
+        # ADDED ONLY
+        # =====================================================
+
+        if request_type == "renewal":
+
+            # =================================================
+            # BASIC RENEWAL DATA
+            # =================================================
+
+            member_id = request_row["member_id"]
+
+            plan_id = request_row["plan_id"]
+
+            requested_end_date = (
+                request_row["end_date"]
+            )
+
+
+            if not requested_end_date:
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Renewal end date is missing."
+                }), 400
+
+
+            # =================================================
+            # GET CURRENT ACTIVE TRAINER ASSIGNMENT
+            # =================================================
+
+            cursor.execute("""
+                SELECT
+                    id,
+                    member_id,
+                    trainer_id,
+                    plan_id,
+                    start_date,
+                    end_date,
+                    status
+
+                FROM trainer_trainees
+
+                WHERE member_id = %s
+                  AND trainer_id = %s
+                  AND status = 'active'
+
+                ORDER BY
+                    end_date DESC,
+                    id DESC
+
+                LIMIT 1
+
+                FOR UPDATE
+
+            """, (
+                member_id,
+                trainer_id
+            ))
+
+            current_assignment = cursor.fetchone()
+
+
+            if not current_assignment:
+
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        "No active trainer assignment "
+                        "was found for this renewal."
+                    )
+                }), 404
+
+
+            # =================================================
+            # GET TRAINER RATE
+            # =================================================
+
+            cursor.execute("""
+                SELECT
+                    id,
+                    plan_name,
+                    duration_days,
+                    price
+
+                FROM trainer_plans
+
+                WHERE id = %s
+
+                LIMIT 1
+
+            """, (
+                plan_id,
+            ))
+
+            trainer_rate = cursor.fetchone()
+
+
+            if not trainer_rate:
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Trainer rate not found."
+                }), 404
+
+
+            # =================================================
+            # UPDATE CURRENT ACTIVE TRAINER
+            #
+            # NO NEW ASSIGNMENT
+            # NO WORKOUT SCHEDULE REBUILD
+            # =================================================
+
+            cursor.execute("""
+                UPDATE trainer_trainees
+
+                SET
+                    plan_id = %s,
+                    end_date = %s
+
+                WHERE id = %s
+                  AND member_id = %s
+                  AND trainer_id = %s
+                  AND status = 'active'
+
+            """, (
+                plan_id,
+                requested_end_date,
+                current_assignment["id"],
+                member_id,
+                trainer_id
+            ))
+
+
+            if cursor.rowcount == 0:
+
+                conn.rollback()
+
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        "Trainer renewal could not "
+                        "be applied."
+                    )
+                }), 400
+
+
+            # =================================================
+            # MARK RENEWAL REQUEST AS ACCEPTED
+            # =================================================
+
+            cursor.execute("""
+                UPDATE trainer_trainees
+
+                SET
+                    status = 'accepted'
+
+                WHERE id = %s
+                  AND trainer_id = %s
+                  AND status = 'pending'
+                  AND request_type = 'renewal'
+
+            """, (
+                request_id,
+                trainer_id
+            ))
+
+
+            if cursor.rowcount == 0:
+
+                conn.rollback()
+
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        "Renewal request could not "
+                        "be updated."
+                    )
+                }), 400
+
+
+            # =================================================
+            # COMMIT RENEWAL
+            # =================================================
+
+            conn.commit()
+
+
+            # =================================================
+            # RENEWAL SUCCESS RESPONSE
+            # =================================================
+
+            return jsonify({
+
+                "status":
+                    "success",
+
+                "message":
+                    "Trainer renewal accepted successfully.",
+
+                "request_id":
+                    request_id,
+
+                "request_type":
+                    "renewal",
+
+                "member_id":
+                    member_id,
+
+                "trainer_id":
+                    trainer_id,
+
+                "trainer_assignment_id":
+                    current_assignment["id"],
+
+                "trainer_rate": {
+
+                    "id":
+                        trainer_rate["id"],
+
+                    "name":
+                        trainer_rate["plan_name"],
+
+                    "duration_days":
+                        int(
+                            trainer_rate["duration_days"]
+                        ),
+
+                    "price":
+                        (
+                            float(
+                                trainer_rate["price"]
+                            )
+                            if trainer_rate["price"] is not None
+                            else None
+                        )
+                },
+
+                "end_date":
+                    (
+                        requested_end_date.strftime(
+                            "%Y-%m-%d"
+                        )
+                        if hasattr(
+                            requested_end_date,
+                            "strftime"
+                        )
+                        else requested_end_date
+                    )
+
+            }), 200
 
 
         # =====================================================
@@ -5186,7 +5454,6 @@ def accept_trainer_request(request_id):
         if conn:
 
             conn.close()
-
 
 
 # =========================================================
