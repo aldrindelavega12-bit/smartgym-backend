@@ -3730,7 +3730,8 @@ def change_member_program():
                 plan_id,
                 start_date,
                 end_date,
-                status
+                status,
+                request_type
             )
 
             VALUES
@@ -3742,7 +3743,8 @@ def change_member_program():
                 %s,
                 %s,
                 %s,
-                'pending'
+                'pending',
+                'program_change'
             )
 
         """, (
@@ -3884,6 +3886,9 @@ def change_member_program():
             "request_id":
                 request_id,
 
+            "request_type":
+                "program_change",
+
             "member_id":
                 member_id,
 
@@ -3968,6 +3973,7 @@ def change_member_program():
 
         if conn:
             conn.close()
+
 
 
 from datetime import datetime, date, timedelta
