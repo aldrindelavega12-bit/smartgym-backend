@@ -4422,6 +4422,7 @@ def get_trainer_requests(trainer_id):
 # =========================================================
 # ACCEPT TRAINER REQUEST
 # =========================================================
+
 @app.route(
     "/api/trainer/request/<int:request_id>/accept",
     methods=["POST"]
@@ -4675,11 +4676,13 @@ def accept_trainer_request(request_id):
 
 
             # =================================================
-            # MARK RENEWAL REQUEST AS ACCEPTED
+            # REMOVE RENEWAL REQUEST AFTER ACCEPT
+            #
+            # ADDED ONLY
             # =================================================
 
             cursor.execute("""
-                DELETE trainer_trainees
+                DELETE FROM trainer_trainees
 
                 WHERE id = %s
                   AND trainer_id = %s
@@ -4700,7 +4703,7 @@ def accept_trainer_request(request_id):
                     "status": "error",
                     "message": (
                         "Renewal request could not "
-                        "be updated."
+                        "be removed."
                     )
                 }), 400
 
@@ -5453,18 +5456,7 @@ def accept_trainer_request(request_id):
             conn.close()
 
 
-# =========================================================
-# RENEW MEMBER PROGRAM
-# =========================================================
-# =========================================================
-# RENEW MEMBER PROGRAM
-# MEMBER REQUESTS TRAINER RENEWAL
-#
-# IMPORTANT:
-# - DOES NOT RENEW IMMEDIATELY
-# - CREATES PENDING REQUEST
-# - TRAINER MUST ACCEPT FIRST
-# =========================================================
+
 
 @app.route(
     "/api/member/program/renew",
