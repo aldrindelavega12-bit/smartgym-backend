@@ -172,26 +172,34 @@ def get_member_today_workout(member_id):
 
         cursor.execute("""
             SELECT
-                id,
-                program_id,
-                program_plan_id,
-                start_date,
-                end_date,
-                status
+                tt.id,
+                tt.program_id,
+                tt.program_plan_id,
+                tt.start_date,
+                tt.end_date,
+                tt.status,
 
-            FROM trainer_trainees
+                /* PROGRAM PLAN NAME */
+                pp.plan_name AS program_plan_name
 
-            WHERE member_id = %s
+            FROM trainer_trainees tt
 
-              AND status = 'active'
+            LEFT JOIN plans pp
+                ON pp.id = tt.program_plan_id
+
+            WHERE tt.member_id = %s
+
+              AND tt.status = 'active'
 
             ORDER BY
-                id DESC
+                tt.id DESC
 
             LIMIT 1
+
         """, (
             member_id,
         ))
+
 
         trainee = cursor.fetchone()
 
@@ -231,6 +239,11 @@ def get_member_today_workout(member_id):
         end_date = (
             trainee["end_date"]
         )
+
+        program_plan_name = (
+            trainee["program_plan_name"]
+            or ""
+        ).strip()
 
 
         # ====================================================
@@ -280,7 +293,9 @@ def get_member_today_workout(member_id):
             "date"
         ):
 
-            start_date = start_date.date()
+            start_date = (
+                start_date.date()
+            )
 
 
         # ====================================================
@@ -340,6 +355,7 @@ def get_member_today_workout(member_id):
             program_plan_id,
         ))
 
+
         plan_days = cursor.fetchall()
 
 
@@ -371,7 +387,7 @@ def get_member_today_workout(member_id):
         # Source:
         # plan_day_body_parts
         #
-        # NOTHING IS HARDCODED HERE.
+        # NOTHING IS HARDCODED.
         # ====================================================
 
         for day in plan_days:
@@ -394,7 +410,10 @@ def get_member_today_workout(member_id):
                 day["plan_day_id"],
             ))
 
-            body_parts = cursor.fetchall()
+
+            body_parts = (
+                cursor.fetchall()
+            )
 
 
             day["body_parts"] = [
@@ -420,6 +439,15 @@ def get_member_today_workout(member_id):
 
             # =================================================
             # BUILD WORKOUT NAME
+            #
+            # If body parts exist:
+            # Chest, Triceps
+            #
+            # If Rest:
+            # Rest
+            #
+            # Otherwise:
+            # use day_name
             # =================================================
 
             if (
@@ -493,12 +521,39 @@ def get_member_today_workout(member_id):
             or ""
         ).strip()
 
+
         body_parts = (
             today_plan_day["body_parts"]
         )
 
+
         workout_name = (
             today_plan_day["workout_name"]
+        )
+
+
+        plan_day_id = (
+            today_plan_day["plan_day_id"]
+        )
+
+
+        day_number = (
+            today_plan_day["day_number"]
+        )
+
+
+        # ====================================================
+        # TRAINING FOCUS
+        #
+        # Use the actual body parts from DB.
+        # Example:
+        # Back, Biceps
+        # ====================================================
+
+        training_focus = (
+            ", ".join(body_parts)
+            if body_parts
+            else day_name
         )
 
 
@@ -520,16 +575,36 @@ def get_member_today_workout(member_id):
                 "today": str(today),
 
                 "day_number": (
-                    today_plan_day[
-                        "day_number"
-                    ]
+                    day_number
                 ),
 
                 "plan_day_id": (
-                    today_plan_day[
-                        "plan_day_id"
-                    ]
+                    plan_day_id
                 ),
+
+                # =========================
+                # PROGRAM PLAN
+                # =========================
+
+                "program_plan_id": (
+                    program_plan_id
+                ),
+
+                "program_plan": (
+                    program_plan_name
+                ),
+
+                "program_plan_name": (
+                    program_plan_name
+                ),
+
+                "plan_name": (
+                    program_plan_name
+                ),
+
+                # =========================
+                # WORKOUT
+                # =========================
 
                 "split": "Rest",
 
@@ -537,7 +612,19 @@ def get_member_today_workout(member_id):
 
                 "body_parts": [],
 
-                "status_type": "rest"
+                "training_focus": (
+                    "Recovery"
+                ),
+
+                # =========================
+                # STATUS
+                # =========================
+
+                "status_type": "rest",
+
+                "workout_status": "rest",
+
+                "status": "rest"
 
             }), 200
 
@@ -555,16 +642,38 @@ def get_member_today_workout(member_id):
             "today": str(today),
 
             "day_number": (
-                today_plan_day[
-                    "day_number"
-                ]
+                day_number
             ),
 
             "plan_day_id": (
-                today_plan_day[
-                    "plan_day_id"
-                ]
+                plan_day_id
             ),
+
+            # =================================================
+            # PROGRAM PLAN
+            #
+            # THIS WAS MISSING BEFORE.
+            # =================================================
+
+            "program_plan_id": (
+                program_plan_id
+            ),
+
+            "program_plan": (
+                program_plan_name
+            ),
+
+            "program_plan_name": (
+                program_plan_name
+            ),
+
+            "plan_name": (
+                program_plan_name
+            ),
+
+            # =================================================
+            # WORKOUT
+            # =================================================
 
             "split": day_name,
 
@@ -572,7 +681,27 @@ def get_member_today_workout(member_id):
 
             "body_parts": body_parts,
 
-            "status_type": "workout"
+            # =================================================
+            # TRAINING FOCUS
+            # =================================================
+
+            "training_focus": (
+                training_focus
+            ),
+
+            "focus": (
+                training_focus
+            ),
+
+            # =================================================
+            # STATUS
+            # =================================================
+
+            "status_type": "workout",
+
+            "workout_status": "scheduled",
+
+            "status": "scheduled"
 
         }), 200
 
@@ -587,6 +716,7 @@ def get_member_today_workout(member_id):
             "TODAY WORKOUT ERROR:",
             str(e)
         )
+
 
         if conn:
 
@@ -618,11 +748,10 @@ def get_member_today_workout(member_id):
 
             cursor.close()
 
+
         if conn:
 
             conn.close()
-
-
 
 @app.route("/api/staff_member_messages")
 def staff_member_messages():
