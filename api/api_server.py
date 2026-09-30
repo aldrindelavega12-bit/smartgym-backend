@@ -123,6 +123,7 @@ def get_member_attendance(user_id):
 
             conn.close()
 
+
 @app.route(
     "/api/member/today-workout/<member_id>",
     methods=["GET"]
@@ -135,7 +136,7 @@ def get_member_today_workout(member_id):
     try:
 
         # ====================================================
-        # DATABASE
+        # DATABASE CONNECTION
         # ====================================================
 
         conn = get_connection()
@@ -147,9 +148,6 @@ def get_member_today_workout(member_id):
 
         # ====================================================
         # GET ACTIVE TRAINER PROGRAM
-        #
-        # program_plan_id comes from trainer_trainees
-        # program plan name comes from program_plans
         # ====================================================
 
         cursor.execute("""
@@ -199,9 +197,11 @@ def get_member_today_workout(member_id):
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "has_workout": False,
+                "has_workout":
+                    False,
 
                 "message":
                     "No active trainer program was found."
@@ -221,10 +221,6 @@ def get_member_today_workout(member_id):
             trainee["start_date"]
         )
 
-        end_date = (
-            trainee["end_date"]
-        )
-
         program_plan_name = (
             trainee["program_plan_name"]
             or ""
@@ -232,16 +228,18 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # VALIDATE PROGRAM PLAN
+        # NO PROGRAM PLAN
         # ====================================================
 
         if not program_plan_id:
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "has_workout": False,
+                "has_workout":
+                    False,
 
                 "message":
                     "No program plan is assigned."
@@ -250,16 +248,21 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # VALIDATE PROGRAM PLAN NAME
+        # PROGRAM PLAN NOT FOUND
         # ====================================================
 
         if not program_plan_name:
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "has_workout": False,
+                "has_workout":
+                    False,
+
+                "program_plan_id":
+                    program_plan_id,
 
                 "message":
                     "Program plan was not found."
@@ -268,16 +271,18 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # VALIDATE START DATE
+        # NO START DATE
         # ====================================================
 
         if not start_date:
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "has_workout": False,
+                "has_workout":
+                    False,
 
                 "message":
                     "Program has no start date."
@@ -307,19 +312,27 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # PROGRAM HAS NOT STARTED
+        # PROGRAM NOT STARTED
         # ====================================================
 
         if today < start_date:
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "has_workout": False,
+                "has_workout":
+                    False,
 
                 "today":
                     str(today),
+
+                "program_plan_id":
+                    program_plan_id,
+
+                "program_plan":
+                    program_plan_name,
 
                 "message":
                     "Program has not started yet."
@@ -329,8 +342,6 @@ def get_member_today_workout(member_id):
 
         # ====================================================
         # GET PLAN DAYS
-        #
-        # plan_id refers to program_plans.id
         # ====================================================
 
         cursor.execute("""
@@ -367,9 +378,11 @@ def get_member_today_workout(member_id):
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "has_workout": False,
+                "has_workout":
+                    False,
 
                 "today":
                     str(today),
@@ -390,7 +403,7 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # GET BODY PARTS
+        # GET BODY PARTS FOR EVERY PLAN DAY
         # ====================================================
 
         for day in plan_days:
@@ -496,7 +509,7 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # TODAY'S DATA
+        # TODAY'S PLAN DATA
         # ====================================================
 
         day_number = (
@@ -523,9 +536,6 @@ def get_member_today_workout(member_id):
 
         # ====================================================
         # TRAINING FOCUS
-        #
-        # Example:
-        # Back, Biceps
         # ====================================================
 
         if body_parts:
@@ -540,6 +550,125 @@ def get_member_today_workout(member_id):
 
             training_focus = (
                 day_name
+            )
+
+
+        # ====================================================
+        # GET ACTUAL TODAY WORKOUT STATUS
+        #
+        # IMPORTANT:
+        # This comes from trainer_workout_schedule
+        # instead of hardcoding "scheduled".
+        # ====================================================
+
+        cursor.execute("""
+            SELECT
+
+                id,
+
+                status,
+
+                workout_name,
+
+                workout_date
+
+            FROM trainer_workout_schedule
+
+            WHERE member_id = %s
+
+              AND workout_date = %s
+
+            ORDER BY
+                id DESC
+
+            LIMIT 1
+
+        """, (
+            member_id,
+            today
+        ))
+
+
+        today_schedule = (
+            cursor.fetchone()
+        )
+
+
+        # ====================================================
+        # DEFAULT STATUS
+        # ====================================================
+
+        actual_status = (
+            "scheduled"
+        )
+
+
+        # ====================================================
+        # GET DATABASE STATUS
+        # ====================================================
+
+        if today_schedule:
+
+            db_status = (
+                today_schedule.get(
+                    "status"
+                )
+                or
+                "scheduled"
+            )
+
+
+            actual_status = (
+                str(db_status)
+                .strip()
+                .lower()
+            )
+
+
+        # ====================================================
+        # NORMALIZE STATUS
+        # ====================================================
+
+        if actual_status in (
+            "complete",
+            "completed"
+        ):
+
+            actual_status = (
+                "completed"
+            )
+
+
+        elif actual_status == "missed":
+
+            actual_status = (
+                "missed"
+            )
+
+
+        elif actual_status in (
+            "cancel",
+            "cancelled"
+        ):
+
+            actual_status = (
+                "cancelled"
+            )
+
+
+        elif actual_status in (
+            "pending"
+        ):
+
+            actual_status = (
+                "pending"
+            )
+
+
+        else:
+
+            actual_status = (
+                "scheduled"
             )
 
 
@@ -569,9 +698,9 @@ def get_member_today_workout(member_id):
                 "plan_day_id":
                     plan_day_id,
 
-                # -----------------------------
+                # --------------------------------------------
                 # PROGRAM PLAN
-                # -----------------------------
+                # --------------------------------------------
 
                 "program_plan_id":
                     program_plan_id,
@@ -585,9 +714,9 @@ def get_member_today_workout(member_id):
                 "plan_name":
                     program_plan_name,
 
-                # -----------------------------
+                # --------------------------------------------
                 # WORKOUT
-                # -----------------------------
+                # --------------------------------------------
 
                 "split":
                     "Rest",
@@ -598,15 +727,19 @@ def get_member_today_workout(member_id):
                 "body_parts":
                     [],
 
+                # --------------------------------------------
+                # FOCUS
+                # --------------------------------------------
+
                 "training_focus":
                     "Recovery",
 
                 "focus":
                     "Recovery",
 
-                # -----------------------------
+                # --------------------------------------------
                 # STATUS
-                # -----------------------------
+                # --------------------------------------------
 
                 "status_type":
                     "rest",
@@ -681,17 +814,17 @@ def get_member_today_workout(member_id):
                 training_focus,
 
             # =================================================
-            # STATUS
+            # ACTUAL STATUS
             # =================================================
 
             "status_type":
                 "workout",
 
             "workout_status":
-                "scheduled",
+                actual_status,
 
             "status":
-                "scheduled"
+                actual_status
 
         }), 200
 
@@ -739,6 +872,7 @@ def get_member_today_workout(member_id):
         if cursor:
 
             cursor.close()
+
 
         if conn:
 
