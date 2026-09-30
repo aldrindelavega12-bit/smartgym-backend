@@ -123,27 +123,6 @@ def get_member_attendance(user_id):
 
             conn.close()
 
-# ============================================================
-# TODAY'S WORKOUT
-# ============================================================
-# Returns ONLY today's workout.
-#
-# Source of truth:
-#   trainer_trainees
-#       ↓
-#   program_plan_id
-#       ↓
-#   plan_days
-#       ↓
-#   plan_day_body_parts
-#
-# Nothing is hardcoded.
-# ============================================================
-
-# ============================================================
-# TODAY'S WORKOUT
-# ============================================================
-
 @app.route(
     "/api/member/today-workout/<member_id>",
     methods=["GET"]
@@ -168,24 +147,32 @@ def get_member_today_workout(member_id):
 
         # ====================================================
         # GET ACTIVE TRAINER PROGRAM
+        #
+        # program_plan_id comes from trainer_trainees
+        # program plan name comes from program_plans
         # ====================================================
 
         cursor.execute("""
             SELECT
+
                 tt.id,
+
                 tt.program_id,
+
                 tt.program_plan_id,
+
                 tt.start_date,
+
                 tt.end_date,
+
                 tt.status,
 
-                /* PROGRAM PLAN NAME */
                 pp.plan_name AS program_plan_name
 
             FROM trainer_trainees tt
 
-            LEFT JOIN plans pp
-                ON pp.id = tt.program_plan_id
+            LEFT JOIN program_plans pp
+                ON tt.program_plan_id = pp.id
 
             WHERE tt.member_id = %s
 
@@ -216,10 +203,8 @@ def get_member_today_workout(member_id):
 
                 "has_workout": False,
 
-                "message": (
-                    "No active trainer program "
-                    "was found."
-                )
+                "message":
+                    "No active trainer program was found."
 
             }), 200
 
@@ -258,9 +243,26 @@ def get_member_today_workout(member_id):
 
                 "has_workout": False,
 
-                "message": (
+                "message":
                     "No program plan is assigned."
-                )
+
+            }), 200
+
+
+        # ====================================================
+        # VALIDATE PROGRAM PLAN NAME
+        # ====================================================
+
+        if not program_plan_name:
+
+            return jsonify({
+
+                "status": "success",
+
+                "has_workout": False,
+
+                "message":
+                    "Program plan was not found."
 
             }), 200
 
@@ -277,9 +279,8 @@ def get_member_today_workout(member_id):
 
                 "has_workout": False,
 
-                "message": (
+                "message":
                     "Program has no start date."
-                )
 
             }), 200
 
@@ -306,7 +307,7 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # PROGRAM HAS NOT STARTED YET
+        # PROGRAM HAS NOT STARTED
         # ====================================================
 
         if today < start_date:
@@ -317,20 +318,19 @@ def get_member_today_workout(member_id):
 
                 "has_workout": False,
 
-                "today": str(today),
+                "today":
+                    str(today),
 
-                "message": (
+                "message":
                     "Program has not started yet."
-                )
 
             }), 200
 
 
         # ====================================================
-        # GET EXACT PLAN DAYS
+        # GET PLAN DAYS
         #
-        # Source:
-        # plan_days
+        # plan_id refers to program_plans.id
         # ====================================================
 
         cursor.execute("""
@@ -371,23 +371,26 @@ def get_member_today_workout(member_id):
 
                 "has_workout": False,
 
-                "today": str(today),
+                "today":
+                    str(today),
 
-                "message": (
-                    "No active plan days "
-                    "were found."
-                )
+                "program_plan_id":
+                    program_plan_id,
+
+                "program_plan":
+                    program_plan_name,
+
+                "program_plan_name":
+                    program_plan_name,
+
+                "message":
+                    "No active plan days were found."
 
             }), 200
 
 
         # ====================================================
-        # GET BODY PARTS FOR EACH PLAN DAY
-        #
-        # Source:
-        # plan_day_body_parts
-        #
-        # NOTHING IS HARDCODED.
+        # GET BODY PARTS
         # ====================================================
 
         for day in plan_days:
@@ -411,7 +414,7 @@ def get_member_today_workout(member_id):
             ))
 
 
-            body_parts = (
+            body_parts_rows = (
                 cursor.fetchall()
             )
 
@@ -420,7 +423,7 @@ def get_member_today_workout(member_id):
 
                 row["body_part"]
 
-                for row in body_parts
+                for row in body_parts_rows
 
                 if row["body_part"]
 
@@ -439,15 +442,6 @@ def get_member_today_workout(member_id):
 
             # =================================================
             # BUILD WORKOUT NAME
-            #
-            # If body parts exist:
-            # Chest, Triceps
-            #
-            # If Rest:
-            # Rest
-            #
-            # Otherwise:
-            # use day_name
             # =================================================
 
             if (
@@ -479,18 +473,7 @@ def get_member_today_workout(member_id):
 
 
         # ====================================================
-        # CALCULATE TODAY'S POSITION
-        #
-        # start_date = Day 1
-        #
-        # Example:
-        #
-        # Day 1 = Push
-        # Day 2 = Pull
-        # Day 3 = Legs
-        # Day 4 = Rest
-        #
-        # Then repeat.
+        # CALCULATE TODAY'S PLAN DAY
         # ====================================================
 
         days_since_start = (
@@ -516,45 +499,48 @@ def get_member_today_workout(member_id):
         # TODAY'S DATA
         # ====================================================
 
+        day_number = (
+            today_plan_day["day_number"]
+        )
+
+        plan_day_id = (
+            today_plan_day["plan_day_id"]
+        )
+
         day_name = (
             today_plan_day["day_name"]
             or ""
         ).strip()
 
-
         body_parts = (
             today_plan_day["body_parts"]
         )
-
 
         workout_name = (
             today_plan_day["workout_name"]
         )
 
 
-        plan_day_id = (
-            today_plan_day["plan_day_id"]
-        )
-
-
-        day_number = (
-            today_plan_day["day_number"]
-        )
-
-
         # ====================================================
         # TRAINING FOCUS
         #
-        # Use the actual body parts from DB.
         # Example:
         # Back, Biceps
         # ====================================================
 
-        training_focus = (
-            ", ".join(body_parts)
-            if body_parts
-            else day_name
-        )
+        if body_parts:
+
+            training_focus = (
+                ", ".join(
+                    body_parts
+                )
+            )
+
+        else:
+
+            training_focus = (
+                day_name
+            )
 
 
         # ====================================================
@@ -568,63 +554,68 @@ def get_member_today_workout(member_id):
 
             return jsonify({
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "has_workout": True,
+                "has_workout":
+                    True,
 
-                "today": str(today),
+                "today":
+                    str(today),
 
-                "day_number": (
-                    day_number
-                ),
+                "day_number":
+                    day_number,
 
-                "plan_day_id": (
-                    plan_day_id
-                ),
+                "plan_day_id":
+                    plan_day_id,
 
-                # =========================
+                # -----------------------------
                 # PROGRAM PLAN
-                # =========================
+                # -----------------------------
 
-                "program_plan_id": (
-                    program_plan_id
-                ),
+                "program_plan_id":
+                    program_plan_id,
 
-                "program_plan": (
-                    program_plan_name
-                ),
+                "program_plan":
+                    program_plan_name,
 
-                "program_plan_name": (
-                    program_plan_name
-                ),
+                "program_plan_name":
+                    program_plan_name,
 
-                "plan_name": (
-                    program_plan_name
-                ),
+                "plan_name":
+                    program_plan_name,
 
-                # =========================
+                # -----------------------------
                 # WORKOUT
-                # =========================
+                # -----------------------------
 
-                "split": "Rest",
+                "split":
+                    "Rest",
 
-                "workout_name": "Rest",
+                "workout_name":
+                    "Rest",
 
-                "body_parts": [],
+                "body_parts":
+                    [],
 
-                "training_focus": (
-                    "Recovery"
-                ),
+                "training_focus":
+                    "Recovery",
 
-                # =========================
+                "focus":
+                    "Recovery",
+
+                # -----------------------------
                 # STATUS
-                # =========================
+                # -----------------------------
 
-                "status_type": "rest",
+                "status_type":
+                    "rest",
 
-                "workout_status": "rest",
+                "workout_status":
+                    "rest",
 
-                "status": "rest"
+                "status":
+                    "rest"
 
             }), 200
 
@@ -635,73 +626,72 @@ def get_member_today_workout(member_id):
 
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
-            "has_workout": True,
+            "has_workout":
+                True,
 
-            "today": str(today),
+            "today":
+                str(today),
 
-            "day_number": (
-                day_number
-            ),
+            "day_number":
+                day_number,
 
-            "plan_day_id": (
-                plan_day_id
-            ),
+            "plan_day_id":
+                plan_day_id,
 
             # =================================================
             # PROGRAM PLAN
-            #
-            # THIS WAS MISSING BEFORE.
             # =================================================
 
-            "program_plan_id": (
-                program_plan_id
-            ),
+            "program_plan_id":
+                program_plan_id,
 
-            "program_plan": (
-                program_plan_name
-            ),
+            "program_plan":
+                program_plan_name,
 
-            "program_plan_name": (
-                program_plan_name
-            ),
+            "program_plan_name":
+                program_plan_name,
 
-            "plan_name": (
-                program_plan_name
-            ),
+            "plan_name":
+                program_plan_name,
 
             # =================================================
             # WORKOUT
             # =================================================
 
-            "split": day_name,
+            "split":
+                day_name,
 
-            "workout_name": workout_name,
+            "workout_name":
+                workout_name,
 
-            "body_parts": body_parts,
+            "body_parts":
+                body_parts,
 
             # =================================================
             # TRAINING FOCUS
             # =================================================
 
-            "training_focus": (
-                training_focus
-            ),
+            "training_focus":
+                training_focus,
 
-            "focus": (
-                training_focus
-            ),
+            "focus":
+                training_focus,
 
             # =================================================
             # STATUS
             # =================================================
 
-            "status_type": "workout",
+            "status_type":
+                "workout",
 
-            "workout_status": "scheduled",
+            "workout_status":
+                "scheduled",
 
-            "status": "scheduled"
+            "status":
+                "scheduled"
 
         }), 200
 
@@ -725,15 +715,17 @@ def get_member_today_workout(member_id):
 
         return jsonify({
 
-            "status": "error",
+            "status":
+                "error",
 
-            "has_workout": False,
+            "has_workout":
+                False,
 
-            "message": (
-                "Failed to load today's workout."
-            ),
+            "message":
+                "Failed to load today's workout.",
 
-            "error": str(e)
+            "error":
+                str(e)
 
         }), 500
 
@@ -748,10 +740,10 @@ def get_member_today_workout(member_id):
 
             cursor.close()
 
-
         if conn:
 
             conn.close()
+
 
 @app.route("/api/staff_member_messages")
 def staff_member_messages():
