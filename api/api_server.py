@@ -4424,10 +4424,6 @@ def get_trainer_requests(trainer_id):
         if conn:
             conn.close()
 
- 
-# =========================================================
-# ACCEPT TRAINER REQUEST
-# =========================================================
 @app.route(
     "/api/trainer/request/<int:request_id>/accept",
     methods=["POST"]
@@ -4529,6 +4525,37 @@ def accept_trainer_request(request_id):
             request_row.get("request_type")
             or "normal"
         ).strip().lower()
+
+
+        # =====================================================
+        # GET ACTUAL TRAINER NAME
+        #
+        # ADDED ONLY
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                fullname
+
+            FROM user_accounts
+
+            WHERE user_id = %s
+              AND role = 'trainer'
+
+            LIMIT 1
+        """, (
+            trainer_id,
+        ))
+
+        trainer_account = cursor.fetchone()
+
+
+        trainer_name = (
+            trainer_account["fullname"]
+            if trainer_account
+            and trainer_account.get("fullname")
+            else "Trainer"
+        )
 
 
         # =====================================================
@@ -4747,9 +4774,13 @@ def accept_trainer_request(request_id):
             """, (
                 member_id,
                 trainer_id,
-                "Trainer",
+                trainer_name,
                 "Trainer Renewal Accepted",
-                "Your trainer renewal request has been accepted by your trainer.",
+                (
+                    f"Your trainer renewal request "
+                    f"has been accepted by "
+                    f"{trainer_name}."
+                ),
                 "renewal"
             ))
 
@@ -4944,6 +4975,21 @@ def accept_trainer_request(request_id):
         print(
             "MEMBER ID:",
             member_id
+        )
+
+        print(
+            "TRAINER ID:",
+            trainer_id
+        )
+
+        print(
+            "TRAINER NAME:",
+            trainer_name
+        )
+
+        print(
+            "REQUEST TYPE:",
+            request_type
         )
 
         print(
@@ -5381,8 +5427,9 @@ def accept_trainer_request(request_id):
             )
 
             message_text = (
-                "Your program change request has "
-                "been accepted by your trainer."
+                f"Your program change request "
+                f"has been accepted by "
+                f"{trainer_name}."
             )
 
             message_reason = "program_change"
@@ -5394,8 +5441,9 @@ def accept_trainer_request(request_id):
             )
 
             message_text = (
-                "Your trainer request has "
-                "been accepted by your trainer."
+                f"Your trainer request "
+                f"has been accepted by "
+                f"{trainer_name}."
             )
 
             message_reason = "normal"
@@ -5429,7 +5477,7 @@ def accept_trainer_request(request_id):
         """, (
             member_id,
             trainer_id,
-            "Trainer",
+            trainer_name,
             message_title,
             message_text,
             message_reason
@@ -5567,7 +5615,7 @@ def accept_trainer_request(request_id):
 
         if conn:
 
-            conn.close()
+            conn.close() 
 
 
 @app.route(
