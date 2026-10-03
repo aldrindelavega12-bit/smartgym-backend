@@ -3,7 +3,7 @@ import time
 
 from sync.user_account_sync import sync_user_accounts
 from sync.cloud_sync import sync_pending_members
-from sync.trainer_sync import sync_trainer_plans
+from sync.sync_trainer import sync_trainer_plans
 
 
 def start_cloud_worker():
