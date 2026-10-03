@@ -3170,9 +3170,11 @@ def trainer_messages():
 # MEMBER -> TRAINER
 # =========================================================
 
-@app.route("/api/create_staff_account",
-           methods=["POST"])
-def create_staff_account():
+@app.route(
+    "/api/trainer/request",
+    methods=["POST"]
+)
+def create_trainer_request():
 
     conn = None
     cursor = None
@@ -3181,127 +3183,78 @@ def create_staff_account():
 
         data = request.get_json() or {}
 
-        print("CREATE STAFF DATA:", data)
+        # =================================================
+        # GET DATA
+        # =================================================
 
-        fullname = data.get("fullname", "").strip()
-        username = data.get("username", "").strip()
-        password = data.get("password", "")
-        role = data.get("role", "").strip().lower()
+        member_id = data.get("member_id")
+        trainer_id = data.get("trainer_id")
+        program_id = data.get("program_id")
+        program_plan_id = data.get("program_plan_id")
+        plan_id = data.get("plan_id")
+        start_date = data.get("start_date")
 
-        price_day = data.get("price_day")
-        price_week = data.get("price_week")
-        price_month = data.get("price_month")
+        # =================================================
+        # VALIDATION
+        # =================================================
 
-        # Trainer programs
-        programs = data.get("programs", [])
+        if not member_id:
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
 
+        if not trainer_id:
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
 
-        # =========================
-        # BASIC VALIDATION
-        # =========================
+        if not program_id:
+            return jsonify({
+                "status": "error",
+                "message": "Program ID is required."
+            }), 400
 
-        if not fullname or not username or not password or not role:
+        if not program_plan_id:
+            return jsonify({
+                "status": "error",
+                "message": "Program plan is required."
+            }), 400
+
+        if not plan_id:
+            return jsonify({
+                "status": "error",
+                "message": "Trainer rate is required."
+            }), 400
+
+        if not start_date:
+            return jsonify({
+                "status": "error",
+                "message": "Start date is required."
+            }), 400
+
+        # =================================================
+        # DATE
+        # =================================================
+
+        try:
+
+            start_date_obj = datetime.strptime(
+                start_date,
+                "%Y-%m-%d"
+            ).date()
+
+        except ValueError:
 
             return jsonify({
                 "status": "error",
-                "message": "Please complete all required fields."
+                "message": "Invalid start date format."
             }), 400
 
-
-        if role not in ["staff", "trainer"]:
-
-            return jsonify({
-                "status": "error",
-                "message": "Invalid role."
-            }), 400
-
-
-        # =========================
-        # TRAINER VALIDATION
-        # =========================
-
-        if role == "trainer":
-
-            # At least one program
-            if not programs:
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Please select at least one program."
-                }), 400
-
-
-            # =========================
-            # TRAINER PRICE VALIDATION
-            # =========================
-
-            if (
-                price_day is None or
-                price_week is None or
-                price_month is None
-            ):
-
-                return jsonify({
-                    "status": "error",
-                    "message": "All trainer prices are required."
-                }), 400
-
-
-            try:
-
-                price_day = float(price_day)
-                price_week = float(price_week)
-                price_month = float(price_month)
-
-            except (ValueError, TypeError):
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid trainer price."
-                }), 400
-
-
-            if (
-                price_day < 0 or
-                price_week < 0 or
-                price_month < 0
-            ):
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Trainer prices cannot be negative."
-                }), 400
-
-
-            # =========================
-            # PROGRAM ID VALIDATION
-            # =========================
-
-            try:
-
-                programs = [
-                    int(program_id)
-                    for program_id in programs
-                ]
-
-            except (ValueError, TypeError):
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid program selection."
-                }), 400
-
-
-            # Remove duplicate programs
-
-            programs = list(
-                dict.fromkeys(programs)
-            )
-
-
-        # =========================
+        # =================================================
         # DATABASE
-        # =========================
+        # =================================================
 
         conn = get_connection()
 
@@ -3309,392 +3262,515 @@ def create_staff_account():
             pymysql.cursors.DictCursor
         )
 
-
-        # =========================
-        # CHECK DUPLICATE USERNAME
-        # =========================
+        # =================================================
+        # GET MEMBER
+        # =================================================
 
         cursor.execute("""
-            SELECT id
-            FROM user_accounts
-            WHERE username=%s
+            SELECT
+                id,
+                full_name
+            FROM members
+            WHERE id = %s
             LIMIT 1
         """, (
-            username,
+            member_id,
+        ))
+
+        member = cursor.fetchone()
+
+        if not member:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member not found."
+            }), 404
+
+        # =================================================
+        # GET TRAINER
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                user_id,
+                fullname
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (
+            trainer_id,
+        ))
+
+        trainer = cursor.fetchone()
+
+        if not trainer:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer not found."
+            }), 404
+
+        # =================================================
+        # GET PROGRAM
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_name,
+                description,
+                duration_days,
+                active
+            FROM programs
+            WHERE id = %s
+            AND active = 1
+            LIMIT 1
+        """, (
+            program_id,
+        ))
+
+        program = cursor.fetchone()
+
+        if not program:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program not found."
+            }), 404
+
+        # =================================================
+        # GET PROGRAM PLAN / SPLIT
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_id,
+                plan_name,
+                description,
+                active
+            FROM program_plans
+            WHERE id = %s
+            AND program_id = %s
+            AND active = 1
+            LIMIT 1
+        """, (
+            program_plan_id,
+            program_id
+        ))
+
+        program_plan = cursor.fetchone()
+
+        if not program_plan:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "Program plan not found for this program."
+            }), 404
+
+        # =================================================
+        # GET TRAINER RATE PLAN
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                plan_name,
+                duration_days,
+                price,
+                active
+            FROM trainer_plans
+            WHERE id = %s
+            AND trainer_id = %s
+            LIMIT 1
+        """, (
+            plan_id,
+            trainer_id
+        ))
+
+        plan = cursor.fetchone()
+
+        if not plan:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer plan not found."
+            }), 404
+
+        if int(plan["active"]) != 1:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "This trainer plan is not available."
+            }), 400
+
+        # =================================================
+        # TRAINER RATE DURATION
+        # =================================================
+        #
+        # IMPORTANT:
+        # DO NOT USE:
+        # program["duration_days"]
+        #
+        # USE:
+        # plan["duration_days"]
+        #
+        # 1 Day   = 1 day
+        # 1 Week  = 7 days
+        # 1 Month = 30 days
+        # =================================================
+
+        trainer_rate_duration_days = int(
+            plan["duration_days"]
+        )
+
+        if trainer_rate_duration_days <= 0:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "Invalid trainer rate duration."
+            }), 400
+
+        # =================================================
+        # CALCULATE TRAINER RATE END DATE
+        # =================================================
+
+        end_date_obj = (
+            start_date_obj +
+            timedelta(
+                days=trainer_rate_duration_days - 1
+            )
+        )
+
+        # =================================================
+        # CHECK EXISTING MEMBER TRAINER RECORD
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                tt.id,
+                tt.trainer_id,
+                ua.fullname AS trainer_name,
+                tt.member_id,
+                tt.program_id,
+                tt.program_plan_id,
+                tt.plan_id,
+                tt.start_date,
+                tt.end_date,
+                tt.status
+
+            FROM trainer_trainees tt
+
+            INNER JOIN user_accounts ua
+                ON tt.trainer_id = ua.user_id
+
+            WHERE tt.member_id = %s
+
+            ORDER BY tt.created_at DESC
+
+            LIMIT 1
+        """, (
+            member_id,
         ))
 
         existing = cursor.fetchone()
 
+        # =================================================
+        # CHECK DATE OVERLAP
+        # =================================================
+
         if existing:
 
-            return jsonify({
-                "status": "error",
-                "message": "Username already exists."
-            }), 409
+            if existing["status"] in (
+                "pending",
+                "active"
+            ):
 
+                existing_start = (
+                    existing["start_date"]
+                )
 
-        # =========================
-        # VALIDATE PROGRAMS
-        # =========================
+                existing_end = (
+                    existing["end_date"]
+                )
 
-        if role == "trainer":
+                overlap = (
+                    existing_start <= end_date_obj
+                    and
+                    existing_end >= start_date_obj
+                )
 
-            placeholders = ",".join(
-                ["%s"] * len(programs)
-            )
-
-            cursor.execute(
-                f"""
-                SELECT id
-                FROM programs
-                WHERE id IN ({placeholders})
-                AND active = 1
-                """,
-                tuple(programs)
-            )
-
-            valid_programs = cursor.fetchall()
-
-            valid_ids = {
-                int(row["id"])
-                for row in valid_programs
-            }
-
-
-            # Check if every selected
-            # program actually exists
-
-            for program_id in programs:
-
-                if program_id not in valid_ids:
+                if overlap:
 
                     return jsonify({
+
                         "status": "error",
-                        "message": "One or more selected programs are invalid."
-                    }), 400
 
+                        "message":
+                            "You already have a trainer during the selected dates.",
 
-        # =========================
-        # GENERATE USER ID
-        # =========================
+                        "existing_trainer":
+                            existing["trainer_name"],
 
-        if role == "staff":
+                        "existing_start_date":
+                            existing_start.strftime(
+                                "%Y-%m-%d"
+                            ),
 
-            prefix = "S"
+                        "existing_end_date":
+                            existing_end.strftime(
+                                "%Y-%m-%d"
+                            ),
 
-        else:
+                        "existing_status":
+                            existing["status"]
 
-            prefix = "T"
+                    }), 409
 
+        # =================================================
+        # DETERMINE REQUEST ACTION
+        # =================================================
 
-        # Get the highest existing ID
-        # instead of using COUNT()
+        action = "created"
+        request_status = "pending"
 
-        cursor.execute("""
-            SELECT user_id
-            FROM user_accounts
-            WHERE role=%s
-            ORDER BY CAST(SUBSTRING(user_id, 2) AS UNSIGNED) DESC
-            LIMIT 1
-        """, (
-            role,
-        ))
-
-        row = cursor.fetchone()
-
-        if row and row["user_id"]:
-
-            last_number = int(
-                row["user_id"][1:]
-            )
-
-        else:
-
-            last_number = 0
-
-
-        total = last_number + 1
-
-        user_id = f"{prefix}{total:04d}"
-
-
-        # =========================
-        # CREATE ACCOUNT
-        # =========================
+        # =================================================
+        # INSERT NEW TRAINER REQUEST
+        # =================================================
 
         cursor.execute("""
-            INSERT INTO user_accounts
+            INSERT INTO trainer_trainees
             (
-                user_id,
-                fullname,
-                username,
-                password,
-                role
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status
             )
+
             VALUES
             (
                 %s,
                 %s,
                 %s,
                 %s,
+                %s,
+                %s,
+                %s,
                 %s
             )
+
         """, (
-            user_id,
-            fullname,
-            username,
-            password,
-            role
+
+            trainer_id,
+
+            member_id,
+
+            program_id,
+
+            program_plan_id,
+
+            plan_id,
+
+            start_date_obj,
+
+            end_date_obj,
+
+            request_status
+
         ))
 
+        request_id = cursor.lastrowid
 
-        # =========================
-        # SAVE TRAINER PRICES
-        # ONE SET ONLY
-        # =========================
+        # =================================================
+        # CREATE TRAINER MESSAGE
+        # MEMBER -> TRAINER
+        # =================================================
 
-        if role == "trainer":
+        print(
+            "CREATING TRAINER MESSAGE..."
+        )
 
-            cursor.execute("""
-                INSERT INTO trainer_plans
-                (
-                    trainer_id,
-                    plan_name,
-                    duration_days,
-                    price,
-                    active
-                )
-                VALUES
-                    (%s, '1 Day', 1, %s, 1),
-                    (%s, '1 Week', 7, %s, 1),
-                    (%s, '1 Month', 30, %s, 1)
-            """, (
+        cursor.execute("""
+            INSERT INTO messages
+            (
                 user_id,
-                price_day,
+                sender_id,
+                sender_name,
+                sender_role,
+                title,
+                message,
+                reason,
+                receiver_role,
+                is_read
+            )
 
-                user_id,
-                price_week,
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                0
+            )
 
-                user_id,
-                price_month
-            ))
+        """, (
 
+            # RECEIVER = TRAINER
+            trainer["user_id"],
 
-        # =========================
-        # SAVE TRAINER PROGRAMS
-        # NO PRICES HERE
-        # =========================
+            # SENDER = MEMBER
+            member_id,
 
-        if role == "trainer":
+            # MEMBER NAME
+            member["full_name"],
 
-            for program_id in programs:
+            # SENDER ROLE
+            "member",
 
-                cursor.execute("""
-                    INSERT INTO trainer_programs
-                    (
-                        trainer_id,
-                        program_id,
-                        active
-                    )
-                    VALUES
-                    (
-                        %s,
-                        %s,
-                        1
-                    )
-                """, (
-                    user_id,
-                    program_id
-                ))
+            # TITLE
+            "NEW TRAINER REQUEST",
 
+            # MESSAGE
+            f"{member['full_name']} sent you a trainer request.",
 
-        # =========================
+            # REASON
+            "-",
+
+            # RECEIVER ROLE
+            "trainer"
+
+        ))
+
+        trainer_message_id = cursor.lastrowid
+
+        print(
+            "TRAINER MESSAGE CREATED:",
+            trainer_message_id
+        )
+
+        # =================================================
         # COMMIT
-        # =========================
+        # =================================================
 
         conn.commit()
 
-
-        # =========================================================
-        # SYNC TRAINER PLANS TO TURNSTILE
-        # ADDED ONLY
-        # =========================================================
-
-        if role == "trainer":
-
-            trainer_plans = [
-
-                {
-                    "plan_name": "1 Day",
-                    "duration_days": 1,
-                    "price": price_day
-                },
-
-                {
-                    "plan_name": "1 Week",
-                    "duration_days": 7,
-                    "price": price_week
-                },
-
-                {
-                    "plan_name": "1 Month",
-                    "duration_days": 30,
-                    "price": price_month
-                }
-
-            ]
-
-
-            for plan in trainer_plans:
-
-                try:
-
-                    response = requests.post(
-
-                        f"{RENDER_API}/api/sync/trainer-plan",
-
-                        json={
-
-                            "trainer_id": user_id,
-
-                            "plan_name":
-                                plan["plan_name"],
-
-                            "duration_days":
-                                plan["duration_days"],
-
-                            "price":
-                                plan["price"],
-
-                            "active":
-                                1
-
-                        },
-
-                        timeout=15
-
-                    )
-
-
-                    print(
-                        "========== TRAINER PLAN SYNC =========="
-                    )
-
-                    print(
-                        "TRAINER :",
-                        user_id
-                    )
-
-                    print(
-                        "PLAN    :",
-                        plan["plan_name"]
-                    )
-
-                    print(
-                        "STATUS  :",
-                        response.status_code
-                    )
-
-                    print(
-                        "TEXT    :",
-                        response.text
-                    )
-
-                    print(
-                        "======================================="
-                    )
-
-
-                except Exception as e:
-
-                    print(
-                        "[TRAINER PLAN SYNC ERROR]",
-                        plan["plan_name"],
-                        str(e)
-                    )
-
-
-        # =========================
-        # LOG
-        # =========================
-
-        print("================================")
-        print("ACCOUNT CREATED")
-        print("USER ID :", user_id)
-        print("ROLE    :", role)
-
-        if role == "trainer":
-
-            print("PROGRAMS :", programs)
-            print("1 DAY    :", price_day)
-            print("1 WEEK   :", price_week)
-            print("1 MONTH  :", price_month)
-
-        print("================================")
-
-
-        # =========================
+        # =================================================
         # RESPONSE
-        # =========================
+        # =================================================
 
         return jsonify({
 
-            "status": "success",
+            "status":
+                "success",
 
             "message":
-                "Trainer account, pricing, and programs created successfully."
-                if role == "trainer"
-                else
-                "Staff account created successfully.",
+                "Trainer request submitted successfully.",
 
-            "user_id": user_id
+            "action":
+                action,
+
+            "request_id":
+                request_id,
+
+            "member_id":
+                member_id,
+
+            "member_name":
+                member["full_name"],
+
+            "trainer_id":
+                trainer_id,
+
+            "trainer_name":
+                trainer["fullname"],
+
+            "program_id":
+                program["id"],
+
+            "program_name":
+                program["program_name"],
+
+            "program_duration_days":
+                program["duration_days"],
+
+            "program_plan_id":
+                program_plan["id"],
+
+            "program_plan_name":
+                program_plan["plan_name"],
+
+            "plan_id":
+                plan["id"],
+
+            "plan_name":
+                plan["plan_name"],
+
+            "trainer_rate_duration_days":
+                plan["duration_days"],
+
+            "price":
+                str(plan["price"]),
+
+            "start_date":
+                start_date_obj.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "end_date":
+                end_date_obj.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "status":
+                request_status
 
         }), 201
-
-
-    # =========================
-    # ERROR
-    # =========================
 
     except Exception as e:
 
         if conn:
-
             conn.rollback()
 
-
         print(
-            "CREATE STAFF ERROR:",
+            "CREATE TRAINER REQUEST ERROR:",
             e
         )
 
-
         return jsonify({
 
-            "status": "error",
+            "status":
+                "error",
 
-            "message": str(e)
+            "message":
+                str(e)
 
         }), 500
-
-
-    # =========================
-    # CLOSE CONNECTION
-    # =========================
 
     finally:
 
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
-
-
-
-
+         
+# =========================================================
+# CHANGE TRAINER
+# MEMBER CHANGES TRAINER
+# CURRENT PROGRAM + SPLIT MUST REMAIN THE SAME
+# =========================================================
 # =========================================================
 # CHANGE TRAINER
 # MEMBER CHANGES TRAINER
@@ -12127,17 +12203,33 @@ def create_staff_account():
             prefix = "T"
 
 
+        # Get the highest existing ID
+        # instead of using COUNT()
+
         cursor.execute("""
-            SELECT COUNT(*) AS total
+            SELECT user_id
             FROM user_accounts
             WHERE role=%s
+            ORDER BY CAST(SUBSTRING(user_id, 2) AS UNSIGNED) DESC
+            LIMIT 1
         """, (
             role,
         ))
 
         row = cursor.fetchone()
 
-        total = int(row["total"]) + 1
+        if row and row["user_id"]:
+
+            last_number = int(
+                row["user_id"][1:]
+            )
+
+        else:
+
+            last_number = 0
+
+
+        total = last_number + 1
 
         user_id = f"{prefix}{total:04d}"
 
@@ -12415,6 +12507,7 @@ def create_staff_account():
         if conn:
 
             conn.close()
+
 
 
 @app.route("/api/programs", methods=["GET"])
