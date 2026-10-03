@@ -12127,7 +12127,7 @@ def create_staff_account():
 
 
         # =========================
-        # CHECK USERNAME
+        # CHECK DUPLICATE USERNAME
         # =========================
 
         cursor.execute("""
@@ -12315,6 +12315,105 @@ def create_staff_account():
         conn.commit()
 
 
+        # =========================================================
+        # SYNC TRAINER PLANS TO TURNSTILE
+        # ADDED ONLY
+        # =========================================================
+
+        if role == "trainer":
+
+            trainer_plans = [
+
+                {
+                    "plan_name": "1 Day",
+                    "duration_days": 1,
+                    "price": price_day
+                },
+
+                {
+                    "plan_name": "1 Week",
+                    "duration_days": 7,
+                    "price": price_week
+                },
+
+                {
+                    "plan_name": "1 Month",
+                    "duration_days": 30,
+                    "price": price_month
+                }
+
+            ]
+
+
+            for plan in trainer_plans:
+
+                try:
+
+                    response = requests.post(
+
+                        f"{RENDER_API}/api/sync/trainer-plan",
+
+                        json={
+
+                            "trainer_id": user_id,
+
+                            "plan_name":
+                                plan["plan_name"],
+
+                            "duration_days":
+                                plan["duration_days"],
+
+                            "price":
+                                plan["price"],
+
+                            "active":
+                                1
+
+                        },
+
+                        timeout=15
+
+                    )
+
+
+                    print(
+                        "========== TRAINER PLAN SYNC =========="
+                    )
+
+                    print(
+                        "TRAINER :",
+                        user_id
+                    )
+
+                    print(
+                        "PLAN    :",
+                        plan["plan_name"]
+                    )
+
+                    print(
+                        "STATUS  :",
+                        response.status_code
+                    )
+
+                    print(
+                        "TEXT    :",
+                        response.text
+                    )
+
+                    print(
+                        "======================================="
+                    )
+
+
+                except Exception as e:
+
+                    print(
+                        "[TRAINER PLAN SYNC ERROR]",
+                        plan["plan_name"],
+                        str(e)
+                    )
+
+
         # =========================
         # LOG
         # =========================
@@ -12392,6 +12491,7 @@ def create_staff_account():
         if conn:
 
             conn.close()
+
 
 @app.route("/api/programs", methods=["GET"])
 def get_programs():
