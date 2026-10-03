@@ -29,7 +29,58 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
+@app.route("/api/local/trainer_plans", methods=["GET"])
+def get_local_trainer_plans():
 
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                plan_name,
+                duration_days,
+                price,
+                active
+            FROM trainer_plans
+            WHERE active = 1
+            ORDER BY trainer_id, duration_days
+        """)
+
+        rows = cursor.fetchall()
+
+        data = []
+
+        for row in rows:
+
+            data.append({
+                "id": row[0],
+                "trainer_id": row[1],
+                "plan_name": row[2],
+                "duration_days": row[3],
+                "price": row[4],
+                "active": row[5]
+            })
+
+        return jsonify({
+            "status": "success",
+            "data": data
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
 @app.route("/api/trainer_plans", methods=["GET"])
 def get_trainer_plans():
 
