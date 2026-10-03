@@ -29,6 +29,281 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
+
+
+# ============================================================
+# TRAINER SYNC
+# RAILWAY → TURNSTILE
+# ============================================================
+
+@app.route("/api/sync/trainer", methods=["POST"])
+@require_api_key
+def sync_trainer():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        # ====================================================
+        # GET TRAINER DATA
+        # ====================================================
+
+        user_id = data.get("user_id")
+        username = data.get("username")
+        password = data.get("password")
+        role = data.get("role")
+        fullname = data.get("fullname")
+        plans = data.get("plans", [])
+
+        # ====================================================
+        # BASIC VALIDATION
+        # ====================================================
+
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "message": "user_id is required"
+            }), 400
+
+        if role != "trainer":
+            return jsonify({
+                "success": False,
+                "message": "Only trainer accounts can be synced"
+            }), 400
+
+        if not isinstance(plans, list):
+            return jsonify({
+                "success": False,
+                "message": "plans must be an array"
+            }), 400
+
+        # ====================================================
+        # DATABASE
+        # ====================================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        # ====================================================
+        # CHECK IF TRAINER ACCOUNT EXISTS
+        # ====================================================
+
+        cursor.execute("""
+            SELECT id
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (user_id,))
+
+        existing_account = cursor.fetchone()
+
+        # ====================================================
+        # INSERT / UPDATE USER ACCOUNT
+        # ====================================================
+
+        if existing_account:
+
+            cursor.execute("""
+                UPDATE user_accounts
+                SET
+                    username = %s,
+                    password = %s,
+                    role = %s,
+                    fullname = %s
+                WHERE user_id = %s
+            """, (
+                username,
+                password,
+                role,
+                fullname,
+                user_id
+            ))
+
+            account_action = "updated"
+
+        else:
+
+            cursor.execute("""
+                INSERT INTO user_accounts
+                (
+                    user_id,
+                    username,
+                    password,
+                    role,
+                    fullname
+                )
+                VALUES
+                (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
+            """, (
+                user_id,
+                username,
+                password,
+                role,
+                fullname
+            ))
+
+            account_action = "created"
+
+        # ====================================================
+        # SYNC TRAINER PLANS
+        # ====================================================
+
+        synced_plans = []
+
+        for plan in plans:
+
+            plan_name = plan.get("plan_name")
+            duration_days = plan.get("duration_days")
+            price = plan.get("price")
+            active = plan.get("active", 1)
+
+            if not plan_name:
+                continue
+
+            # -----------------------------------------------
+            # CHECK EXISTING PLAN
+            # -----------------------------------------------
+
+            cursor.execute("""
+                SELECT id
+                FROM trainer_plans
+                WHERE trainer_id = %s
+                  AND plan_name = %s
+                LIMIT 1
+            """, (
+                user_id,
+                plan_name
+            ))
+
+            existing_plan = cursor.fetchone()
+
+            # -----------------------------------------------
+            # UPDATE
+            # -----------------------------------------------
+
+            if existing_plan:
+
+                cursor.execute("""
+                    UPDATE trainer_plans
+                    SET
+                        duration_days = %s,
+                        price = %s,
+                        active = %s
+                    WHERE trainer_id = %s
+                      AND plan_name = %s
+                """, (
+                    duration_days,
+                    price,
+                    active,
+                    user_id,
+                    plan_name
+                ))
+
+                plan_action = "updated"
+
+            # -----------------------------------------------
+            # INSERT
+            # -----------------------------------------------
+
+            else:
+
+                cursor.execute("""
+                    INSERT INTO trainer_plans
+                    (
+                        trainer_id,
+                        plan_name,
+                        duration_days,
+                        price,
+                        active
+                    )
+                    VALUES
+                    (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s
+                    )
+                """, (
+                    user_id,
+                    plan_name,
+                    duration_days,
+                    price,
+                    active
+                ))
+
+                plan_action = "created"
+
+            synced_plans.append({
+                "plan_name": plan_name,
+                "duration_days": duration_days,
+                "price": price,
+                "active": active,
+                "action": plan_action
+            })
+
+        # ====================================================
+        # COMMIT
+        # ====================================================
+
+        conn.commit()
+
+        # ====================================================
+        # RESPONSE
+        # ====================================================
+
+        return jsonify({
+            "success": True,
+            "message": "Trainer synced successfully",
+            "trainer_id": user_id,
+            "account_action": account_action,
+            "plans": synced_plans
+        }), 200
+
+    # ========================================================
+    # ERROR
+    # ========================================================
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "TRAINER SYNC ERROR:",
+            e
+        )
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    # ========================================================
+    # CLOSE
+    # ========================================================
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
 @app.route("/api/activate_account", methods=["POST"])
 
 @app.route("/api/member/attendance/<user_id>", methods=["GET"])
