@@ -11986,6 +11986,7 @@ def get_attendance():
 
             conn.close()
         
+
 @app.route("/api/create_staff_account",
            methods=["POST"])
 def create_staff_account():
@@ -12333,7 +12334,6 @@ def create_staff_account():
 
         # =========================================================
         # SYNC TRAINER PLANS TO TURNSTILE
-        # ADDED ONLY
         # =========================================================
 
         if role == "trainer":
@@ -12365,9 +12365,58 @@ def create_staff_account():
 
                 try:
 
+                    print(
+                        "========== BEFORE TRAINER PLAN REQUEST =========="
+                    )
+
+                    print(
+                        "REQUESTS OBJECT :",
+                        requests
+                    )
+
+                    print(
+                        "REQUESTS TYPE   :",
+                        type(requests)
+                    )
+
+                    print(
+                        "REQUESTS.POST   :",
+                        requests.post
+                    )
+
+                    print(
+                        "POST TYPE       :",
+                        type(requests.post)
+                    )
+
+                    print(
+                        "URL             :",
+                        f"{RENDER_API}/api/sync/trainer-plan"
+                    )
+
+                    print(
+                        "PLAN            :",
+                        plan
+                    )
+
+                    print(
+                        "TRAINER ID      :",
+                        user_id
+                    )
+
+                    print(
+                        "================================================="
+                    )
+
+
                     response = requests.post(
 
                         f"{RENDER_API}/api/sync/trainer-plan",
+
+                        headers={
+                            "X-API-KEY": API_KEY,
+                            "Content-Type": "application/json"
+                        },
 
                         json={
 
@@ -12393,7 +12442,7 @@ def create_staff_account():
 
 
                     print(
-                        "========== TRAINER PLAN SYNC =========="
+                        "========== AFTER TRAINER PLAN REQUEST =========="
                     )
 
                     print(
@@ -12417,7 +12466,7 @@ def create_staff_account():
                     )
 
                     print(
-                        "======================================="
+                        "================================================"
                     )
 
 
