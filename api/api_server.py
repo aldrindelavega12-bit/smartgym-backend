@@ -30,14 +30,13 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
-
 @app.route("/api/trainer_plans", methods=["GET"])
 def get_trainer_plans():
 
-    try:
+    conn = get_connection()
+    cursor = conn.cursor()
 
-        connection = mysql.connection
-        cursor = connection.cursor(dictionary=True)
+    try:
 
         cursor.execute("""
             SELECT
@@ -48,27 +47,45 @@ def get_trainer_plans():
                 price,
                 active
             FROM trainer_plans
-            ORDER BY id
+            ORDER BY id ASC
         """)
 
-        data = cursor.fetchall()
+        rows = cursor.fetchall()
 
-        cursor.close()
+        data = []
+
+        for row in rows:
+
+            data.append({
+
+                "id": row[0],
+                "trainer_id": row[1],
+                "plan_name": row[2],
+                "duration_days": row[3],
+                "price": row[4],
+                "active": row[5]
+
+            })
 
         return jsonify({
-            "success": True,
+            "status": "success",
             "data": data
         })
 
     except Exception as e:
 
-        print(e)
-
         return jsonify({
-            "success": False,
-            "error": str(e)
+            "status": "error",
+            "message": str(e)
         }), 500
-    
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
+
+
 @app.route("/api/member/attendance/<user_id>", methods=["GET"])
 def get_member_attendance(user_id):
 
