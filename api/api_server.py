@@ -56,7 +56,60 @@ def require_api_key(f):
 # TRAINER PLAN SYNC
 # RAILWAY → TURNSTILE
 # ============================================================
+@app.route("/api/trainer-plans/<trainer_id>", methods=["GET"])
+def get_trainer_plans(trainer_id):
 
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT
+                trainer_id,
+                plan_name,
+                duration_days,
+                price,
+                active
+            FROM trainer_plans
+            WHERE trainer_id = %s
+            ORDER BY duration_days ASC
+        """, (
+            trainer_id,
+        ))
+
+        plans = cursor.fetchall()
+
+        return jsonify({
+            "success": True,
+            "data": plans
+        }), 200
+
+    except Exception as e:
+
+        print(
+            "GET TRAINER PLANS ERROR:",
+            e
+        )
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 @app.route("/api/sync/trainer-plan", methods=["POST"])
 @require_api_key
 def sync_trainer_plan():
@@ -11987,8 +12040,10 @@ def get_attendance():
             conn.close()
         
 
-@app.route("/api/create_staff_account",
-           methods=["POST"])
+
+
+
+@app.route("/api/create_staff_account", methods=["POST"])
 def create_staff_account():
 
     conn = None
@@ -12134,7 +12189,7 @@ def create_staff_account():
         cursor.execute("""
             SELECT id
             FROM user_accounts
-            WHERE username=%s
+            WHERE username = %s
             LIMIT 1
         """, (
             username,
@@ -12178,8 +12233,7 @@ def create_staff_account():
             }
 
 
-            # Check if every selected
-            # program actually exists
+            # Check every selected program
 
             for program_id in programs:
 
@@ -12204,14 +12258,17 @@ def create_staff_account():
             prefix = "T"
 
 
-        # Get the highest existing ID
-        # instead of using COUNT()
+        # Get highest existing ID
 
         cursor.execute("""
             SELECT user_id
             FROM user_accounts
-            WHERE role=%s
-            ORDER BY CAST(SUBSTRING(user_id, 2) AS UNSIGNED) DESC
+            WHERE role = %s
+            ORDER BY
+                CAST(
+                    SUBSTRING(user_id, 2)
+                    AS UNSIGNED
+                ) DESC
             LIMIT 1
         """, (
             role,
@@ -12266,8 +12323,8 @@ def create_staff_account():
 
 
         # =========================
-        # SAVE TRAINER PRICES
-        # ONE SET ONLY
+        # SAVE TRAINER PLANS
+        # RAILWAY ONLY
         # =========================
 
         if role == "trainer":
@@ -12299,7 +12356,6 @@ def create_staff_account():
 
         # =========================
         # SAVE TRAINER PROGRAMS
-        # NO PRICES HERE
         # =========================
 
         if role == "trainer":
@@ -12330,153 +12386,6 @@ def create_staff_account():
         # =========================
 
         conn.commit()
-
-
-        # =========================================================
-        # SYNC TRAINER PLANS TO TURNSTILE
-        # =========================================================
-
-        if role == "trainer":
-
-            trainer_plans = [
-
-                {
-                    "plan_name": "1 Day",
-                    "duration_days": 1,
-                    "price": price_day
-                },
-
-                {
-                    "plan_name": "1 Week",
-                    "duration_days": 7,
-                    "price": price_week
-                },
-
-                {
-                    "plan_name": "1 Month",
-                    "duration_days": 30,
-                    "price": price_month
-                }
-
-            ]
-
-
-            for plan in trainer_plans:
-
-                try:
-
-                    print(
-                        "========== BEFORE TRAINER PLAN REQUEST =========="
-                    )
-
-                    print(
-                        "REQUESTS OBJECT :",
-                        requests
-                    )
-
-                    print(
-                        "REQUESTS TYPE   :",
-                        type(requests)
-                    )
-
-                    print(
-                        "REQUESTS.POST   :",
-                        requests.post
-                    )
-
-                    print(
-                        "POST TYPE       :",
-                        type(requests.post)
-                    )
-
-                    print(
-                        "URL             :",
-                        f"{RENDER_API}/api/sync/trainer-plan"
-                    )
-
-                    print(
-                        "PLAN            :",
-                        plan
-                    )
-
-                    print(
-                        "TRAINER ID      :",
-                        user_id
-                    )
-
-                    print(
-                        "================================================="
-                    )
-
-
-                    response = requests.post(
-
-                        f"{RENDER_API}/api/sync/trainer-plan",
-
-                        headers={
-                            "X-API-KEY": API_KEY,
-                            "Content-Type": "application/json"
-                        },
-
-                        json={
-
-                            "trainer_id": user_id,
-
-                            "plan_name":
-                                plan["plan_name"],
-
-                            "duration_days":
-                                plan["duration_days"],
-
-                            "price":
-                                plan["price"],
-
-                            "active":
-                                1
-
-                        },
-
-                        timeout=15
-
-                    )
-
-
-                    print(
-                        "========== AFTER TRAINER PLAN REQUEST =========="
-                    )
-
-                    print(
-                        "TRAINER :",
-                        user_id
-                    )
-
-                    print(
-                        "PLAN    :",
-                        plan["plan_name"]
-                    )
-
-                    print(
-                        "STATUS  :",
-                        response.status_code
-                    )
-
-                    print(
-                        "TEXT    :",
-                        response.text
-                    )
-
-                    print(
-                        "================================================"
-                    )
-
-
-                except Exception as e:
-
-                    print(
-                        "[TRAINER PLAN SYNC ERROR]",
-                        plan["plan_name"],
-                        str(e)
-                    )
 
 
         # =========================
@@ -12512,7 +12421,8 @@ def create_staff_account():
                 else
                 "Staff account created successfully.",
 
-            "user_id": user_id
+            "user_id":
+                user_id
 
         }), 201
 
@@ -12538,7 +12448,8 @@ def create_staff_account():
 
             "status": "error",
 
-            "message": str(e)
+            "message":
+                str(e)
 
         }), 500
 
@@ -12556,6 +12467,10 @@ def create_staff_account():
         if conn:
 
             conn.close()
+
+
+
+
 
 
 
