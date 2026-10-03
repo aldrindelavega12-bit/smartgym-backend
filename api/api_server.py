@@ -29,8 +29,45 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
-@app.route("/api/activate_account", methods=["POST"])
 
+@app.route("/api/trainer_plans", methods=["GET"])
+def get_trainer_plans():
+
+    try:
+
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                plan_name,
+                duration_days,
+                price,
+                active
+            FROM trainer_plans
+            ORDER BY id
+        """)
+
+        data = cursor.fetchall()
+
+        cursor.close()
+        connection.close()
+
+        return jsonify({
+            "success": True,
+            "data": data
+        })
+
+    except Exception as e:
+
+        print(e)
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 @app.route("/api/member/attendance/<user_id>", methods=["GET"])
 def get_member_attendance(user_id):
 
@@ -1682,7 +1719,7 @@ def send_password_reset_otp():
 
         cursor.close()
         conn.close()
-
+@app.route("/api/activate_account", methods=["POST"])
 def activate_account():
 
     data = request.get_json()
