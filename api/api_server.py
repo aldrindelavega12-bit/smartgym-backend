@@ -110,6 +110,10 @@ def get_trainer_plans(trainer_id):
 
         if conn:
             conn.close()
+            
+            
+                     
+         
 @app.route("/api/sync/trainer-plan", methods=["POST"])
 @require_api_key
 def sync_trainer_plan():
@@ -8699,12 +8703,47 @@ def get_sync_version(resource):
 )
 def sync_account():
 
+    conn = None
+    cursor = None
+
     try:
 
-        data = request.get_json()
+        data = request.get_json() or {}
 
-        execute_query(
-            """
+        user_id = data["user_id"]
+        username = data["username"]
+        password = data["password"]
+        role = data["role"]
+        fullname = data["fullname"]
+
+
+        # ==========================================
+        # CHECK IF ACCOUNT ALREADY EXISTS
+        # ==========================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute("""
+            SELECT id
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (
+            user_id,
+        ))
+
+        existing_account = cursor.fetchone()
+
+
+        # ==========================================
+        # SAVE / UPDATE USER ACCOUNT
+        # ==========================================
+
+        cursor.execute("""
             INSERT INTO user_accounts
             (
                 user_id,
@@ -8713,7 +8752,6 @@ def sync_account():
                 role,
                 fullname
             )
-
             VALUES
             (
                 %s,
@@ -8732,23 +8770,199 @@ def sync_account():
                 role = VALUES(role),
 
                 fullname = VALUES(fullname)
-            """,
+        """, (
+            user_id,
+            username,
+            password,
+            role,
+            fullname
+        ))
 
-            (
 
-                data["user_id"],
+        conn.commit()
 
-                data["username"],
 
-                data["password"],
+        print("================================")
+        print("ACCOUNT SYNCED")
+        print("USER ID :", user_id)
+        print("ROLE    :", role)
+        print("NEW     :", existing_account is None)
+        print("================================")
 
-                data["role"],
 
-                data["fullname"]
+        # ==========================================
+        # NEW TRAINER ONLY
+        # GET TRAINER PLANS
+        # ==========================================
 
-            )
+        if role == "trainer" and existing_account is None:
 
-        )
+            try:
+
+                print("================================")
+                print("NEW TRAINER DETECTED")
+                print("GETTING TRAINER PLANS...")
+                print("TRAINER ID :", user_id)
+                print("================================")
+
+
+                response = requests.get(
+                    f"{RENDER_API}/api/trainer-plans/{user_id}",
+                    timeout=15
+                )
+
+
+                print("TRAINER PLAN GET STATUS :",
+                      response.status_code)
+
+                print("TRAINER PLAN GET RESPONSE :",
+                      response.text)
+
+
+                if response.status_code == 200:
+
+                    result = response.json()
+
+                    if result.get("success"):
+
+                        plans = result.get(
+                            "data",
+                            []
+                        )
+
+
+                        # ==================================
+                        # SAVE TRAINER PLANS
+                        # ==================================
+
+                        for plan in plans:
+
+                            trainer_id = plan.get(
+                                "trainer_id"
+                            )
+
+                            plan_name = plan.get(
+                                "plan_name"
+                            )
+
+                            duration_days = plan.get(
+                                "duration_days"
+                            )
+
+                            price = plan.get(
+                                "price"
+                            )
+
+                            active = plan.get(
+                                "active",
+                                1
+                            )
+
+
+                            if not trainer_id:
+                                continue
+
+                            if not plan_name:
+                                continue
+
+
+                            cursor.execute("""
+                                SELECT id
+                                FROM trainer_plans
+                                WHERE trainer_id = %s
+                                AND plan_name = %s
+                                LIMIT 1
+                            """, (
+                                trainer_id,
+                                plan_name
+                            ))
+
+
+                            existing_plan = cursor.fetchone()
+
+
+                            if existing_plan:
+
+                                cursor.execute("""
+                                    UPDATE trainer_plans
+                                    SET
+                                        duration_days = %s,
+                                        price = %s,
+                                        active = %s
+                                    WHERE trainer_id = %s
+                                    AND plan_name = %s
+                                """, (
+                                    duration_days,
+                                    price,
+                                    active,
+                                    trainer_id,
+                                    plan_name
+                                ))
+
+                            else:
+
+                                cursor.execute("""
+                                    INSERT INTO trainer_plans
+                                    (
+                                        trainer_id,
+                                        plan_name,
+                                        duration_days,
+                                        price,
+                                        active
+                                    )
+                                    VALUES
+                                    (
+                                        %s,
+                                        %s,
+                                        %s,
+                                        %s,
+                                        %s
+                                    )
+                                """, (
+                                    trainer_id,
+                                    plan_name,
+                                    duration_days,
+                                    price,
+                                    active
+                                ))
+
+
+                        conn.commit()
+
+
+                        print("================================")
+                        print("TRAINER PLANS SYNCED")
+                        print("TRAINER ID :", user_id)
+                        print("PLANS      :", len(plans))
+                        print("================================")
+
+
+                    else:
+
+                        print(
+                            "TRAINER PLAN GET FAILED:",
+                            result
+                        )
+
+                else:
+
+                    print(
+                        "TRAINER PLAN GET HTTP ERROR:",
+                        response.status_code
+                    )
+
+
+            except Exception as plan_error:
+
+                print(
+                    "TRAINER PLAN SYNC ERROR:",
+                    plan_error
+                )
+
+
+        # ==========================================
+        # RESPONSE
+        # ==========================================
 
         return jsonify({
 
@@ -8756,9 +8970,14 @@ def sync_account():
 
         })
 
+
     except Exception as e:
 
-        print(e)
+        print("SYNC ACCOUNT ERROR:", e)
+
+        if conn:
+
+            conn.rollback()
 
         return jsonify({
 
@@ -8766,8 +8985,18 @@ def sync_account():
 
             "error": str(e)
 
-        }),500
+        }), 500
 
+
+    finally:
+
+        if cursor:
+
+            cursor.close()
+
+        if conn:
+
+            conn.close()
 
 @app.route(
     "/api/create-member-account",
