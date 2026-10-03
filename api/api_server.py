@@ -30,12 +30,13 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+
 @app.route("/api/trainer_plans", methods=["GET"])
 def get_trainer_plans():
 
     try:
 
-        connection = get_db_connection()
+        connection = mysql.connection
         cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
@@ -53,7 +54,6 @@ def get_trainer_plans():
         data = cursor.fetchall()
 
         cursor.close()
-        connection.close()
 
         return jsonify({
             "success": True,
@@ -68,6 +68,7 @@ def get_trainer_plans():
             "success": False,
             "error": str(e)
         }), 500
+    
 @app.route("/api/member/attendance/<user_id>", methods=["GET"])
 def get_member_attendance(user_id):
 
