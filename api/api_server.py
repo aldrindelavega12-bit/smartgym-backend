@@ -31,14 +31,35 @@ API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
 
+
 # ============================================================
-# TRAINER SYNC
+# API KEY AUTHENTICATION
+# ============================================================
+
+def require_api_key(f):
+
+    from functools import wraps
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+
+        if request.headers.get("X-API-KEY") == API_KEY:
+            return f(*args, **kwargs)
+
+        return jsonify({
+            "error": "Unauthorized Access"
+        }), 401
+
+    return decorated
+
+# ============================================================
+# TRAINER PLAN SYNC
 # RAILWAY → TURNSTILE
 # ============================================================
 
-@app.route("/api/sync/trainer", methods=["POST"])
+@app.route("/api/sync/trainer-plan", methods=["POST"])
 @require_api_key
-def sync_trainer():
+def sync_trainer_plan():
 
     conn = None
     cursor = None
@@ -47,37 +68,38 @@ def sync_trainer():
 
         data = request.get_json() or {}
 
-        # ====================================================
-        # GET TRAINER DATA
-        # ====================================================
-
-        user_id = data.get("user_id")
-        username = data.get("username")
-        password = data.get("password")
-        role = data.get("role")
-        fullname = data.get("fullname")
-        plans = data.get("plans", [])
+        trainer_id = data.get("trainer_id")
+        plan_name = data.get("plan_name")
+        duration_days = data.get("duration_days")
+        price = data.get("price")
+        active = data.get("active", 1)
 
         # ====================================================
-        # BASIC VALIDATION
+        # VALIDATION
         # ====================================================
 
-        if not user_id:
+        if not trainer_id:
             return jsonify({
                 "success": False,
-                "message": "user_id is required"
+                "message": "trainer_id is required"
             }), 400
 
-        if role != "trainer":
+        if not plan_name:
             return jsonify({
                 "success": False,
-                "message": "Only trainer accounts can be synced"
+                "message": "plan_name is required"
             }), 400
 
-        if not isinstance(plans, list):
+        if duration_days is None:
             return jsonify({
                 "success": False,
-                "message": "plans must be an array"
+                "message": "duration_days is required"
+            }), 400
+
+        if price is None:
+            return jsonify({
+                "success": False,
+                "message": "price is required"
             }), 400
 
         # ====================================================
@@ -91,52 +113,60 @@ def sync_trainer():
         )
 
         # ====================================================
-        # CHECK IF TRAINER ACCOUNT EXISTS
+        # CHECK EXISTING TRAINER PLAN
         # ====================================================
 
         cursor.execute("""
             SELECT id
-            FROM user_accounts
-            WHERE user_id = %s
+            FROM trainer_plans
+            WHERE trainer_id = %s
+              AND plan_name = %s
             LIMIT 1
-        """, (user_id,))
+        """, (
+            trainer_id,
+            plan_name
+        ))
 
-        existing_account = cursor.fetchone()
+        existing = cursor.fetchone()
 
         # ====================================================
-        # INSERT / UPDATE USER ACCOUNT
+        # UPDATE EXISTING
         # ====================================================
 
-        if existing_account:
+        if existing:
 
             cursor.execute("""
-                UPDATE user_accounts
+                UPDATE trainer_plans
                 SET
-                    username = %s,
-                    password = %s,
-                    role = %s,
-                    fullname = %s
-                WHERE user_id = %s
+                    duration_days = %s,
+                    price = %s,
+                    active = %s
+                WHERE trainer_id = %s
+                  AND plan_name = %s
             """, (
-                username,
-                password,
-                role,
-                fullname,
-                user_id
+                duration_days,
+                price,
+                active,
+                trainer_id,
+                plan_name
             ))
 
-            account_action = "updated"
+            action = "updated"
+
+        # ====================================================
+        # INSERT NEW
+        # ====================================================
 
         else:
 
             cursor.execute("""
-                INSERT INTO user_accounts
+                INSERT INTO trainer_plans
                 (
-                    user_id,
-                    username,
-                    password,
-                    role,
-                    fullname
+                    trainer_id,
+                    plan_name,
+                    duration_days,
+                    price,
+                    active
                 )
                 VALUES
                 (
@@ -147,112 +177,14 @@ def sync_trainer():
                     %s
                 )
             """, (
-                user_id,
-                username,
-                password,
-                role,
-                fullname
+                trainer_id,
+                plan_name,
+                duration_days,
+                price,
+                active
             ))
 
-            account_action = "created"
-
-        # ====================================================
-        # SYNC TRAINER PLANS
-        # ====================================================
-
-        synced_plans = []
-
-        for plan in plans:
-
-            plan_name = plan.get("plan_name")
-            duration_days = plan.get("duration_days")
-            price = plan.get("price")
-            active = plan.get("active", 1)
-
-            if not plan_name:
-                continue
-
-            # -----------------------------------------------
-            # CHECK EXISTING PLAN
-            # -----------------------------------------------
-
-            cursor.execute("""
-                SELECT id
-                FROM trainer_plans
-                WHERE trainer_id = %s
-                  AND plan_name = %s
-                LIMIT 1
-            """, (
-                user_id,
-                plan_name
-            ))
-
-            existing_plan = cursor.fetchone()
-
-            # -----------------------------------------------
-            # UPDATE
-            # -----------------------------------------------
-
-            if existing_plan:
-
-                cursor.execute("""
-                    UPDATE trainer_plans
-                    SET
-                        duration_days = %s,
-                        price = %s,
-                        active = %s
-                    WHERE trainer_id = %s
-                      AND plan_name = %s
-                """, (
-                    duration_days,
-                    price,
-                    active,
-                    user_id,
-                    plan_name
-                ))
-
-                plan_action = "updated"
-
-            # -----------------------------------------------
-            # INSERT
-            # -----------------------------------------------
-
-            else:
-
-                cursor.execute("""
-                    INSERT INTO trainer_plans
-                    (
-                        trainer_id,
-                        plan_name,
-                        duration_days,
-                        price,
-                        active
-                    )
-                    VALUES
-                    (
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s
-                    )
-                """, (
-                    user_id,
-                    plan_name,
-                    duration_days,
-                    price,
-                    active
-                ))
-
-                plan_action = "created"
-
-            synced_plans.append({
-                "plan_name": plan_name,
-                "duration_days": duration_days,
-                "price": price,
-                "active": active,
-                "action": plan_action
-            })
+            action = "created"
 
         # ====================================================
         # COMMIT
@@ -260,16 +192,15 @@ def sync_trainer():
 
         conn.commit()
 
-        # ====================================================
-        # RESPONSE
-        # ====================================================
-
         return jsonify({
             "success": True,
-            "message": "Trainer synced successfully",
-            "trainer_id": user_id,
-            "account_action": account_action,
-            "plans": synced_plans
+            "message": "Trainer plan synced successfully",
+            "trainer_id": trainer_id,
+            "plan_name": plan_name,
+            "duration_days": duration_days,
+            "price": price,
+            "active": active,
+            "action": action
         }), 200
 
     # ========================================================
@@ -282,7 +213,7 @@ def sync_trainer():
             conn.rollback()
 
         print(
-            "TRAINER SYNC ERROR:",
+            "TRAINER PLAN SYNC ERROR:",
             e
         )
 
