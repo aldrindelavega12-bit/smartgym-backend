@@ -11982,7 +11982,7 @@ def create_staff_account():
         # GENERATE USER ID
         # =========================
 
-        if role == "staff"::
+        if role == "staff":
 
             prefix = "S"
 
