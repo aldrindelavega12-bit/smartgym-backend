@@ -12067,7 +12067,6 @@ def create_staff_account():
         price_week = data.get("price_week")
         price_month = data.get("price_month")
 
-        # Trainer programs
         programs = data.get("programs", [])
 
 
@@ -12097,7 +12096,6 @@ def create_staff_account():
 
         if role == "trainer":
 
-            # At least one program
             if not programs:
 
                 return jsonify({
@@ -12167,8 +12165,6 @@ def create_staff_account():
                 }), 400
 
 
-            # Remove duplicate programs
-
             programs = list(
                 dict.fromkeys(programs)
             )
@@ -12192,7 +12188,7 @@ def create_staff_account():
         cursor.execute("""
             SELECT id
             FROM user_accounts
-            WHERE username=%s
+            WHERE username = %s
             LIMIT 1
         """, (
             username,
@@ -12236,9 +12232,6 @@ def create_staff_account():
             }
 
 
-            # Check if every selected
-            # program actually exists
-
             for program_id in programs:
 
                 if program_id not in valid_ids:
@@ -12263,18 +12256,35 @@ def create_staff_account():
 
 
         cursor.execute("""
-            SELECT COUNT(*) AS total
+            SELECT user_id
             FROM user_accounts
-            WHERE role=%s
+            WHERE role = %s
+              AND user_id LIKE %s
+            ORDER BY
+                CAST(
+                    SUBSTRING(user_id, 2)
+                    AS UNSIGNED
+                ) DESC
+            LIMIT 1
         """, (
             role,
+            f"{prefix}%"
         ))
 
         row = cursor.fetchone()
 
-        total = int(row["total"]) + 1
+        if row and row["user_id"]:
 
-        user_id = f"{prefix}{total:04d}"
+            last_number = int(
+                row["user_id"][1:]
+            )
+
+        else:
+
+            last_number = 0
+
+
+        user_id = f"{prefix}{last_number + 1:04d}"
 
 
         # =========================
@@ -12309,7 +12319,6 @@ def create_staff_account():
 
         # =========================
         # SAVE TRAINER PRICES
-        # ONE SET ONLY
         # =========================
 
         if role == "trainer":
@@ -12341,7 +12350,6 @@ def create_staff_account():
 
         # =========================
         # SAVE TRAINER PROGRAMS
-        # NO PRICES HERE
         # =========================
 
         if role == "trainer":
@@ -12372,6 +12380,105 @@ def create_staff_account():
         # =========================
 
         conn.commit()
+
+
+        # =========================
+        # SYNC TRAINER PLANS
+        # TO TURNSTILE
+        # =========================
+
+        if role == "trainer":
+
+            trainer_plans = [
+
+                {
+                    "plan_name": "1 Day",
+                    "duration_days": 1,
+                    "price": price_day
+                },
+
+                {
+                    "plan_name": "1 Week",
+                    "duration_days": 7,
+                    "price": price_week
+                },
+
+                {
+                    "plan_name": "1 Month",
+                    "duration_days": 30,
+                    "price": price_month
+                }
+
+            ]
+
+
+            for plan in trainer_plans:
+
+                try:
+
+                    response = requests.post(
+
+                        f"{RENDER_API}/api/sync/trainer-plan",
+
+                        json={
+
+                            "trainer_id": user_id,
+
+                            "plan_name":
+                                plan["plan_name"],
+
+                            "duration_days":
+                                plan["duration_days"],
+
+                            "price":
+                                plan["price"],
+
+                            "active":
+                                1
+
+                        },
+
+                        timeout=15
+
+                    )
+
+
+                    print(
+                        "========== TRAINER PLAN SYNC =========="
+                    )
+
+                    print(
+                        "TRAINER :",
+                        user_id
+                    )
+
+                    print(
+                        "PLAN    :",
+                        plan["plan_name"]
+                    )
+
+                    print(
+                        "STATUS  :",
+                        response.status_code
+                    )
+
+                    print(
+                        "TEXT    :",
+                        response.text
+                    )
+
+                    print(
+                        "======================================="
+                    )
+
+
+                except Exception as e:
+
+                    print(
+                        "[TRAINER PLAN SYNC ERROR]",
+                        plan["plan_name"],
+                        str(e)
+                    )
 
 
         # =========================
@@ -12407,7 +12514,8 @@ def create_staff_account():
                 else
                 "Staff account created successfully.",
 
-            "user_id": user_id
+            "user_id":
+                user_id
 
         }), 201
 
@@ -12433,7 +12541,8 @@ def create_staff_account():
 
             "status": "error",
 
-            "message": str(e)
+            "message":
+                str(e)
 
         }), 500
 
@@ -12451,8 +12560,6 @@ def create_staff_account():
         if conn:
 
             conn.close()
-
-
 
 
 
