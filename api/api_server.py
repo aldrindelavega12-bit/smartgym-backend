@@ -9078,46 +9078,147 @@ def api_get_locker_overtime(user_id):
 @app.route("/api/payment_updated", methods=["POST"])
 def payment_updated():
 
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
 
     try:
 
+        print("\n========== PAYMENT SYNC ==========")
+        print("DATA:", data)
+
+        # ==========================================
+        # REQUIRED FIELDS
+        # ==========================================
+
+        required = [
+            "member_id",
+            "payment_type",
+            "amount"
+        ]
+
+        for field in required:
+
+            if field not in data:
+
+                return jsonify({
+                    "success": False,
+                    "message": f"{field} is required"
+                }), 400
+
+        conn = get_connection()
+
+        cursor = conn.cursor()
+
+        # ==========================================
+        # UPDATE MEMBER
+        # ==========================================
+
+        membership_type = data.get(
+            "membership_type"
+        )
+
+        membership_expires = data.get(
+            "membership_expires"
+        )
+
+        monthly_expires = data.get(
+            "monthly_expires"
+        )
+
+        # Only update membership information
+        # when this payment contains it.
+
+        if membership_type is not None:
+
+            cursor.execute("""
+
+                UPDATE members
+
+                SET
+
+                    membership_type=%s,
+                    membership_expires=%s,
+                    monthly_expires=%s
+
+                WHERE id=%s
+
+            """, (
+
+                membership_type,
+                membership_expires,
+                monthly_expires,
+                data["member_id"]
+
+            ))
+
+        # ==========================================
+        # SAVE PAYMENT
+        # ==========================================
+
         cursor.execute("""
 
-            UPDATE members
+            INSERT INTO payments
+            (
+                user_id,
+                payment_type,
+                amount,
+                trainer_id,
+                paid_at
+            )
 
-            SET
-
-                membership_type=%s,
-                membership_expires=%s,
-                monthly_expires=%s
-
-            WHERE id=%s
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
 
         """, (
 
-            data["membership_type"],
-            data["membership_expires"],
-            data["monthly_expires"],
-            data["member_id"]
+            data["member_id"],
+            data["payment_type"],
+            data["amount"],
+            data.get("trainer_id"),
+            data.get("paid_at")
 
         ))
 
+        payment_id = cursor.lastrowid
+
         conn.commit()
+
+        print(
+            "[PAYMENT SYNC] Payment saved:",
+            payment_id
+        )
+
+        print("=================================\n")
 
         return jsonify({
 
             "success": True,
-            "message": "Payment synchronized."
 
-        })
+            "message":
+                "Payment synchronized.",
+
+            "payment_id":
+                payment_id
+
+        }), 200
 
     except Exception as e:
 
-        conn.rollback()
+        if conn:
+            conn.rollback()
+
+        print(
+            "[PAYMENT SYNC ERROR]",
+            str(e)
+        )
 
         return jsonify({
 
@@ -9128,8 +9229,11 @@ def payment_updated():
 
     finally:
 
-        cursor.close()
-        conn.close()
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
         
 @app.route("/api/member_created", methods=["POST"])
 def member_created():
