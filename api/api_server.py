@@ -9093,6 +9093,7 @@ def payment_updated():
         # ==========================================
 
         required = [
+            "payment_id",
             "member_id",
             "payment_type",
             "amount"
@@ -9110,6 +9111,43 @@ def payment_updated():
         conn = get_connection()
 
         cursor = conn.cursor()
+
+        # ==========================================
+        # CHECK DUPLICATE PAYMENT
+        # ==========================================
+
+        cursor.execute("""
+            SELECT
+                id
+            FROM payments
+            WHERE source_payment_id = %s
+            LIMIT 1
+        """, (
+            data["payment_id"],
+        ))
+
+        existing = cursor.fetchone()
+
+        if existing:
+
+            print(
+                "[PAYMENT SYNC] Payment already exists:",
+                existing["id"]
+                if isinstance(existing, dict)
+                else existing[0]
+            )
+
+            existing_payment_id = (
+                existing["id"]
+                if isinstance(existing, dict)
+                else existing[0]
+            )
+
+            return jsonify({
+                "success": True,
+                "message": "Payment already synchronized.",
+                "payment_id": existing_payment_id
+            }), 200
 
         # ==========================================
         # UPDATE MEMBER
@@ -9133,24 +9171,17 @@ def payment_updated():
         if membership_type is not None:
 
             cursor.execute("""
-
                 UPDATE members
-
                 SET
-
                     membership_type=%s,
                     membership_expires=%s,
                     monthly_expires=%s
-
                 WHERE id=%s
-
             """, (
-
                 membership_type,
                 membership_expires,
                 monthly_expires,
                 data["member_id"]
-
             ))
 
         # ==========================================
@@ -9158,33 +9189,31 @@ def payment_updated():
         # ==========================================
 
         cursor.execute("""
-
             INSERT INTO payments
             (
                 user_id,
                 payment_type,
                 amount,
                 trainer_id,
-                paid_at
+                paid_at,
+                source_payment_id
             )
-
             VALUES
             (
                 %s,
                 %s,
                 %s,
                 %s,
+                %s,
                 %s
             )
-
         """, (
-
             data["member_id"],
             data["payment_type"],
             data["amount"],
             data.get("trainer_id"),
-            data.get("paid_at")
-
+            data.get("paid_at"),
+            data["payment_id"]
         ))
 
         payment_id = cursor.lastrowid
@@ -9194,6 +9223,11 @@ def payment_updated():
         print(
             "[PAYMENT SYNC] Payment saved:",
             payment_id
+        )
+
+        print(
+            "[PAYMENT SYNC] Source Payment ID:",
+            data["payment_id"]
         )
 
         print("=================================\n")
@@ -9206,13 +9240,17 @@ def payment_updated():
                 "Payment synchronized.",
 
             "payment_id":
-                payment_id
+                payment_id,
+
+            "source_payment_id":
+                data["payment_id"]
 
         }), 200
 
     except Exception as e:
 
         if conn:
+
             conn.rollback()
 
         print(
@@ -9223,16 +9261,20 @@ def payment_updated():
         return jsonify({
 
             "success": False,
-            "error": str(e)
+
+            "error":
+                str(e)
 
         }), 500
 
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
+
             conn.close()
         
 @app.route("/api/member_created", methods=["POST"])
