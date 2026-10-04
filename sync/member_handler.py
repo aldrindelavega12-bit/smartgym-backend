@@ -2,7 +2,6 @@ from db.connection import get_connection
 from sync.face_installer import remove_face_package
 
 
-
 def handle_member_created(payload):
 
     connection = get_connection()
@@ -33,18 +32,24 @@ def handle_member_created(payload):
                 id,
                 full_name,
                 fingerprint_template,
-                phone_number
+                phone_number,
+                membership_type,
+                membership_expires,
+                monthly_expires
 
             )
 
-            VALUES(%s,%s,%s,%s)
+            VALUES(%s,%s,%s,%s,%s,%s,%s)
             """,
             (
 
                 payload["member_id"],
                 payload["full_name"],
                 payload["fp_template"],
-                payload["phone_number"]
+                payload["phone_number"],
+                payload.get("membership_type"),
+                payload.get("membership_expires"),
+                payload.get("monthly_expires")
 
             )
         )
@@ -72,16 +77,17 @@ def handle_member_created(payload):
         )
 
         connection.commit()
+
         cursor.execute("""
-        UPDATE sync_versions
-        SET version = version + 1
-        WHERE resource='members'
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource='members'
         """)
 
         cursor.execute("""
-        UPDATE sync_versions
-        SET version = version + 1
-        WHERE resource='fingerprints'
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource='fingerprints'
         """)
 
         connection.commit()

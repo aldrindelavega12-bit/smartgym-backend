@@ -18,6 +18,10 @@ from datetime import datetime
 import requests
 from datetime import datetime, timedelta, date
 app = Flask(__name__)
+from services.backup_service import (
+    create_database_backup,
+    get_railway_connection
+)
 
 CORS(app)
     
@@ -29,6 +33,472 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
+# =========================================================
+# SET TRAINEE PROGRAM
+# TRAINER SELECTS PROGRAM + PLAN/SPLIT + PROGRAM START DATE
+# =========================================================
+
+@app.route(
+    "/api/trainer/trainee/program",
+    methods=["POST"]
+)
+def set_trainer_trainee_program():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        # =====================================================
+        # GET REQUEST DATA
+        # =====================================================
+
+        data = request.get_json() or {}
+
+        assignment_id = data.get("assignment_id")
+        trainer_id = data.get("trainer_id")
+        member_id = data.get("member_id")
+
+        program_id = data.get("program_id")
+        program_plan_id = data.get("program_plan_id")
+
+        program_start_date = data.get(
+            "program_start_date"
+        )
+
+
+        # =====================================================
+        # VALIDATION
+        # =====================================================
+
+        if not assignment_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Assignment ID is required."
+            }), 400
+
+
+        if not trainer_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Trainer ID is required."
+            }), 400
+
+
+        if not member_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+
+        if not program_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program ID is required."
+            }), 400
+
+
+        if not program_plan_id:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program Plan ID is required."
+            }), 400
+
+
+        if not program_start_date:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program starting date is required."
+            }), 400
+
+
+        # =====================================================
+        # VALIDATE DATE
+        # =====================================================
+
+        try:
+
+            program_start_date_obj = datetime.strptime(
+                str(program_start_date),
+                "%Y-%m-%d"
+            ).date()
+
+        except ValueError:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "Invalid program starting date. "
+                    "Use YYYY-MM-DD."
+            }), 400
+
+
+        # =====================================================
+        # DATABASE CONNECTION
+        # =====================================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+
+        # =====================================================
+        # CHECK TRAINER ASSIGNMENT
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                program_start_date,
+                start_date,
+                end_date,
+                status
+
+            FROM trainer_trainees
+
+            WHERE id = %s
+              AND trainer_id = %s
+              AND member_id = %s
+
+            LIMIT 1
+        """, (
+            assignment_id,
+            trainer_id,
+            member_id
+        ))
+
+        assignment = cursor.fetchone()
+
+
+        if not assignment:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "Trainer assignment not found."
+            }), 404
+
+
+        # =====================================================
+        # CHECK PROGRAM
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_name
+
+            FROM programs
+
+            WHERE id = %s
+              AND active = 1
+
+            LIMIT 1
+        """, (
+            program_id,
+        ))
+
+        program = cursor.fetchone()
+
+
+        if not program:
+
+            return jsonify({
+                "status": "error",
+                "message": "Program not found or inactive."
+            }), 404
+
+
+        # =====================================================
+        # CHECK PROGRAM PLAN
+        # MAKE SURE PLAN BELONGS TO SELECTED PROGRAM
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_id,
+                plan_name
+
+            FROM program_plans
+
+            WHERE id = %s
+              AND program_id = %s
+              AND active = 1
+
+            LIMIT 1
+        """, (
+            program_plan_id,
+            program_id
+        ))
+
+        program_plan = cursor.fetchone()
+
+
+        if not program_plan:
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "Program plan does not belong "
+                    "to the selected program."
+            }), 400
+
+
+        # =====================================================
+        # UPDATE TRAINEE PROGRAM
+        #
+        # IMPORTANT:
+        # DO NOT TOUCH:
+        # start_date
+        # end_date
+        # plan_id
+        #
+        # Those belong to trainer payment/rate period.
+        # =====================================================
+
+        cursor.execute("""
+            UPDATE trainer_trainees
+
+            SET
+                program_id = %s,
+                program_plan_id = %s,
+                program_start_date = %s
+
+            WHERE id = %s
+              AND trainer_id = %s
+              AND member_id = %s
+        """, (
+            program_id,
+            program_plan_id,
+            program_start_date_obj,
+            assignment_id,
+            trainer_id,
+            member_id
+        ))
+
+
+        # =====================================================
+        # CHECK UPDATE
+        # =====================================================
+
+        if cursor.rowcount == 0:
+
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message":
+                    "No changes were made."
+            }), 400
+
+
+        # =====================================================
+        # COMMIT
+        # =====================================================
+
+        conn.commit()
+
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        return jsonify({
+
+            "status": "success",
+
+            "message":
+                "Program assigned successfully.",
+
+            "trainee": {
+
+                "assignment_id":
+                    assignment_id,
+
+                "trainer_id":
+                    trainer_id,
+
+                "member_id":
+                    member_id,
+
+                "program_id":
+                    program_id,
+
+                "program_name":
+                    program["program_name"],
+
+                "program_plan_id":
+                    program_plan_id,
+
+                "program_plan_name":
+                    program_plan["plan_name"],
+
+                "program_start_date":
+                    program_start_date_obj.strftime(
+                        "%Y-%m-%d"
+                    )
+            }
+
+        }), 200
+
+
+    # =========================================================
+    # ERROR
+    # =========================================================
+
+    except Exception as e:
+
+        if conn:
+
+            conn.rollback()
+
+
+        print(
+            "SET TRAINEE PROGRAM ERROR:",
+            e
+        )
+
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
+
+
+    # =========================================================
+    # CLOSE
+    # =========================================================
+
+    finally:
+
+        if cursor:
+
+            cursor.close()
+
+        if conn:
+
+            conn.close()
+# =========================================================
+# ADMIN - DATABASE BACKUP
+# =========================================================
+
+@app.route("/api/admin/backup", methods=["POST"])
+def admin_create_database_backup():
+
+    try:
+
+        # -------------------------------------------------
+        # CREATE RAILWAY DATABASE BACKUP
+        # -------------------------------------------------
+
+        result = create_database_backup()
+
+        if not result.get("success"):
+            return jsonify({
+                "success": False,
+                "message": "Database backup failed.",
+                "error": result.get("error")
+            }), 500
+
+        # -------------------------------------------------
+        # SAVE BACKUP RECORD TO RAILWAY DATABASE
+        # -------------------------------------------------
+
+        conn = None
+        cursor = None
+
+        try:
+
+            conn = get_railway_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO system_backups
+                (
+                    backup_type,
+                    backup_mode,
+                    file_name,
+                    file_path,
+                    file_size,
+                    status,
+                    created_by
+                )
+                VALUES
+                (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
+            """, (
+                "database",
+                "manual",
+                result["filename"],
+                result["filepath"],
+                result["file_size"],
+                "completed",
+                "admin"
+            ))
+
+            conn.commit()
+
+            backup_id = cursor.lastrowid
+
+        finally:
+
+            if cursor:
+                cursor.close()
+
+            if conn:
+                conn.close()
+
+        # -------------------------------------------------
+        # RESPONSE
+        # -------------------------------------------------
+
+        return jsonify({
+            "success": True,
+            "message": "Railway database backup created successfully.",
+            "backup": {
+                "id": backup_id,
+                "file_name": result["filename"],
+                "file_size": result["file_size"],
+                "tables": result["tables"],
+                "views": result["views"],
+                "rows": result["rows"],
+                "database": result["database"],
+                "created_at": result["created_at"],
+                "status": "completed"
+            }
+        }), 200
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "message": "Database backup failed.",
+            "error": str(e)
+        }), 500
 
 
 @app.route("/api/trainer_assignment_created", methods=["POST"])
