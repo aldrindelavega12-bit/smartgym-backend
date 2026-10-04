@@ -12513,6 +12513,22 @@ def missed_trainer_workout(workout_id):
         if conn:
 
             conn.close()
+
+
+@app.route("/api/admin/railway-config-test")
+def railway_config_test():
+
+    import os
+
+    return {
+        "host_exists": bool(os.getenv("RAILWAY_DB_HOST")),
+        "port_exists": bool(os.getenv("RAILWAY_DB_PORT")),
+        "user_exists": bool(os.getenv("RAILWAY_DB_USER")),
+        "password_exists": bool(os.getenv("RAILWAY_DB_PASSWORD")),
+        "database_exists": bool(os.getenv("RAILWAY_DB_NAME")),
+        "host_value": os.getenv("RAILWAY_DB_HOST"),
+        "port_value": os.getenv("RAILWAY_DB_PORT")
+    }
             
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
