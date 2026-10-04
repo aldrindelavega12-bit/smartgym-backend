@@ -24,7 +24,7 @@ from services.backup_service import (
 )
 
 CORS(app)
-    
+import re 
 socketio = SocketIO(
     app,
     cors_allowed_origins="*"
@@ -1169,20 +1169,37 @@ def admin_restore_database():
                 if not clean_statement:
                     continue
 
-                # Ignore comments
-                if clean_statement.startswith("--"):
+                # -------------------------------------------------
+                # REMOVE SQL COMMENTS BEFORE PROCESSING
+                # -------------------------------------------------
+
+                clean_statement = re.sub(
+                    r"^\s*(?:--[^\n]*(?:\n|$)\s*)+",
+                    "",
+                    clean_statement,
+                    flags=re.MULTILINE
+                ).strip()
+
+                if not clean_statement:
                     continue
 
-                # Ignore USE statement
-                # because connection already targets Railway DB
+                # -------------------------------------------------
+                # IGNORE USE STATEMENT
+                # -------------------------------------------------
+
                 if clean_statement.upper().startswith("USE "):
                     continue
 
-                # Ignore CREATE DATABASE
-                if clean_statement.upper().startswith(
-                    "CREATE DATABASE"
-                ):
+                # -------------------------------------------------
+                # IGNORE CREATE DATABASE
+                # -------------------------------------------------
+
+                if clean_statement.upper().startswith("CREATE DATABASE"):
                     continue
+
+                # -------------------------------------------------
+                # EXECUTE
+                # -------------------------------------------------
 
                 cursor.execute(clean_statement)
 
@@ -11965,6 +11982,10 @@ def complete_trainer_workout(workout_id):
             conn.close()
 
          
+# ==========================================
+# MARK TRAINER WORKOUT AS MISSED
+# ==========================================
+
 @app.route(
     "/api/trainer/workout/<int:workout_id>/missed",
     methods=["POST"]
@@ -11973,6 +11994,9 @@ def missed_trainer_workout(workout_id):
 
     conn = None
     cursor = None
+
+    lock_name = None
+    lock_acquired = False
 
     try:
 
@@ -11989,6 +12013,9 @@ def missed_trainer_workout(workout_id):
 
         # ==========================================
         # GET CURRENT WORKOUT
+        #
+        # IMPORTANT:
+        # NO FOR UPDATE HERE
         # ==========================================
 
         cursor.execute("""
@@ -12004,7 +12031,6 @@ def missed_trainer_workout(workout_id):
 
             WHERE id = %s
 
-            FOR UPDATE
         """, (
             workout_id,
         ))
@@ -12071,7 +12097,128 @@ def missed_trainer_workout(workout_id):
 
 
         # ==========================================
+        # CREATE MEMBER/TRAINER LOCK
+        #
+        # This prevents two Missed requests
+        # from shifting the same schedule at
+        # the same time.
+        # ==========================================
+
+        lock_name = (
+            f"missed_schedule:"
+            f"{trainer_id}:"
+            f"{member_id}"
+        )
+
+        cursor.execute(
+            """
+            SELECT GET_LOCK(%s, 10)
+            AS lock_result
+            """,
+            (
+                lock_name,
+            )
+        )
+
+        lock_result = cursor.fetchone()
+
+        if not lock_result or lock_result["lock_result"] != 1:
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Another schedule update is "
+                    "currently in progress. "
+                    "Please try again."
+                )
+            }), 409
+
+        lock_acquired = True
+
+
+        # ==========================================
+        # RE-CHECK CURRENT WORKOUT STATUS
+        #
+        # Important when two requests were sent
+        # almost at the same time.
+        # ==========================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+
+            FROM trainer_workout_schedule
+
+            WHERE id = %s
+
+            LIMIT 1
+
+        """, (
+            workout_id,
+        ))
+
+        workout = cursor.fetchone()
+
+
+        if not workout:
+
+            return jsonify({
+                "status": "error",
+                "message": "Workout not found."
+            }), 404
+
+
+        if workout["status"] != "scheduled":
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Only scheduled workouts "
+                    "can be marked as missed."
+                )
+            }), 400
+
+
+        # ==========================================
+        # REFRESH WORKOUT DATA
+        # ==========================================
+
+        member_id = workout["member_id"]
+
+        trainer_id = workout["trainer_id"]
+
+        missed_date = workout["workout_date"]
+
+        missed_workout_name = (
+            workout["workout_name"]
+            or ""
+        ).strip()
+
+
+        # ==========================================
+        # NORMALIZE DATE
+        # ==========================================
+
+        if isinstance(
+            missed_date,
+            str
+        ):
+
+            missed_date = datetime.strptime(
+                missed_date,
+                "%Y-%m-%d"
+            ).date()
+
+
+        # ==========================================
         # MARK CURRENT WORKOUT AS MISSED
+        #
+        # SAME LOGIC
         # ==========================================
 
         cursor.execute("""
@@ -12083,6 +12230,7 @@ def missed_trainer_workout(workout_id):
             WHERE id = %s
 
               AND status = 'scheduled'
+
         """, (
             workout_id,
         ))
@@ -12107,18 +12255,25 @@ def missed_trainer_workout(workout_id):
 
         # ==========================================
         # SHIFT ALL FUTURE SCHEDULES BY +1 DAY
+        #
+        # SAME RULE — DO NOT CHANGE
         # ==========================================
 
         cursor.execute("""
             UPDATE trainer_workout_schedule
 
-            SET workout_date = DATE_ADD(workout_date, INTERVAL 1 DAY)
+            SET workout_date =
+                DATE_ADD(
+                    workout_date,
+                    INTERVAL 1 DAY
+                )
 
             WHERE member_id = %s
 
               AND trainer_id = %s
 
               AND workout_date > %s
+
         """, (
             member_id,
             trainer_id,
@@ -12133,6 +12288,8 @@ def missed_trainer_workout(workout_id):
         # INSERT ONE NEXT-DAY WORKOUT
         #
         # SAME WORKOUT THAT WAS MISSED
+        #
+        # SAME RULE — DO NOT CHANGE
         # ==========================================
 
         next_date = (
@@ -12159,6 +12316,7 @@ def missed_trainer_workout(workout_id):
                 %s,
                 'scheduled'
             )
+
         """, (
             member_id,
             trainer_id,
@@ -12306,8 +12464,13 @@ def missed_trainer_workout(workout_id):
 
 
         return jsonify({
-            "status": "error",
-            "message": str(e)
+
+            "status":
+                "error",
+
+            "message":
+                str(e)
+
         }), 500
 
 
@@ -12317,9 +12480,35 @@ def missed_trainer_workout(workout_id):
 
     finally:
 
+        # ======================================
+        # RELEASE MYSQL NAMED LOCK
+        # ======================================
+
+        if cursor and lock_acquired:
+
+            try:
+
+                cursor.execute(
+                    """
+                    SELECT RELEASE_LOCK(%s)
+                    """,
+                    (
+                        lock_name,
+                    )
+                )
+
+            except Exception as lock_error:
+
+                print(
+                    "RELEASE MISSED LOCK ERROR:",
+                    lock_error
+                )
+
+
         if cursor:
 
             cursor.close()
+
 
         if conn:
 
