@@ -30,6 +30,158 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+
+@app.route("/api/trainer_assignment_created", methods=["POST"])
+def trainer_assignment_created():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        print("\n========== TRAINER ASSIGNMENT SYNC ==========")
+        print("DATA:", data)
+
+        required = [
+            "trainer_id",
+            "member_id",
+            "plan_id",
+            "start_date",
+            "end_date"
+        ]
+
+        for field in required:
+
+            if not data.get(field):
+
+                return jsonify({
+                    "success": False,
+                    "message": f"{field} is required"
+                }), 400
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        # CHECK EXISTING ASSIGNMENT
+        cursor.execute("""
+            SELECT
+                id
+            FROM trainer_trainees
+            WHERE member_id = %s
+              AND trainer_id = %s
+              AND plan_id = %s
+              AND start_date = %s
+              AND end_date = %s
+            LIMIT 1
+        """, (
+            data["member_id"],
+            data["trainer_id"],
+            data["plan_id"],
+            data["start_date"],
+            data["end_date"]
+        ))
+
+        existing = cursor.fetchone()
+
+        if existing:
+
+            print(
+                "[TRAINER SYNC] Already exists:",
+                existing["id"]
+            )
+
+            return jsonify({
+                "success": True,
+                "message": "Trainer assignment already exists.",
+                "assignment_id": existing["id"]
+            }), 200
+
+        # INSERT
+        cursor.execute("""
+            INSERT INTO trainer_trainees
+            (
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status,
+                request_type
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+        """, (
+            data["trainer_id"],
+            data["member_id"],
+            data.get("program_id"),
+            data.get("program_plan_id"),
+            data["plan_id"],
+            data["start_date"],
+            data["end_date"],
+            data.get("status", "active"),
+            data.get("request_type", "standard")
+        ))
+
+        conn.commit()
+
+        assignment_id = cursor.lastrowid
+
+        print(
+            "[TRAINER SYNC] Inserted:",
+            assignment_id
+        )
+
+        return jsonify({
+            "success": True,
+            "message": "Trainer assignment synced successfully.",
+            "assignment_id": assignment_id,
+            "member_id": data["member_id"],
+            "trainer_id": data["trainer_id"]
+        }), 200
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "\n========== TRAINER SYNC ERROR =========="
+        )
+        print("ERROR:", e)
+        traceback.print_exc()
+        print("========================================\n")
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
 @app.route("/api/local/user_accounts", methods=["GET"])
 def get_local_user_accounts():
 
@@ -8922,105 +9074,7 @@ def api_get_locker_overtime(user_id):
 
         cursor.close()
         connection.close()
-        
-@app.route("/api/trainer_assignment_created", methods=["POST"])
-def trainer_assignment_created():
-    data = request.get_json()
 
-    required = [
-        "trainer_id",
-        "member_id",
-        "plan_id",
-        "start_date",
-        "end_date"
-    ]
-
-    for field in required:
-        if field not in data:
-            return jsonify({
-                "status": "error",
-                "message": f"Missing field: {field}"
-            }), 400
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("""
-            SELECT id
-            FROM trainer_trainees
-            WHERE member_id = %s
-              AND trainer_id = %s
-              AND plan_id = %s
-              AND start_date = %s
-              AND end_date = %s
-            LIMIT 1
-        """, (
-            data["member_id"],
-            data["trainer_id"],
-            data["plan_id"],
-            data["start_date"],
-            data["end_date"]
-        ))
-
-        existing = cursor.fetchone()
-
-        if existing:
-            return jsonify({
-                "status": "success",
-                "message": "Trainer assignment already exists.",
-                "assignment_id": existing[0]
-            }), 200
-
-        cursor.execute("""
-            INSERT INTO trainer_trainees
-            (
-                member_id,
-                trainer_id,
-                program_id,
-                program_plan_id,
-                plan_id,
-                start_date,
-                end_date,
-                status,
-                request_type
-            )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (
-            data["member_id"],
-            data["trainer_id"],
-            data.get("program_id"),
-            data.get("program_plan_id"),
-            data["plan_id"],
-            data["start_date"],
-            data["end_date"],
-            data.get("status", "active"),
-            data.get("request_type", "standard")
-        ))
-
-        conn.commit()
-
-        return jsonify({
-            "status": "success",
-            "message": "Trainer assignment synced successfully.",
-            "assignment_id": cursor.lastrowid,
-            "member_id": data["member_id"],
-            "trainer_id": data["trainer_id"]
-        }), 200
-
-    except Exception as e:
-
-        conn.rollback()
-
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-
-    finally:
-        cursor.close()
-        conn.close()
-        
 @app.route("/api/payment_updated", methods=["POST"])
 def payment_updated():
 
