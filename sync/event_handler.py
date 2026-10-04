@@ -6,7 +6,9 @@ from sync.member_handler import (
 from sync.payment_handler import (
     handle_payment_updated
 )
-
+from sync.trainer_handler import (
+    handle_trainer_assignment_created
+)
 from sync.walkin_handler import (
     handle_walkin_created,
     handle_walkin_deleted,
@@ -51,7 +53,10 @@ HANDLERS = {
 
     "FP_SYNC": handle_fp_sync,
 
-    "ACTIVATION_CREATED": handle_activation_created
+    "ACTIVATION_CREATED": handle_activation_created,
+    
+     "TRAINER_ASSIGNMENT_CREATED":
+        handle_trainer_assignment_created
 }
 
 
