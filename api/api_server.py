@@ -33,369 +33,7 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
-# =========================================================
-# SET TRAINEE PROGRAM
-# TRAINER SELECTS PROGRAM + PLAN/SPLIT + PROGRAM START DATE
-# =========================================================
-
-@app.route(
-    "/api/trainer/trainee/program",
-    methods=["POST"]
-)
-def set_trainer_trainee_program():
-
-    conn = None
-    cursor = None
-
-    try:
-
-        # =====================================================
-        # GET REQUEST DATA
-        # =====================================================
-
-        data = request.get_json() or {}
-
-        assignment_id = data.get("assignment_id")
-        trainer_id = data.get("trainer_id")
-        member_id = data.get("member_id")
-
-        program_id = data.get("program_id")
-        program_plan_id = data.get("program_plan_id")
-
-        program_start_date = data.get(
-            "program_start_date"
-        )
-
-
-        # =====================================================
-        # VALIDATION
-        # =====================================================
-
-        if not assignment_id:
-
-            return jsonify({
-                "status": "error",
-                "message": "Assignment ID is required."
-            }), 400
-
-
-        if not trainer_id:
-
-            return jsonify({
-                "status": "error",
-                "message": "Trainer ID is required."
-            }), 400
-
-
-        if not member_id:
-
-            return jsonify({
-                "status": "error",
-                "message": "Member ID is required."
-            }), 400
-
-
-        if not program_id:
-
-            return jsonify({
-                "status": "error",
-                "message": "Program ID is required."
-            }), 400
-
-
-        if not program_plan_id:
-
-            return jsonify({
-                "status": "error",
-                "message": "Program Plan ID is required."
-            }), 400
-
-
-        if not program_start_date:
-
-            return jsonify({
-                "status": "error",
-                "message": "Program starting date is required."
-            }), 400
-
-
-        # =====================================================
-        # VALIDATE DATE
-        # =====================================================
-
-        try:
-
-            program_start_date_obj = datetime.strptime(
-                str(program_start_date),
-                "%Y-%m-%d"
-            ).date()
-
-        except ValueError:
-
-            return jsonify({
-                "status": "error",
-                "message":
-                    "Invalid program starting date. "
-                    "Use YYYY-MM-DD."
-            }), 400
-
-
-        # =====================================================
-        # DATABASE CONNECTION
-        # =====================================================
-
-        conn = get_connection()
-
-        cursor = conn.cursor(
-            pymysql.cursors.DictCursor
-        )
-
-
-        # =====================================================
-        # CHECK TRAINER ASSIGNMENT
-        # =====================================================
-
-        cursor.execute("""
-            SELECT
-                id,
-                trainer_id,
-                member_id,
-                program_id,
-                program_plan_id,
-                program_start_date,
-                start_date,
-                end_date,
-                status
-
-            FROM trainer_trainees
-
-            WHERE id = %s
-              AND trainer_id = %s
-              AND member_id = %s
-
-            LIMIT 1
-        """, (
-            assignment_id,
-            trainer_id,
-            member_id
-        ))
-
-        assignment = cursor.fetchone()
-
-
-        if not assignment:
-
-            return jsonify({
-                "status": "error",
-                "message":
-                    "Trainer assignment not found."
-            }), 404
-
-
-        # =====================================================
-        # CHECK PROGRAM
-        # =====================================================
-
-        cursor.execute("""
-            SELECT
-                id,
-                program_name
-
-            FROM programs
-
-            WHERE id = %s
-              AND active = 1
-
-            LIMIT 1
-        """, (
-            program_id,
-        ))
-
-        program = cursor.fetchone()
-
-
-        if not program:
-
-            return jsonify({
-                "status": "error",
-                "message": "Program not found or inactive."
-            }), 404
-
-
-        # =====================================================
-        # CHECK PROGRAM PLAN
-        # MAKE SURE PLAN BELONGS TO SELECTED PROGRAM
-        # =====================================================
-
-        cursor.execute("""
-            SELECT
-                id,
-                program_id,
-                plan_name
-
-            FROM program_plans
-
-            WHERE id = %s
-              AND program_id = %s
-              AND active = 1
-
-            LIMIT 1
-        """, (
-            program_plan_id,
-            program_id
-        ))
-
-        program_plan = cursor.fetchone()
-
-
-        if not program_plan:
-
-            return jsonify({
-                "status": "error",
-                "message":
-                    "Program plan does not belong "
-                    "to the selected program."
-            }), 400
-
-
-        # =====================================================
-        # UPDATE TRAINEE PROGRAM
-        #
-        # IMPORTANT:
-        # DO NOT TOUCH:
-        # start_date
-        # end_date
-        # plan_id
-        #
-        # Those belong to trainer payment/rate period.
-        # =====================================================
-
-        cursor.execute("""
-            UPDATE trainer_trainees
-
-            SET
-                program_id = %s,
-                program_plan_id = %s,
-                program_start_date = %s
-
-            WHERE id = %s
-              AND trainer_id = %s
-              AND member_id = %s
-        """, (
-            program_id,
-            program_plan_id,
-            program_start_date_obj,
-            assignment_id,
-            trainer_id,
-            member_id
-        ))
-
-
-        # =====================================================
-        # CHECK UPDATE
-        # =====================================================
-
-        if cursor.rowcount == 0:
-
-            conn.rollback()
-
-            return jsonify({
-                "status": "error",
-                "message":
-                    "No changes were made."
-            }), 400
-
-
-        # =====================================================
-        # COMMIT
-        # =====================================================
-
-        conn.commit()
-
-
-        # =====================================================
-        # RESPONSE
-        # =====================================================
-
-        return jsonify({
-
-            "status": "success",
-
-            "message":
-                "Program assigned successfully.",
-
-            "trainee": {
-
-                "assignment_id":
-                    assignment_id,
-
-                "trainer_id":
-                    trainer_id,
-
-                "member_id":
-                    member_id,
-
-                "program_id":
-                    program_id,
-
-                "program_name":
-                    program["program_name"],
-
-                "program_plan_id":
-                    program_plan_id,
-
-                "program_plan_name":
-                    program_plan["plan_name"],
-
-                "program_start_date":
-                    program_start_date_obj.strftime(
-                        "%Y-%m-%d"
-                    )
-            }
-
-        }), 200
-
-
-    # =========================================================
-    # ERROR
-    # =========================================================
-
-    except Exception as e:
-
-        if conn:
-
-            conn.rollback()
-
-
-        print(
-            "SET TRAINEE PROGRAM ERROR:",
-            e
-        )
-
-
-        return jsonify({
-
-            "status": "error",
-
-            "message": str(e)
-
-        }), 500
-
-
-    # =========================================================
-    # CLOSE
-    # =========================================================
-
-    finally:
-
-        if cursor:
-
-            cursor.close()
-
-        if conn:
-
-            conn.close()
-            
+# =========================================================      
 # =========================================================
 # SET TRAINER TRAINEE PROGRAM
 #
@@ -852,7 +490,313 @@ def set_trainer_trainee_program():
 # =========================================================
 # ADMIN - VALIDATE DATABASE BACKUP
 # =========================================================
+# =========================================================
+# ADMIN - RESTORE DATABASE
+# =========================================================
 
+@app.route("/api/admin/restore", methods=["POST"])
+def admin_restore_database():
+
+    uploaded_path = None
+    emergency_backup = None
+
+    try:
+
+        # =================================================
+        # 1. CHECK UPLOADED FILE
+        # =================================================
+
+        if "file" not in request.files:
+            return jsonify({
+                "success": False,
+                "message": "No backup file uploaded."
+            }), 400
+
+        file = request.files["file"]
+
+        if not file.filename:
+            return jsonify({
+                "success": False,
+                "message": "No backup file selected."
+            }), 400
+
+        if not file.filename.lower().endswith(".sql"):
+            return jsonify({
+                "success": False,
+                "message": "Only .sql backup files are allowed."
+            }), 400
+
+        # =================================================
+        # 2. SAVE TEMPORARY FILE
+        # =================================================
+
+        temp_dir = os.path.join(
+            os.path.dirname(
+                os.path.dirname(
+                    os.path.abspath(__file__)
+                )
+            ),
+            "backups",
+            "restore_temp"
+        )
+
+        os.makedirs(temp_dir, exist_ok=True)
+
+        uploaded_path = os.path.join(
+            temp_dir,
+            "restore_upload.sql"
+        )
+
+        file.save(uploaded_path)
+
+        # =================================================
+        # 3. VALIDATE SQL BACKUP
+        # =================================================
+
+        with open(
+            uploaded_path,
+            "r",
+            encoding="utf-8"
+        ) as sql_file:
+
+            sql_text = sql_file.read()
+
+        if not sql_text.strip():
+            return jsonify({
+                "success": False,
+                "message": "Backup file is empty."
+            }), 400
+
+        sql_upper = sql_text.upper()
+
+        if "CREATE TABLE" not in sql_upper:
+            return jsonify({
+                "success": False,
+                "message": "Invalid SQL backup. No CREATE TABLE statements found."
+            }), 400
+
+        if "INSERT INTO" not in sql_upper:
+            return jsonify({
+                "success": False,
+                "message": "Invalid SQL backup. No INSERT statements found."
+            }), 400
+
+        # =================================================
+        # 4. CREATE EMERGENCY BACKUP
+        # =================================================
+
+        emergency_backup = create_database_backup()
+
+        if not emergency_backup.get("success"):
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Restore cancelled. "
+                    "Emergency backup could not be created."
+                ),
+                "error": emergency_backup.get("error")
+            }), 500
+
+        # =================================================
+        # 5. CONNECT TO RAILWAY
+        # =================================================
+
+        conn = None
+        cursor = None
+
+        try:
+
+            conn = get_railway_connection()
+
+            cursor = conn.cursor()
+
+            # Disable FK checks
+            cursor.execute(
+                "SET FOREIGN_KEY_CHECKS=0"
+            )
+
+            # =================================================
+            # 6. SPLIT SQL STATEMENTS
+            # =================================================
+
+            statements = []
+
+            current_statement = []
+
+            in_single_quote = False
+            in_double_quote = False
+            in_backtick = False
+            escape_next = False
+
+            for char in sql_text:
+
+                if escape_next:
+
+                    current_statement.append(char)
+                    escape_next = False
+                    continue
+
+                if char == "\\":
+                    current_statement.append(char)
+                    escape_next = True
+                    continue
+
+                if char == "'" and not in_double_quote and not in_backtick:
+                    in_single_quote = not in_single_quote
+                    current_statement.append(char)
+                    continue
+
+                if char == '"' and not in_single_quote and not in_backtick:
+                    in_double_quote = not in_double_quote
+                    current_statement.append(char)
+                    continue
+
+                if char == "`" and not in_single_quote and not in_double_quote:
+                    in_backtick = not in_backtick
+                    current_statement.append(char)
+                    continue
+
+                if (
+                    char == ";"
+                    and not in_single_quote
+                    and not in_double_quote
+                    and not in_backtick
+                ):
+
+                    statement = "".join(
+                        current_statement
+                    ).strip()
+
+                    if statement:
+                        statements.append(statement)
+
+                    current_statement = []
+
+                else:
+                    current_statement.append(char)
+
+            # Last statement
+            statement = "".join(
+                current_statement
+            ).strip()
+
+            if statement:
+                statements.append(statement)
+
+            # =================================================
+            # 7. EXECUTE SQL
+            # =================================================
+
+            executed = 0
+
+            for statement in statements:
+
+                clean_statement = statement.strip()
+
+                if not clean_statement:
+                    continue
+
+                # Ignore comments
+                if clean_statement.startswith("--"):
+                    continue
+
+                # Ignore USE statement
+                # because connection already targets Railway DB
+                if clean_statement.upper().startswith("USE "):
+                    continue
+
+                # Ignore CREATE DATABASE
+                if clean_statement.upper().startswith(
+                    "CREATE DATABASE"
+                ):
+                    continue
+
+                cursor.execute(clean_statement)
+
+                executed += 1
+
+            # =================================================
+            # 8. RESTORE FOREIGN KEY CHECK
+            # =================================================
+
+            cursor.execute(
+                "SET FOREIGN_KEY_CHECKS=1"
+            )
+
+            conn.commit()
+
+        except Exception:
+
+            if conn:
+                conn.rollback()
+
+            try:
+                if cursor:
+                    cursor.execute(
+                        "SET FOREIGN_KEY_CHECKS=1"
+                    )
+                    conn.commit()
+            except Exception:
+                pass
+
+            raise
+
+        finally:
+
+            if cursor:
+                cursor.close()
+
+            if conn:
+                conn.close()
+
+        # =================================================
+        # 9. CLEAN TEMP FILE
+        # =================================================
+
+        try:
+            if uploaded_path and os.path.exists(uploaded_path):
+                os.remove(uploaded_path)
+        except Exception:
+            pass
+
+        # =================================================
+        # 10. RETURN RESULT
+        # =================================================
+
+        return jsonify({
+            "success": True,
+            "message": "Railway database restored successfully.",
+            "restore": {
+                "file_name": file.filename,
+                "statements_executed": executed,
+                "emergency_backup": {
+                    "id": emergency_backup.get("backup_id"),
+                    "file_name": emergency_backup.get("filename"),
+                    "file_size": emergency_backup.get("file_size")
+                }
+            }
+        }), 200
+
+    except Exception as e:
+
+        # Cleanup
+        try:
+            if uploaded_path and os.path.exists(uploaded_path):
+                os.remove(uploaded_path)
+        except Exception:
+            pass
+
+        return jsonify({
+            "success": False,
+            "message": "Database restore failed.",
+            "error": str(e),
+            "emergency_backup": (
+                emergency_backup
+                if emergency_backup
+                else None
+            )
+        }), 500
 @app.route("/api/admin/restore/validate", methods=["POST"])
 def admin_validate_backup():
 
