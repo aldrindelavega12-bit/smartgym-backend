@@ -12516,19 +12516,14 @@ def missed_trainer_workout(workout_id):
 
 
 @app.route("/api/admin/railway-config-test")
-def railway_config_test():
-
-    import os
-
-    return {
-        "host_exists": bool(os.getenv("RAILWAY_DB_HOST")),
-        "port_exists": bool(os.getenv("RAILWAY_DB_PORT")),
-        "user_exists": bool(os.getenv("RAILWAY_DB_USER")),
-        "password_exists": bool(os.getenv("RAILWAY_DB_PASSWORD")),
-        "database_exists": bool(os.getenv("RAILWAY_DB_NAME")),
-        "host_value": os.getenv("RAILWAY_DB_HOST"),
-        "port_value": os.getenv("RAILWAY_DB_PORT")
-    }
+def get_railway_connection():
+    return mysql.connector.connect(
+        host=os.getenv("DB_HOST"),
+        port=int(os.getenv("DB_PORT", 3306)),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME")
+    )
             
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
