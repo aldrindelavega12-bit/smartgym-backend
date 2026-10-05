@@ -39,75 +39,58 @@ def admin_get_user_accounts():
 
     try:
 
-        railway_url = (
-            f"{RENDER_API}/api/user_accounts"
-        )
+        railway_url = f"{RENDER_API}/api/user_accounts"
 
         response = requests.get(
             railway_url,
             timeout=10
         )
 
-
         if response.status_code != 200:
 
             return jsonify({
-
                 "status": "error",
-
-                "message":
-                    "Unable to retrieve user accounts from Railway."
-
+                "message": "Failed to retrieve user accounts."
             }), 502
 
+        result = response.json()
 
-        railway_data =
-            response.json()
+        users = result.get("data", [])
 
+        safe_users = []
+
+        for user in users:
+
+            safe_users.append({
+                "id": user.get("id"),
+                "user_id": user.get("user_id"),
+                "fullname": user.get("fullname"),
+                "username": user.get("username"),
+                "role": user.get("role"),
+                "created_at": user.get("created_at")
+            })
 
         return jsonify({
-
             "status": "success",
-
-            "data":
-                railway_data.get(
-                    "data",
-                    []
-                )
-
+            "data": safe_users
         }), 200
-
 
     except requests.exceptions.RequestException as e:
 
-        print(
-            "RAILWAY USER ACCOUNT ERROR:",
-            e
-        )
+        print("ADMIN USER ACCOUNT API ERROR:", e)
 
         return jsonify({
-
             "status": "error",
-
-            "message":
-                "Railway API is unavailable."
-
+            "message": "Unable to connect to user account service."
         }), 502
-
 
     except Exception as e:
 
-        print(
-            "ADMIN USER ACCOUNT ERROR:",
-            e
-        )
+        print("ADMIN USER ACCOUNT ERROR:", e)
 
         return jsonify({
-
             "status": "error",
-
             "message": str(e)
-
         }), 500
 # =========================================================
 # GENERATE TRAINEE PROGRAM SCHEDULE
