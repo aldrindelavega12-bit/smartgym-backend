@@ -18,11 +18,12 @@ from datetime import datetime
 import requests
 from datetime import datetime, timedelta, date
 app = Flask(__name__)
+import io
 from services.backup_service import (
     create_database_backup,
-    get_railway_connection
+    get_railway_connection,
+    download_backup_from_supabase
 )
-
 CORS(app)
 import re 
 socketio = SocketIO(
@@ -1454,6 +1455,7 @@ def admin_validate_backup():
             "message": "Failed to validate backup file.",
             "error": str(e)
         }), 500
+
 @app.route("/api/admin/backups/<int:backup_id>/download", methods=["GET"])
 def admin_download_backup(backup_id):
 
@@ -1461,7 +1463,6 @@ def admin_download_backup(backup_id):
     cursor = None
 
     try:
-
         conn = get_railway_connection()
         cursor = conn.cursor(dictionary=True)
 
@@ -1470,6 +1471,7 @@ def admin_download_backup(backup_id):
                 id,
                 file_name,
                 file_path,
+                file_size,
                 status
             FROM system_backups
             WHERE id = %s
@@ -1481,31 +1483,41 @@ def admin_download_backup(backup_id):
         if not backup:
             return jsonify({
                 "success": False,
-                "message": "Backup not found."
+                "message": "Backup record not found."
             }), 404
 
         if backup["status"] != "completed":
             return jsonify({
                 "success": False,
-                "message": "Backup is not available for download."
+                "message": "This backup is not available for download."
             }), 400
 
-        file_path = backup["file_path"]
+        storage_path = backup["file_path"]
 
-        if not file_path or not os.path.isfile(file_path):
+        if not storage_path:
             return jsonify({
                 "success": False,
-                "message": "Backup file no longer exists on the server."
+                "message": "Backup storage path is missing."
+            }), 404
+
+        # Download backup from Supabase Storage
+        file_data = download_backup_from_supabase(storage_path)
+
+        if not file_data:
+            return jsonify({
+                "success": False,
+                "message": "Backup file could not be retrieved from Supabase Storage."
             }), 404
 
         return send_file(
-            file_path,
+            io.BytesIO(file_data),
             as_attachment=True,
             download_name=backup["file_name"],
             mimetype="application/sql"
         )
 
     except Exception as e:
+        print("DOWNLOAD BACKUP ERROR:", e)
 
         return jsonify({
             "success": False,
@@ -1514,12 +1526,20 @@ def admin_download_backup(backup_id):
         }), 500
 
     finally:
+        try:
+            if cursor:
+                cursor.close()
+        except:
+            pass
 
-        if cursor:
-            cursor.close()
+        try:
+            if conn:
+                conn.close()
+        except:
+            pass
 
-        if conn:
-            conn.close()
+
+
 @app.route("/api/admin/backups/latest", methods=["GET"])
 def admin_get_latest_backup():
 
