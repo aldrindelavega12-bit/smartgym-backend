@@ -34,7 +34,81 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+@app.route("/api/admin/user-accounts", methods=["GET"])
+def admin_get_user_accounts():
 
+    try:
+
+        railway_url = (
+            f"{RENDER_API}/api/user_accounts"
+        )
+
+        response = requests.get(
+            railway_url,
+            timeout=10
+        )
+
+
+        if response.status_code != 200:
+
+            return jsonify({
+
+                "status": "error",
+
+                "message":
+                    "Unable to retrieve user accounts from Railway."
+
+            }), 502
+
+
+        railway_data =
+            response.json()
+
+
+        return jsonify({
+
+            "status": "success",
+
+            "data":
+                railway_data.get(
+                    "data",
+                    []
+                )
+
+        }), 200
+
+
+    except requests.exceptions.RequestException as e:
+
+        print(
+            "RAILWAY USER ACCOUNT ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "status": "error",
+
+            "message":
+                "Railway API is unavailable."
+
+        }), 502
+
+
+    except Exception as e:
+
+        print(
+            "ADMIN USER ACCOUNT ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+
+        }), 500
 # =========================================================
 # GENERATE TRAINEE PROGRAM SCHEDULE
 #
