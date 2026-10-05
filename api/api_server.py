@@ -47,7 +47,6 @@ def admin_get_user_accounts():
         )
 
         if response.status_code != 200:
-
             return jsonify({
                 "status": "error",
                 "message": "Failed to retrieve user accounts."
@@ -92,6 +91,8 @@ def admin_get_user_accounts():
             "status": "error",
             "message": str(e)
         }), 500
+
+
 # =========================================================
 # GENERATE TRAINEE PROGRAM SCHEDULE
 #
