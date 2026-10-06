@@ -35,6 +35,55 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+@app.route("/api/admin/test-supabase", methods=["GET"])
+def test_supabase_connection():
+
+    import os
+    import socket
+    import requests
+
+    url = os.getenv("SUPABASE_URL")
+
+    result = {
+        "success": False,
+        "supabase_url": url,
+        "dns": None,
+        "http_status": None,
+        "error": None
+    }
+
+    try:
+        if not url:
+            result["error"] = "SUPABASE_URL is missing"
+            return jsonify(result), 500
+
+        hostname = url.replace("https://", "").replace("http://", "").split("/")[0]
+
+        # DNS test
+        ip = socket.gethostbyname(hostname)
+        result["dns"] = {
+            "hostname": hostname,
+            "ip": ip
+        }
+
+        # HTTPS test
+        response = requests.get(
+            url,
+            timeout=10
+        )
+
+        result["http_status"] = response.status_code
+        result["success"] = True
+
+        return jsonify(result), 200
+
+    except Exception as e:
+
+        result["error"] = str(e)
+
+        return jsonify(result), 500
+
+
 @app.route("/api/admin/user-accounts", methods=["GET"])
 def admin_get_user_accounts():
 
