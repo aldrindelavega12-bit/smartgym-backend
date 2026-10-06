@@ -14598,6 +14598,7 @@ def create_staff_account():
         if conn: 
  
             conn.close()
+
 @app.route("/api/admin/create_account", methods=["POST"])
 def admin_create_account():
 
@@ -14619,13 +14620,10 @@ def admin_create_account():
         price_week = data.get("price_week")
         price_month = data.get("price_month")
 
-        # Trainer programs
-        programs = data.get("programs", [])
 
-
-        # =========================
+        # ==========================================
         # BASIC VALIDATION
-        # =========================
+        # ==========================================
 
         if not fullname or not username or not password or not role:
 
@@ -14635,15 +14633,7 @@ def admin_create_account():
             }), 400
 
 
-        # =========================
-        # ALLOWED ROLES
-        # =========================
-
-        if role not in [
-            "manager",
-            "staff",
-            "trainer"
-        ]:
+        if role not in ["manager", "staff", "trainer"]:
 
             return jsonify({
                 "status": "error",
@@ -14651,9 +14641,9 @@ def admin_create_account():
             }), 400
 
 
-        # =========================
-        # DATABASE
-        # =========================
+        # ==========================================
+        # DATABASE CONNECTION
+        # ==========================================
 
         conn = get_connection()
 
@@ -14662,14 +14652,14 @@ def admin_create_account():
         )
 
 
-        # =========================
-        # CHECK USERNAME
-        # =========================
+        # ==========================================
+        # CHECK DUPLICATE USERNAME
+        # ==========================================
 
         cursor.execute("""
             SELECT id
             FROM user_accounts
-            WHERE username=%s
+            WHERE username = %s
             LIMIT 1
         """, (
             username,
@@ -14686,23 +14676,11 @@ def admin_create_account():
             }), 409
 
 
-        # =========================
-        # TRAINER VALIDATION
-        # =========================
+        # ==========================================
+        # TRAINER RATE VALIDATION
+        # ==========================================
 
         if role == "trainer":
-
-            if not programs:
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Please select at least one program."
-                }), 400
-
-
-            # =========================
-            # TRAINER PRICE VALIDATION
-            # =========================
 
             if (
                 price_day is None or
@@ -14712,7 +14690,7 @@ def admin_create_account():
 
                 return jsonify({
                     "status": "error",
-                    "message": "All trainer prices are required."
+                    "message": "All trainer rates are required."
                 }), 400
 
 
@@ -14726,7 +14704,7 @@ def admin_create_account():
 
                 return jsonify({
                     "status": "error",
-                    "message": "Invalid trainer price."
+                    "message": "Invalid trainer rate."
                 }), 400
 
 
@@ -14738,101 +14716,36 @@ def admin_create_account():
 
                 return jsonify({
                     "status": "error",
-                    "message": "Trainer prices cannot be negative."
+                    "message": "Trainer rates cannot be negative."
                 }), 400
 
 
-            # =========================
-            # PROGRAM ID VALIDATION
-            # =========================
+        else:
 
-            try:
-
-                programs = [
-                    int(program_id)
-                    for program_id in programs
-                ]
-
-            except (ValueError, TypeError):
-
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid program selection."
-                }), 400
+            price_day = None
+            price_week = None
+            price_month = None
 
 
-            # Remove duplicate program IDs
-
-            programs = list(
-                dict.fromkeys(programs)
-            )
-
-
-        # =========================
-        # VALIDATE TRAINER PROGRAMS
-        # =========================
-
-        if role == "trainer":
-
-            placeholders = ",".join(
-                ["%s"] * len(programs)
-            )
-
-            cursor.execute(
-                f"""
-                SELECT id
-                FROM programs
-                WHERE id IN ({placeholders})
-                AND active = 1
-                """,
-                tuple(programs)
-            )
-
-            valid_programs = cursor.fetchall()
-
-
-            valid_ids = {
-                int(row["id"])
-                for row in valid_programs
-            }
-
-
-            for program_id in programs:
-
-                if program_id not in valid_ids:
-
-                    return jsonify({
-                        "status": "error",
-                        "message":
-                            "One or more selected programs are invalid."
-                    }), 400
-
-
-        # =========================
+        # ==========================================
         # GENERATE USER ID
-        # =========================
+        # ==========================================
 
         if role == "staff":
 
             prefix = "S"
             id_format = "S%04d"
 
-
         elif role == "trainer":
 
             prefix = "T"
             id_format = "T%04d"
-
 
         else:
 
             prefix = "MGR"
             id_format = "MGR%03d"
 
-
-        # =========================
-        # GET LAST USER ID
-        # =========================
 
         cursor.execute("""
             SELECT user_id
@@ -14844,7 +14757,6 @@ def admin_create_account():
             f"{prefix}%",
         ))
 
-
         row = cursor.fetchone()
 
 
@@ -14852,15 +14764,12 @@ def admin_create_account():
 
             last_user_id = row["user_id"]
 
-
             try:
 
                 if prefix == "MGR":
 
                     last_number = int(
-                        last_user_id[
-                            len(prefix):
-                        ]
+                        last_user_id[len(prefix):]
                     )
 
                 else:
@@ -14878,28 +14787,23 @@ def admin_create_account():
             last_number = 0
 
 
-        # =========================
-        # CREATE NEW USER ID
-        # =========================
-
         user_id = id_format % (
             last_number + 1
         )
 
 
-        # =========================
-        # EXTRA USER ID SAFETY CHECK
-        # =========================
+        # ==========================================
+        # CHECK GENERATED USER ID
+        # ==========================================
 
         cursor.execute("""
             SELECT id
             FROM user_accounts
-            WHERE user_id=%s
+            WHERE user_id = %s
             LIMIT 1
         """, (
             user_id,
         ))
-
 
         if cursor.fetchone():
 
@@ -14910,9 +14814,9 @@ def admin_create_account():
             }), 409
 
 
-        # =========================
-        # CREATE ACCOUNT
-        # =========================
+        # ==========================================
+        # CREATE USER ACCOUNT
+        # ==========================================
 
         cursor.execute("""
             INSERT INTO user_accounts
@@ -14940,9 +14844,9 @@ def admin_create_account():
         ))
 
 
-        # =========================
-        # SAVE TRAINER PRICES
-        # =========================
+        # ==========================================
+        # TRAINER RATES
+        # ==========================================
 
         if role == "trainer":
 
@@ -14956,9 +14860,30 @@ def admin_create_account():
                     active
                 )
                 VALUES
-                    (%s, '1 Day', 1, %s, 1),
-                    (%s, '1 Week', 7, %s, 1),
-                    (%s, '1 Month', 30, %s, 1)
+
+                (
+                    %s,
+                    '1 Day',
+                    1,
+                    %s,
+                    1
+                ),
+
+                (
+                    %s,
+                    '1 Week',
+                    7,
+                    %s,
+                    1
+                ),
+
+                (
+                    %s,
+                    '1 Month',
+                    30,
+                    %s,
+                    1
+                )
             """, (
                 user_id,
                 price_day,
@@ -14971,43 +14896,12 @@ def admin_create_account():
             ))
 
 
-        # =========================
-        # SAVE TRAINER PROGRAMS
-        # =========================
-
-        if role == "trainer":
-
-            for program_id in programs:
-
-                cursor.execute("""
-                    INSERT INTO trainer_programs
-                    (
-                        trainer_id,
-                        program_id,
-                        active
-                    )
-                    VALUES
-                    (
-                        %s,
-                        %s,
-                        1
-                    )
-                """, (
-                    user_id,
-                    program_id
-                ))
-
-
-        # =========================
+        # ==========================================
         # COMMIT
-        # =========================
+        # ==========================================
 
         conn.commit()
 
-
-        # =========================
-        # LOG
-        # =========================
 
         print("================================")
         print("ADMIN ACCOUNT CREATED")
@@ -15016,50 +14910,43 @@ def admin_create_account():
 
         if role == "trainer":
 
-            print("PROGRAMS :", programs)
-            print("1 DAY    :", price_day)
-            print("1 WEEK   :", price_week)
-            print("1 MONTH  :", price_month)
+            print("1 DAY   :", price_day)
+            print("1 WEEK  :", price_week)
+            print("1 MONTH :", price_month)
 
         print("================================")
 
 
-        # =========================
-        # RESPONSE
-        # =========================
+        # ==========================================
+        # RESPONSE MESSAGE
+        # ==========================================
 
         if role == "manager":
 
-            message = "Manager account created successfully."
+            message = (
+                "Manager account created successfully."
+            )
 
         elif role == "trainer":
 
             message = (
-                "Trainer account, pricing, and programs "
-                "created successfully."
+                "Trainer account and rates created successfully."
             )
 
         else:
 
-            message = "Staff account created successfully."
+            message = (
+                "Staff account created successfully."
+            )
 
 
         return jsonify({
-
             "status": "success",
-
             "message": message,
-
             "user_id": user_id,
-
             "role": role
-
         }), 201
 
-
-    # =========================
-    # ERROR
-    # =========================
 
     except Exception as e:
 
@@ -15075,17 +14962,10 @@ def admin_create_account():
 
 
         return jsonify({
-
             "status": "error",
-
             "message": str(e)
-
         }), 500
 
-
-    # =========================
-    # CLOSE CONNECTION
-    # =========================
 
     finally:
 
@@ -15096,8 +14976,6 @@ def admin_create_account():
         if conn:
 
             conn.close()
-
-
 @app.route("/api/programs", methods=["GET"])
 def get_programs():
 
