@@ -40,7 +40,7 @@ def test_supabase_connection():
 
     import os
     import socket
-    import requests
+    import urllib.request
 
     url = os.getenv("SUPABASE_URL")
 
@@ -53,26 +53,41 @@ def test_supabase_connection():
     }
 
     try:
+
         if not url:
             result["error"] = "SUPABASE_URL is missing"
             return jsonify(result), 500
 
-        hostname = url.replace("https://", "").replace("http://", "").split("/")[0]
+        hostname = (
+            url
+            .replace("https://", "")
+            .replace("http://", "")
+            .split("/")[0]
+        )
 
-        # DNS test
+        # DNS TEST
         ip = socket.gethostbyname(hostname)
+
         result["dns"] = {
             "hostname": hostname,
             "ip": ip
         }
 
-        # HTTPS test
-        response = requests.get(
+        # HTTPS TEST
+        request = urllib.request.Request(
             url,
-            timeout=10
+            headers={
+                "User-Agent": "SmartGym-Backup-Test"
+            }
         )
 
-        result["http_status"] = response.status_code
+        with urllib.request.urlopen(
+            request,
+            timeout=10
+        ) as response:
+
+            result["http_status"] = response.status
+
         result["success"] = True
 
         return jsonify(result), 200
@@ -82,7 +97,6 @@ def test_supabase_connection():
         result["error"] = str(e)
 
         return jsonify(result), 500
-
 
 @app.route("/api/admin/user-accounts", methods=["GET"])
 def admin_get_user_accounts():
