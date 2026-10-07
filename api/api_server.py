@@ -35,6 +35,115 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+@app.route(
+    "/api/sync/delete-trainer",
+    methods=["DELETE"]
+)
+def sync_delete_trainer():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json()
+
+        trainer_id = data.get("trainer_id")
+
+        if not trainer_id:
+
+            return jsonify({
+                "success": False,
+                "message": "trainer_id is required"
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # ==========================================
+        # DELETE TRAINER PLANS
+        # ==========================================
+
+        cursor.execute(
+            """
+            DELETE FROM trainer_plans
+            WHERE trainer_id=%s
+            """,
+            (trainer_id,)
+        )
+
+        deleted_plans = cursor.rowcount
+
+        # ==========================================
+        # DELETE TRAINER ACCOUNT
+        # ==========================================
+
+        cursor.execute(
+            """
+            DELETE FROM user_accounts
+            WHERE user_id=%s
+              AND role='trainer'
+            """,
+            (trainer_id,)
+        )
+
+        deleted_account = cursor.rowcount
+
+        conn.commit()
+
+        print(
+            "========================================"
+        )
+        print(
+            "TRAINER DELETE SYNC"
+        )
+        print(
+            "TRAINER ID:",
+            trainer_id
+        )
+        print(
+            "PLANS DELETED:",
+            deleted_plans
+        )
+        print(
+            "ACCOUNT DELETED:",
+            deleted_account
+        )
+        print(
+            "========================================"
+        )
+
+        return jsonify({
+            "success": True,
+            "message": "Trainer deleted successfully.",
+            "trainer_id": trainer_id,
+            "deleted_plans": deleted_plans,
+            "deleted_account": deleted_account
+        }), 200
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "TRAINER DELETE SYNC ERROR:",
+            e
+        )
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 @app.route("/api/admin/test-supabase", methods=["GET"])
 def test_supabase_connection():
 
@@ -1709,15 +1818,18 @@ def admin_get_backups():
         if conn:
             conn.close()
 
+# =========================================================
+# ADMIN - DATABASE / BACKEND / FRONTEND / FULL SYSTEM BACKUP
+# =========================================================
 
 @app.route("/api/admin/backup", methods=["POST"])
 def admin_create_database_backup():
 
     try:
 
-        # -------------------------------------------------
+        # =================================================
         # GET BACKUP TYPE
-        # -------------------------------------------------
+        # =================================================
 
         data = request.get_json(silent=True) or {}
 
@@ -1730,10 +1842,6 @@ def admin_create_database_backup():
         backup_type = str(
             backup_type
         ).strip().lower()
-
-        # -------------------------------------------------
-        # VALID BACKUP TYPES
-        # -------------------------------------------------
 
         allowed_types = {
             "database",
@@ -1755,9 +1863,9 @@ def admin_create_database_backup():
                 ]
             }), 400
 
-        # -------------------------------------------------
+        # =================================================
         # CREATE BACKUP
-        # -------------------------------------------------
+        # =================================================
 
         result = None
 
@@ -1777,15 +1885,16 @@ def admin_create_database_backup():
 
             result = create_full_system_backup()
 
-        # -------------------------------------------------
+        # =================================================
         # CHECK BACKUP RESULT
-        # -------------------------------------------------
+        # =================================================
 
         if not result:
 
             return jsonify({
                 "success": False,
-                "message": "Backup service returned no result."
+                "message": "Backup service returned no result.",
+                "backup_type": backup_type
             }), 500
 
         if not result.get("success"):
@@ -1797,12 +1906,13 @@ def admin_create_database_backup():
                 "error": result.get("error")
             }), 500
 
-        # -------------------------------------------------
+        # =================================================
         # SAVE BACKUP RECORD TO RAILWAY DATABASE
-        # -------------------------------------------------
+        # =================================================
 
         conn = None
         cursor = None
+        backup_id = None
 
         try:
 
@@ -1861,40 +1971,79 @@ def admin_create_database_backup():
                 except Exception:
                     pass
 
-        # -------------------------------------------------
+        # =================================================
         # SUCCESS RESPONSE
-        # -------------------------------------------------
+        # =================================================
 
         return jsonify({
+
             "success": True,
+
             "message": (
                 f"{backup_type.replace('_', ' ').title()} "
                 "backup created successfully."
             ),
+
             "backup": {
+
                 "id": backup_id,
+
                 "backup_type": backup_type,
+
                 "backup_mode": "manual",
-                "file_name": result.get("filename"),
-                "file_size": result.get("file_size", 0),
-                "tables": result.get("tables", 0),
-                "views": result.get("views", 0),
-                "rows": result.get("rows", 0),
-                "database": result.get("database"),
-                "created_at": result.get("created_at"),
+
+                "file_name": result.get(
+                    "filename"
+                ),
+
+                "file_size": result.get(
+                    "file_size",
+                    0
+                ),
+
+                "tables": result.get(
+                    "tables",
+                    0
+                ),
+
+                "views": result.get(
+                    "views",
+                    0
+                ),
+
+                "rows": result.get(
+                    "rows",
+                    0
+                ),
+
+                "database": result.get(
+                    "database"
+                ),
+
+                "created_at": result.get(
+                    "created_at"
+                ),
+
                 "status": "completed"
             }
+
         }), 200
+
+    # =====================================================
+    # ERROR
+    # =====================================================
 
     except Exception as e:
 
         return jsonify({
+
             "success": False,
+
             "message": "Backup failed.",
+
             "error": str(e)
+
         }), 500
-
-
 
 @app.route("/api/trainer_assignment_created", methods=["POST"])
 def trainer_assignment_created():
@@ -15461,24 +15610,160 @@ def staff_accounts():
 
     return jsonify(rows)
 
-@app.route("/api/delete_staff/<user_id>",
-           methods=["DELETE"])
+@app.route(
+    "/api/delete_staff/<user_id>",
+    methods=["DELETE"]
+)
 def delete_staff(user_id):
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
 
-    cursor.execute("""
-        DELETE FROM user_accounts
-        WHERE user_id=%s
-    """,(user_id,))
+    try:
 
-    conn.commit()
-    conn.close()
+        conn = get_connection()
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
 
-    return jsonify({
-        "status":"success"
-    })
+        # ==========================================
+        # CHECK USER
+        # ==========================================
+
+        cursor.execute(
+            """
+            SELECT
+                user_id,
+                role
+            FROM user_accounts
+            WHERE user_id=%s
+            LIMIT 1
+            """,
+            (user_id,)
+        )
+
+        user = cursor.fetchone()
+
+        if not user:
+
+            return jsonify({
+                "status": "error",
+                "message": "User not found."
+            }), 404
+
+        role = user["role"]
+
+        # ==========================================
+        # TRAINER DELETE
+        # ==========================================
+
+        if role == "trainer":
+
+            try:
+
+                response = requests.delete(
+                    f"{RENDER_API}/api/sync/delete-trainer",
+
+                    json={
+                        "trainer_id": user_id
+                    },
+
+                    timeout=15
+                )
+
+                print(
+                    "========================================"
+                )
+                print(
+                    "TRAINER DELETE SYNC"
+                )
+                print(
+                    "TRAINER ID:",
+                    user_id
+                )
+                print(
+                    "STATUS:",
+                    response.status_code
+                )
+                print(
+                    "RESPONSE:",
+                    response.text
+                )
+                print(
+                    "========================================"
+                )
+
+                if response.status_code >= 400:
+
+                    return jsonify({
+                        "status": "error",
+                        "message":
+                            "Trainer deletion failed on Turnstile.",
+                        "trainer_id": user_id,
+                        "turnstile_status":
+                            response.status_code,
+                        "turnstile_response":
+                            response.text
+                    }), 502
+
+            except Exception as e:
+
+                print(
+                    "TRAINER DELETE SYNC FAILED:",
+                    e
+                )
+
+                return jsonify({
+                    "status": "error",
+                    "message":
+                        "Unable to sync trainer deletion to Turnstile.",
+                    "error": str(e)
+                }), 502
+
+        # ==========================================
+        # DELETE LOCAL RAILWAY ACCOUNT
+        # ==========================================
+
+        cursor.execute(
+            """
+            DELETE FROM user_accounts
+            WHERE user_id=%s
+            """,
+            (user_id,)
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "User deleted successfully.",
+            "user_id": user_id,
+            "role": role
+        }), 200
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "DELETE STAFF ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 
 @app.route("/api/attendance_summary", methods=["GET"])
 def attendance_summary():
