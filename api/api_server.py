@@ -15614,7 +15614,10 @@ def staff_accounts():
     conn.close()
 
     return jsonify(rows)
-
+@app.route(
+    "/api/delete_staff/<user_id>",
+    methods=["DELETE"]
+)
 def delete_staff(user_id):
 
     conn = None
