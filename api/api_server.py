@@ -1708,21 +1708,92 @@ def admin_get_backups():
 
         if conn:
             conn.close()
+
+
 @app.route("/api/admin/backup", methods=["POST"])
 def admin_create_database_backup():
 
     try:
 
         # -------------------------------------------------
-        # CREATE RAILWAY DATABASE BACKUP
+        # GET BACKUP TYPE
         # -------------------------------------------------
 
-        result = create_database_backup()
+        data = request.get_json(silent=True) or {}
 
-        if not result.get("success"):
+        backup_type = (
+            data.get("backup_type")
+            or data.get("type")
+            or "database"
+        )
+
+        backup_type = str(
+            backup_type
+        ).strip().lower()
+
+        # -------------------------------------------------
+        # VALID BACKUP TYPES
+        # -------------------------------------------------
+
+        allowed_types = {
+            "database",
+            "backend",
+            "frontend",
+            "full_system"
+        }
+
+        if backup_type not in allowed_types:
+
             return jsonify({
                 "success": False,
-                "message": "Database backup failed.",
+                "message": "Invalid backup type.",
+                "allowed_types": [
+                    "database",
+                    "backend",
+                    "frontend",
+                    "full_system"
+                ]
+            }), 400
+
+        # -------------------------------------------------
+        # CREATE BACKUP
+        # -------------------------------------------------
+
+        result = None
+
+        if backup_type == "database":
+
+            result = create_database_backup()
+
+        elif backup_type == "backend":
+
+            result = create_backend_backup()
+
+        elif backup_type == "frontend":
+
+            result = create_frontend_backup()
+
+        elif backup_type == "full_system":
+
+            result = create_full_system_backup()
+
+        # -------------------------------------------------
+        # CHECK BACKUP RESULT
+        # -------------------------------------------------
+
+        if not result:
+
+            return jsonify({
+                "success": False,
+                "message": "Backup service returned no result."
+            }), 500
+
+        if not result.get("success"):
+
+            return jsonify({
+                "success": False,
+                "message": "Backup failed.",
+                "backup_type": backup_type,
                 "error": result.get("error")
             }), 500
 
@@ -1736,6 +1807,7 @@ def admin_create_database_backup():
         try:
 
             conn = get_railway_connection()
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -1760,11 +1832,11 @@ def admin_create_database_backup():
                     %s
                 )
             """, (
-                "database",
+                backup_type,
                 "manual",
-                result["filename"],
-                result["filepath"],
-                result["file_size"],
+                result.get("filename"),
+                result.get("filepath"),
+                result.get("file_size", 0),
                 "completed",
                 "admin"
             ))
@@ -1776,27 +1848,40 @@ def admin_create_database_backup():
         finally:
 
             if cursor:
-                cursor.close()
+
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
 
             if conn:
-                conn.close()
+
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         # -------------------------------------------------
-        # RESPONSE
+        # SUCCESS RESPONSE
         # -------------------------------------------------
 
         return jsonify({
             "success": True,
-            "message": "Railway database backup created successfully.",
+            "message": (
+                f"{backup_type.replace('_', ' ').title()} "
+                "backup created successfully."
+            ),
             "backup": {
                 "id": backup_id,
-                "file_name": result["filename"],
-                "file_size": result["file_size"],
-                "tables": result["tables"],
-                "views": result["views"],
-                "rows": result["rows"],
-                "database": result["database"],
-                "created_at": result["created_at"],
+                "backup_type": backup_type,
+                "backup_mode": "manual",
+                "file_name": result.get("filename"),
+                "file_size": result.get("file_size", 0),
+                "tables": result.get("tables", 0),
+                "views": result.get("views", 0),
+                "rows": result.get("rows", 0),
+                "database": result.get("database"),
+                "created_at": result.get("created_at"),
                 "status": "completed"
             }
         }), 200
@@ -1805,9 +1890,10 @@ def admin_create_database_backup():
 
         return jsonify({
             "success": False,
-            "message": "Database backup failed.",
+            "message": "Backup failed.",
             "error": str(e)
         }), 500
+
 
 
 @app.route("/api/trainer_assignment_created", methods=["POST"])
@@ -7701,6 +7787,152 @@ def accept_trainer_request(request_id):
 
 
         # =====================================================
+        # NORMAL TRAINER REQUEST
+        #
+        # ACCEPT = UNPAID
+        # DO NOT ACTIVATE YET
+        # DO NOT GENERATE WORKOUT SCHEDULE YET
+        #
+        # STAFF WILL ACTIVATE AFTER TRAINER FEE PAYMENT.
+        # =====================================================
+
+        if request_type == "normal":
+
+            member_id = request_row["member_id"]
+
+
+            # ---------------------------------------------
+            # CHANGE PENDING -> UNPAID
+            # ---------------------------------------------
+
+            cursor.execute("""
+                UPDATE trainer_trainees
+
+                SET
+                    status = 'unpaid'
+
+                WHERE id = %s
+                  AND trainer_id = %s
+                  AND status = 'pending'
+
+            """, (
+                request_id,
+                trainer_id
+            ))
+
+
+            if cursor.rowcount == 0:
+
+                conn.rollback()
+
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        "Trainer request could not "
+                        "be accepted."
+                    )
+                }), 400
+
+
+            # ---------------------------------------------
+            # SEND ACCEPTANCE MESSAGE TO MEMBER
+            # ---------------------------------------------
+
+            cursor.execute("""
+                INSERT INTO messages
+                (
+                    user_id,
+                    sender_id,
+                    sender_name,
+                    sender_role,
+                    title,
+                    message,
+                    reason,
+                    is_read,
+                    created_at
+                )
+
+                VALUES
+                (
+                    %s,
+                    %s,
+                    %s,
+                    'trainer',
+                    %s,
+                    %s,
+                    %s,
+                    0,
+                    NOW()
+                )
+
+            """, (
+                member_id,
+                trainer_id,
+                trainer_name,
+
+                "Trainer Request Accepted",
+
+                (
+                    f"Your trainer request has been "
+                    f"accepted by {trainer_name}. "
+                    f"Please complete the trainer fee "
+                    f"payment to activate your trainer service."
+                ),
+
+                "normal"
+            ))
+
+
+            # ---------------------------------------------
+            # COMMIT
+            # ---------------------------------------------
+
+            conn.commit()
+
+
+            # ---------------------------------------------
+            # RESPONSE
+            # ---------------------------------------------
+
+            return jsonify({
+
+                "status":
+                    "success",
+
+                "message":
+                    (
+                        "Trainer request accepted. "
+                        "Waiting for trainer fee payment."
+                    ),
+
+                "request_id":
+                    request_id,
+
+                "member_id":
+                    member_id,
+
+                "trainer_id":
+                    trainer_id,
+
+                "program_id":
+                    request_row["program_id"],
+
+                "program_plan_id":
+                    request_row["program_plan_id"],
+
+                "plan_id":
+                    request_row["plan_id"],
+
+                "status":
+                    "unpaid",
+
+                "schedule_generated":
+                    False
+
+            }), 200
+
+
+        # =====================================================
         # BASIC REQUEST DATA
         # =====================================================
 
@@ -8458,7 +8690,7 @@ def accept_trainer_request(request_id):
 
         if conn:
 
-            conn.close() 
+            conn.close()
 
 
 @app.route(
