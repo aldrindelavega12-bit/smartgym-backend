@@ -19,8 +19,13 @@ import requests
 from datetime import datetime, timedelta, date
 app = Flask(__name__)
 import io
+
+
 from services.backup_service import (
     create_database_backup,
+    create_backend_backup,
+    create_frontend_backup,
+    create_full_system_backup,
     get_railway_connection,
     download_backup_from_supabase
 )
@@ -15610,10 +15615,6 @@ def staff_accounts():
 
     return jsonify(rows)
 
-@app.route(
-    "/api/delete_staff/<user_id>",
-    methods=["DELETE"]
-)
 def delete_staff(user_id):
 
     conn = None
@@ -15622,6 +15623,7 @@ def delete_staff(user_id):
     try:
 
         conn = get_connection()
+
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
@@ -15654,74 +15656,17 @@ def delete_staff(user_id):
         role = user["role"]
 
         # ==========================================
-        # TRAINER DELETE
-        # ==========================================
-
-        if role == "trainer":
-
-            try:
-
-                response = requests.delete(
-                    f"{RENDER_API}/api/sync/delete-trainer",
-
-                    json={
-                        "trainer_id": user_id
-                    },
-
-                    timeout=15
-                )
-
-                print(
-                    "========================================"
-                )
-                print(
-                    "TRAINER DELETE SYNC"
-                )
-                print(
-                    "TRAINER ID:",
-                    user_id
-                )
-                print(
-                    "STATUS:",
-                    response.status_code
-                )
-                print(
-                    "RESPONSE:",
-                    response.text
-                )
-                print(
-                    "========================================"
-                )
-
-                if response.status_code >= 400:
-
-                    return jsonify({
-                        "status": "error",
-                        "message":
-                            "Trainer deletion failed on Turnstile.",
-                        "trainer_id": user_id,
-                        "turnstile_status":
-                            response.status_code,
-                        "turnstile_response":
-                            response.text
-                    }), 502
-
-            except Exception as e:
-
-                print(
-                    "TRAINER DELETE SYNC FAILED:",
-                    e
-                )
-
-                return jsonify({
-                    "status": "error",
-                    "message":
-                        "Unable to sync trainer deletion to Turnstile.",
-                    "error": str(e)
-                }), 502
-
-        # ==========================================
-        # DELETE LOCAL RAILWAY ACCOUNT
+        # DELETE ACCOUNT FROM RAILWAY
+        #
+        # IMPORTANT:
+        # Turnstile deletion is NOT done here.
+        #
+        # The cloud sync worker will detect that
+        # this account no longer exists in Railway
+        # and will automatically delete it locally.
+        #
+        # If role == trainer, the sync worker will also
+        # delete the trainer_plans records.
         # ==========================================
 
         cursor.execute(
@@ -15732,18 +15677,76 @@ def delete_staff(user_id):
             (user_id,)
         )
 
+        # ==========================================
+        # CHECK DELETE
+        # ==========================================
+
+        if cursor.rowcount == 0:
+
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": "User could not be deleted.",
+                "user_id": user_id
+            }), 400
+
+        # ==========================================
+        # COMMIT RAILWAY DELETE
+        # ==========================================
+
         conn.commit()
 
+        print(
+            "========================================"
+        )
+
+        print(
+            "USER ACCOUNT DELETED FROM RAILWAY"
+        )
+
+        print(
+            "USER ID:",
+            user_id
+        )
+
+        print(
+            "ROLE:",
+            role
+        )
+
+        print(
+            "TURNSTILE DELETE:"
+            " WILL BE HANDLED BY CLOUD SYNC"
+        )
+
+        print(
+            "========================================"
+        )
+
+        # ==========================================
+        # RESPONSE
+        # ==========================================
+
         return jsonify({
+
             "status": "success",
-            "message": "User deleted successfully.",
-            "user_id": user_id,
-            "role": role
+
+            "message":
+                "User deleted successfully.",
+
+            "user_id":
+                user_id,
+
+            "role":
+                role
+
         }), 200
 
     except Exception as e:
 
         if conn:
+
             conn.rollback()
 
         print(
@@ -15752,18 +15755,23 @@ def delete_staff(user_id):
         )
 
         return jsonify({
+
             "status": "error",
-            "message": str(e)
+
+            "message":
+                str(e)
+
         }), 500
 
     finally:
 
         if cursor:
+
             cursor.close()
 
         if conn:
-            conn.close()
 
+            conn.close()
 
 @app.route("/api/attendance_summary", methods=["GET"])
 def attendance_summary():
