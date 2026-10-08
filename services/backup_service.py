@@ -1,7 +1,12 @@
+
 import os
 import re
 import zipfile
 import shutil
+import tempfile
+import urllib.request
+
+
 from datetime import datetime, date, time
 from decimal import Decimal
 
@@ -46,7 +51,89 @@ SUPABASE_BACKUP_BUCKET = os.getenv(
     "smart-gym-backups"
 )
 
+# =========================================================
+# GITHUB BACKUP SOURCES
+# =========================================================
 
+GITHUB_BACKEND_URL = (
+    "https://github.com/"
+    "aldrindelavega12-bit/"
+    "smartgym-backend"
+)
+
+GITHUB_FRONTEND_URL = (
+    "https://github.com/"
+    "aldrindelavega12-bit/"
+    "smartgym-frontend"
+)
+
+
+def download_github_repository(
+    repository_url,
+    destination_dir
+):
+    """
+    Download a public GitHub repository
+    and return the extracted repository directory.
+    """
+
+    archive_url = (
+        repository_url.rstrip("/")
+        + "/archive/refs/heads/main.zip"
+    )
+
+    archive_path = os.path.join(
+        destination_dir,
+        "repository.zip"
+    )
+
+    urllib.request.urlretrieve(
+        archive_url,
+        archive_path
+    )
+
+    extract_dir = os.path.join(
+        destination_dir,
+        "extracted"
+    )
+
+    os.makedirs(
+        extract_dir,
+        exist_ok=True
+    )
+
+    with zipfile.ZipFile(
+        archive_path,
+        "r"
+    ) as zip_file:
+
+        zip_file.extractall(
+            extract_dir
+        )
+
+    extracted_items = [
+        os.path.join(
+            extract_dir,
+            item
+        )
+        for item in os.listdir(
+            extract_dir
+        )
+    ]
+
+    directories = [
+        item
+        for item in extracted_items
+        if os.path.isdir(item)
+    ]
+
+    if not directories:
+
+        raise RuntimeError(
+            "GitHub repository extraction failed."
+        )
+
+    return directories[0]
 def get_supabase_client():
     if not SUPABASE_URL:
         raise RuntimeError(
@@ -850,7 +937,6 @@ def create_database_backup():
         except Exception:
             pass
 
-
 # =========================================================
 # CREATE BACKEND BACKUP
 # =========================================================
@@ -872,43 +958,61 @@ def create_backend_backup():
 
     storage_path = None
 
-    backend_dir = os.path.join(
-        BASE_DIR,
-        "smartgym-backend"
-    )
-
     try:
 
-        if not os.path.isdir(backend_dir):
-            raise RuntimeError(
-                "GitHub backend directory was not found: "
-                + backend_dir
+        # =================================================
+        # DOWNLOAD BACKEND FROM GITHUB
+        # =================================================
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            backend_dir = download_github_repository(
+                GITHUB_BACKEND_URL,
+                temp_dir
             )
-        zip_directory(
-            backend_dir,
-            filepath,
 
-            excluded_dirs={
-                ".git",
-                "venv",
-                "__pycache__",
-                "backups"
-            },
+            # =================================================
+            # CREATE ZIP
+            # =================================================
 
-            excluded_files={
-                ".env"
-            }
-        )
+            zip_directory(
+                backend_dir,
+                filepath,
 
+                excluded_dirs={
+                    ".git",
+                    "venv",
+                    "__pycache__",
+                    "backups"
+                },
+
+                excluded_files={
+                    ".env"
+                }
+            )
+
+        # =================================================
+        # FILE SIZE
+        # =================================================
 
         file_size = os.path.getsize(
             filepath
         )
 
+        # =================================================
+        # UPLOAD TO SUPABASE
+        # =================================================
+
         storage_path = upload_zip_backup_to_supabase(
             filepath,
             filename
         )
+
+        if not storage_path:
+
+            raise RuntimeError(
+                "Backend backup upload to Supabase failed."
+            )
 
         print(
             "SUPABASE BACKEND BACKUP SUCCESS:",
@@ -917,11 +1021,17 @@ def create_backend_backup():
 
         return {
             "success": True,
+
             "filename": filename,
+
             "filepath": storage_path,
+
             "storage_path": storage_path,
+
             "file_size": file_size,
+
             "backup_type": "backend",
+
             "created_at":
                 datetime.now().strftime(
                     "%Y-%m-%d %H:%M:%S"
@@ -938,6 +1048,7 @@ def create_backend_backup():
                 pass
 
         if storage_path:
+
             delete_supabase_backup(
                 storage_path
             )
@@ -951,7 +1062,7 @@ def create_backend_backup():
             "success": False,
             "error": str(e)
         }
-    
+
     
 # =========================================================
 # CREATE FRONTEND BACKUP
@@ -974,39 +1085,58 @@ def create_frontend_backup():
 
     storage_path = None
 
-    frontend_dir = os.path.join(
-        BASE_DIR,
-        "smartgym-frontend"
-    )
-
     try:
 
-        if not os.path.isdir(frontend_dir):
-            raise RuntimeError(
-                "GitHub frontend directory was not found: "
-                + frontend_dir
+        # =================================================
+        # DOWNLOAD FRONTEND FROM GITHUB
+        # =================================================
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            frontend_dir = download_github_repository(
+                GITHUB_FRONTEND_URL,
+                temp_dir
             )
-        zip_directory(
-            frontend_dir,
-            filepath,
 
-            excluded_dirs={
-                ".git"
-            },
+            # =================================================
+            # CREATE ZIP
+            # =================================================
 
-            excluded_files={
-                ".env"
-            }
-        )
+            zip_directory(
+                frontend_dir,
+                filepath,
+
+                excluded_dirs={
+                    ".git"
+                },
+
+                excluded_files={
+                    ".env"
+                }
+            )
+
+        # =================================================
+        # FILE SIZE
+        # =================================================
 
         file_size = os.path.getsize(
             filepath
         )
 
+        # =================================================
+        # UPLOAD TO SUPABASE
+        # =================================================
+
         storage_path = upload_zip_backup_to_supabase(
             filepath,
             filename
         )
+
+        if not storage_path:
+
+            raise RuntimeError(
+                "Frontend backup upload to Supabase failed."
+            )
 
         print(
             "SUPABASE FRONTEND BACKUP SUCCESS:",
@@ -1015,11 +1145,17 @@ def create_frontend_backup():
 
         return {
             "success": True,
+
             "filename": filename,
+
             "filepath": storage_path,
+
             "storage_path": storage_path,
+
             "file_size": file_size,
+
             "backup_type": "frontend",
+
             "created_at":
                 datetime.now().strftime(
                     "%Y-%m-%d %H:%M:%S"
@@ -1036,6 +1172,7 @@ def create_frontend_backup():
                 pass
 
         if storage_path:
+
             delete_supabase_backup(
                 storage_path
             )
@@ -1049,7 +1186,9 @@ def create_frontend_backup():
             "success": False,
             "error": str(e)
         }
-    
+
+
+# =========================================================
 # =========================================================
 # CREATE FULL SYSTEM BACKUP
 # =========================================================
@@ -1070,162 +1209,189 @@ def create_full_system_backup():
     )
 
     storage_path = None
-
-    backend_dir = os.path.join(
-        BASE_DIR,
-        "smartgym-backend"
-    )
-
-    frontend_dir = os.path.join(
-        BASE_DIR,
-        "smartgym-frontend"
-    )
-
     database_result = None
 
     try:
 
         # =================================================
-        # 1. CHECK SOURCE DIRECTORIES
+        # TEMPORARY GITHUB SOURCES
         # =================================================
 
-        if not os.path.isdir(backend_dir):
-            raise RuntimeError(
-                "GitHub backend directory was not found."
-            )
-
-        if not os.path.isdir(frontend_dir):
-            raise RuntimeError(
-                "GitHub frontend directory was not found."
-            )
-
-        # =================================================
-        # 2. CREATE DATABASE BACKUP
-        # =================================================
-
-        database_result = create_database_backup()
-
-        if not database_result.get("success"):
-            raise RuntimeError(
-                "Database backup failed: "
-                + str(
-                    database_result.get("error")
-                )
-            )
-
-        database_sql_path = os.path.join(
-            BACKUP_DIR,
-            database_result["filename"]
-        )
-
-        if not os.path.exists(database_sql_path):
-            raise RuntimeError(
-                "Database SQL file was not found locally."
-            )
-
-        # =================================================
-        # 3. CREATE FULL SYSTEM ZIP
-        # =================================================
-
-        with zipfile.ZipFile(
-            filepath,
-            "w",
-            compression=zipfile.ZIP_DEFLATED
-        ) as zip_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
 
             # ---------------------------------------------
-            # DATABASE
+            # DOWNLOAD BACKEND
             # ---------------------------------------------
 
-            zip_file.write(
-                database_sql_path,
+            backend_dir = download_github_repository(
+                GITHUB_BACKEND_URL,
                 os.path.join(
-                    "database",
-                    database_result["filename"]
+                    temp_dir,
+                    "backend"
                 )
             )
 
             # ---------------------------------------------
-            # BACKEND
+            # DOWNLOAD FRONTEND
             # ---------------------------------------------
 
-            for root, dirs, files in os.walk(
-                backend_dir
+            frontend_dir = download_github_repository(
+                GITHUB_FRONTEND_URL,
+                os.path.join(
+                    temp_dir,
+                    "frontend"
+                )
+            )
+
+            # =================================================
+            # CREATE DATABASE BACKUP
+            # =================================================
+
+            database_result = create_database_backup()
+
+            if not database_result.get(
+                "success"
             ):
 
-                dirs[:] = [
-                    directory
-                    for directory in dirs
-                    if directory not in {
-                        ".git",
-                        "venv",
-                        "__pycache__",
-                        "backups"
-                    }
-                ]
-
-                for file_name in files:
-
-                    if file_name == ".env":
-                        continue
-
-                    source_path = os.path.join(
-                        root,
-                        file_name
-                    )
-
-                    relative_path = os.path.relpath(
-                        source_path,
-                        backend_dir
-                    )
-
-                    zip_file.write(
-                        source_path,
-                        os.path.join(
-                            "backend",
-                            relative_path
+                raise RuntimeError(
+                    "Database backup failed: "
+                    + str(
+                        database_result.get(
+                            "error"
                         )
                     )
+                )
 
-            # ---------------------------------------------
-            # FRONTEND
-            # ---------------------------------------------
+            database_sql_path = os.path.join(
+                BACKUP_DIR,
+                database_result["filename"]
+            )
 
-            for root, dirs, files in os.walk(
-                frontend_dir
+            if not os.path.exists(
+                database_sql_path
             ):
 
-                dirs[:] = [
-                    directory
-                    for directory in dirs
-                    if directory != ".git"
-                ]
+                raise RuntimeError(
+                    "Database SQL file was not found locally."
+                )
 
-                for file_name in files:
+            # =================================================
+            # CREATE FULL SYSTEM ZIP
+            # =================================================
 
-                    if file_name == ".env":
-                        continue
+            with zipfile.ZipFile(
+                filepath,
+                "w",
+                compression=zipfile.ZIP_DEFLATED
+            ) as zip_file:
 
-                    source_path = os.path.join(
-                        root,
-                        file_name
+                # ---------------------------------------------
+                # DATABASE
+                # ---------------------------------------------
+
+                zip_file.write(
+                    database_sql_path,
+                    os.path.join(
+                        "database",
+                        database_result["filename"]
                     )
+                )
 
-                    relative_path = os.path.relpath(
-                        source_path,
-                        frontend_dir
-                    )
+                # ---------------------------------------------
+                # BACKEND
+                # ---------------------------------------------
 
-                    zip_file.write(
-                        source_path,
-                        os.path.join(
-                            "frontend",
-                            relative_path
+                for root, dirs, files in os.walk(
+                    backend_dir
+                ):
+
+                    dirs[:] = [
+                        directory
+                        for directory in dirs
+                        if directory not in {
+                            ".git",
+                            "venv",
+                            "__pycache__",
+                            "backups"
+                        }
+                    ]
+
+                    for file_name in files:
+
+                        if file_name == ".env":
+                            continue
+
+                        if file_name.endswith(
+                            (
+                                ".pyc",
+                                ".db",
+                                ".log"
+                            )
+                        ):
+                            continue
+
+                        if file_name.startswith(
+                            "ngrok"
+                        ):
+                            continue
+
+                        source_path = os.path.join(
+                            root,
+                            file_name
                         )
-                    )
+
+                        relative_path = os.path.relpath(
+                            source_path,
+                            backend_dir
+                        )
+
+                        zip_file.write(
+                            source_path,
+                            os.path.join(
+                                "backend",
+                                relative_path
+                            )
+                        )
+
+                # ---------------------------------------------
+                # FRONTEND
+                # ---------------------------------------------
+
+                for root, dirs, files in os.walk(
+                    frontend_dir
+                ):
+
+                    dirs[:] = [
+                        directory
+                        for directory in dirs
+                        if directory != ".git"
+                    ]
+
+                    for file_name in files:
+
+                        if file_name == ".env":
+                            continue
+
+                        source_path = os.path.join(
+                            root,
+                            file_name
+                        )
+
+                        relative_path = os.path.relpath(
+                            source_path,
+                            frontend_dir
+                        )
+
+                        zip_file.write(
+                            source_path,
+                            os.path.join(
+                                "frontend",
+                                relative_path
+                            )
+                        )
 
         # =================================================
-        # 4. FILE SIZE
+        # FILE SIZE
         # =================================================
 
         file_size = os.path.getsize(
@@ -1233,13 +1399,19 @@ def create_full_system_backup():
         )
 
         # =================================================
-        # 5. UPLOAD FULL SYSTEM BACKUP
+        # UPLOAD TO SUPABASE
         # =================================================
 
         storage_path = upload_zip_backup_to_supabase(
             filepath,
             filename
         )
+
+        if not storage_path:
+
+            raise RuntimeError(
+                "Full System backup upload to Supabase failed."
+            )
 
         print(
             "SUPABASE FULL SYSTEM BACKUP SUCCESS:",
@@ -1248,12 +1420,20 @@ def create_full_system_backup():
 
         return {
             "success": True,
+
             "filename": filename,
+
             "filepath": storage_path,
+
             "storage_path": storage_path,
+
             "file_size": file_size,
+
             "backup_type": "full_system",
-            "database_backup": database_result["filename"],
+
+            "database_backup":
+                database_result["filename"],
+
             "created_at":
                 datetime.now().strftime(
                     "%Y-%m-%d %H:%M:%S"
@@ -1270,6 +1450,7 @@ def create_full_system_backup():
                 pass
 
         if storage_path:
+
             delete_supabase_backup(
                 storage_path
             )
