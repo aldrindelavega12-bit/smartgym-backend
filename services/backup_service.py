@@ -509,19 +509,24 @@ def zip_directory(source_dir, output_zip, excluded_dirs=None, excluded_files=Non
 
     return output_zip
 
-
 def upload_zip_backup_to_supabase(
     filepath,
     storage_path
 ):
     """
-    Upload ZIP backup to Supabase Storage.
+    Upload ZIP backup to Supabase Storage
+    and return the actual Supabase storage path.
     """
 
     try:
+
         supabase = get_supabase_client()
 
-        with open(filepath, "rb") as file:
+        with open(
+            filepath,
+            "rb"
+        ) as file:
+
             file_data = file.read()
 
         supabase.storage.from_(
@@ -535,13 +540,16 @@ def upload_zip_backup_to_supabase(
             }
         )
 
-        return True
+        return storage_path
 
     except Exception as e:
-        print("SUPABASE ZIP UPLOAD ERROR:", e)
-        return False
 
+        print(
+            "SUPABASE ZIP UPLOAD ERROR:",
+            e
+        )
 
+        return None
 
 # =========================================================
 # CREATE DATABASE BACKUP

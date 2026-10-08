@@ -13041,9 +13041,8 @@ def missed_trainer_workout(workout_id):
 
             conn.close()
 
-
 @app.route("/api/admin/railway-config-test")
-def get_railway_connection():
+def railway_config_test():
     return mysql.connector.connect(
         host=os.getenv("DB_HOST"),
         port=int(os.getenv("DB_PORT", 3306)),
@@ -13051,7 +13050,7 @@ def get_railway_connection():
         password=os.getenv("DB_PASSWORD"),
         database=os.getenv("DB_NAME")
     )
-            
+    
 @app.route(
     "/api/trainer/workout/<int:workout_id>/reschedule",
     methods=["POST"]
