@@ -40,6 +40,23 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+@app.route("/api/manager_active_member", methods=["GET"])
+def manager_active_member():
+    try:
+        members = execute_query("""
+            SELECT *
+            FROM members
+        """, fetch=True)
+
+        return jsonify(members)
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 @app.route(
     "/api/sync/delete-trainer",
     methods=["DELETE"]
