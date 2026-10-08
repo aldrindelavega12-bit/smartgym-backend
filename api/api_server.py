@@ -334,6 +334,31 @@ def restore_sql_file_to_railway(sql_file_path):
             except Exception:
                 pass
 
+
+@app.route("/api/manager_walkin", methods=["GET"])
+def manager_walkin():
+    try:
+
+        walkins = execute_query("""
+            SELECT
+                id,
+                full_name,
+                phone_number,
+                visit_date
+            FROM walkins
+            WHERE visit_date = CURDATE()
+            ORDER BY id ASC
+        """, fetch=True)
+
+        return jsonify(walkins)
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 @app.route("/api/manager_active_member", methods=["GET"])
 def manager_active_member():
     try:
