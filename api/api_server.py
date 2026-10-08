@@ -1524,7 +1524,100 @@ def set_trainer_trainee_program():
 # =========================================================
 # ADMIN - RESTORE DATABASE
 # =========================================================
+# =========================================================
+# RESTORE EMERGENCY BACKUP
+# =========================================================
 
+def restore_emergency_backup(emergency_backup):
+
+    if not emergency_backup:
+        return {
+            "success": False,
+            "error": "Emergency backup information is missing."
+        }
+
+    emergency_filename = emergency_backup.get(
+        "filename"
+    )
+
+    if not emergency_filename:
+        return {
+            "success": False,
+            "error": "Emergency backup filename is missing."
+        }
+
+    emergency_path = os.path.join(
+        BACKUP_DIR,
+        emergency_filename
+    )
+
+    if not os.path.exists(
+        emergency_path
+    ):
+        return {
+            "success": False,
+            "error": (
+                "Emergency backup file was not found: "
+                + emergency_path
+            )
+        }
+
+    if os.path.getsize(
+        emergency_path
+    ) <= 0:
+        return {
+            "success": False,
+            "error": "Emergency backup file is empty."
+        }
+
+    print("========================================")
+    print("STARTING EMERGENCY DATABASE RECOVERY")
+    print("File:", emergency_filename)
+    print("========================================")
+
+    recovery_result = restore_sql_file_to_railway(
+        emergency_path
+    )
+
+    if recovery_result.get("success"):
+
+        print("========================================")
+        print("EMERGENCY DATABASE RECOVERY SUCCESS")
+        print("Statements executed:",
+              recovery_result.get(
+                  "statements_executed",
+                  0
+              ))
+        print("========================================")
+
+        return {
+            "success": True,
+            "filename": emergency_filename,
+            "statements_executed":
+                recovery_result.get(
+                    "statements_executed",
+                    0
+                )
+        }
+
+    print("========================================")
+    print("EMERGENCY DATABASE RECOVERY FAILED")
+    print(
+        "Error:",
+        recovery_result.get(
+            "error"
+        )
+    )
+    print("========================================")
+
+    return {
+        "success": False,
+        "filename": emergency_filename,
+        "error": recovery_result.get(
+            "error",
+            "Emergency recovery failed."
+        )
+    }
 @app.route("/api/admin/restore", methods=["POST"])
 def admin_restore_database():
 
