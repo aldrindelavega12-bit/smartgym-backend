@@ -40,6 +40,302 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+# =========================================================
+# ADMIN - RESTORE DATABASE FROM BACKUP FILE
+# =========================================================
+
+def restore_sql_file_to_railway(sql_file_path):
+
+    conn = None
+    cursor = None
+
+    try:
+
+        # =================================================
+        # 1. CHECK FILE
+        # =================================================
+
+        if not sql_file_path:
+            raise RuntimeError(
+                "SQL backup file path is missing."
+            )
+
+        if not os.path.exists(sql_file_path):
+            raise RuntimeError(
+                "SQL backup file does not exist."
+            )
+
+        if os.path.getsize(sql_file_path) <= 0:
+            raise RuntimeError(
+                "SQL backup file is empty."
+            )
+
+        # =================================================
+        # 2. READ SQL
+        # =================================================
+
+        with open(
+            sql_file_path,
+            "r",
+            encoding="utf-8"
+        ) as sql_file:
+
+            sql_text = sql_file.read()
+
+        if not sql_text.strip():
+            raise RuntimeError(
+                "SQL backup file is empty."
+            )
+
+        sql_upper = sql_text.upper()
+
+        if "CREATE TABLE" not in sql_upper:
+            raise RuntimeError(
+                "Invalid SQL backup. "
+                "No CREATE TABLE statements found."
+            )
+
+        if "INSERT INTO" not in sql_upper:
+            raise RuntimeError(
+                "Invalid SQL backup. "
+                "No INSERT statements found."
+            )
+
+        # =================================================
+        # 3. CONNECT TO RAILWAY
+        # =================================================
+
+        conn = get_railway_connection()
+
+        cursor = conn.cursor()
+
+        # =================================================
+        # 4. DISABLE FOREIGN KEY CHECKS
+        # =================================================
+
+        cursor.execute(
+            "SET FOREIGN_KEY_CHECKS=0"
+        )
+
+        # =================================================
+        # 5. SPLIT SQL STATEMENTS
+        # =================================================
+
+        statements = []
+
+        current_statement = []
+
+        in_single_quote = False
+        in_double_quote = False
+        in_backtick = False
+        escape_next = False
+
+        for char in sql_text:
+
+            if escape_next:
+
+                current_statement.append(char)
+
+                escape_next = False
+
+                continue
+
+            if char == "\\":
+
+                current_statement.append(char)
+
+                escape_next = True
+
+                continue
+
+            if (
+                char == "'"
+                and not in_double_quote
+                and not in_backtick
+            ):
+
+                in_single_quote = (
+                    not in_single_quote
+                )
+
+                current_statement.append(char)
+
+                continue
+
+            if (
+                char == '"'
+                and not in_single_quote
+                and not in_backtick
+            ):
+
+                in_double_quote = (
+                    not in_double_quote
+                )
+
+                current_statement.append(char)
+
+                continue
+
+            if (
+                char == "`"
+                and not in_single_quote
+                and not in_double_quote
+            ):
+
+                in_backtick = (
+                    not in_backtick
+                )
+
+                current_statement.append(char)
+
+                continue
+
+            if (
+                char == ";"
+                and not in_single_quote
+                and not in_double_quote
+                and not in_backtick
+            ):
+
+                statement = "".join(
+                    current_statement
+                ).strip()
+
+                if statement:
+
+                    statements.append(
+                        statement
+                    )
+
+                current_statement = []
+
+            else:
+
+                current_statement.append(char)
+
+        # =================================================
+        # 6. LAST STATEMENT
+        # =================================================
+
+        statement = "".join(
+            current_statement
+        ).strip()
+
+        if statement:
+
+            statements.append(
+                statement
+            )
+
+        # =================================================
+        # 7. EXECUTE
+        # =================================================
+
+        executed = 0
+
+        for statement in statements:
+
+            clean_statement = (
+                statement.strip()
+            )
+
+            if not clean_statement:
+                continue
+
+            # Remove comments
+            clean_statement = re.sub(
+                r"^\s*(?:--[^\n]*(?:\n|$)\s*)+",
+                "",
+                clean_statement,
+                flags=re.MULTILINE
+            ).strip()
+
+            if not clean_statement:
+                continue
+
+            # Ignore USE
+            if clean_statement.upper().startswith(
+                "USE "
+            ):
+                continue
+
+            # Ignore CREATE DATABASE
+            if clean_statement.upper().startswith(
+                "CREATE DATABASE"
+            ):
+                continue
+
+            cursor.execute(
+                clean_statement
+            )
+
+            executed += 1
+
+        # =================================================
+        # 8. ENABLE FOREIGN KEY CHECKS
+        # =================================================
+
+        cursor.execute(
+            "SET FOREIGN_KEY_CHECKS=1"
+        )
+
+        # =================================================
+        # 9. COMMIT
+        # =================================================
+
+        conn.commit()
+
+        return {
+            "success": True,
+            "statements_executed": executed
+        }
+
+    except Exception as e:
+
+        if conn:
+
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        try:
+
+            if cursor:
+
+                cursor.execute(
+                    "SET FOREIGN_KEY_CHECKS=1"
+                )
+
+                conn.commit()
+
+        except Exception:
+
+            pass
+
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+    finally:
+
+        if cursor:
+
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+        if conn:
+
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+
 @app.route("/api/manager_active_member", methods=["GET"])
 def manager_active_member():
     try:
@@ -1218,6 +1514,9 @@ def set_trainer_trainee_program():
 # =========================================================
 # ADMIN - RESTORE DATABASE
 # =========================================================
+# =========================================================
+# ADMIN - RESTORE DATABASE
+# =========================================================
 
 @app.route("/api/admin/restore", methods=["POST"])
 def admin_restore_database():
@@ -1265,7 +1564,10 @@ def admin_restore_database():
             "restore_temp"
         )
 
-        os.makedirs(temp_dir, exist_ok=True)
+        os.makedirs(
+            temp_dir,
+            exist_ok=True
+        )
 
         uploaded_path = os.path.join(
             temp_dir,
@@ -1297,31 +1599,176 @@ def admin_restore_database():
         if "CREATE TABLE" not in sql_upper:
             return jsonify({
                 "success": False,
-                "message": "Invalid SQL backup. No CREATE TABLE statements found."
+                "message": (
+                    "Invalid SQL backup. "
+                    "No CREATE TABLE statements found."
+                )
             }), 400
 
         if "INSERT INTO" not in sql_upper:
             return jsonify({
                 "success": False,
-                "message": "Invalid SQL backup. No INSERT statements found."
+                "message": (
+                    "Invalid SQL backup. "
+                    "No INSERT statements found."
+                )
             }), 400
 
         # =================================================
         # 4. CREATE EMERGENCY BACKUP
         # =================================================
 
+        print("========================================")
+        print("CREATING EMERGENCY DATABASE BACKUP...")
+        print("========================================")
+
         emergency_backup = create_database_backup()
 
-        if not emergency_backup.get("success"):
+        # -------------------------------------------------
+        # CHECK BACKUP RESULT
+        # -------------------------------------------------
 
+        if not emergency_backup:
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Restore cancelled. "
+                    "Emergency backup could not be created."
+                )
+            }), 500
+
+        if not emergency_backup.get("success"):
             return jsonify({
                 "success": False,
                 "message": (
                     "Restore cancelled. "
                     "Emergency backup could not be created."
                 ),
-                "error": emergency_backup.get("error")
+                "error": emergency_backup.get(
+                    "error",
+                    "Unknown backup error."
+                )
             }), 500
+
+        # -------------------------------------------------
+        # VERIFY BACKUP FILENAME
+        # -------------------------------------------------
+
+        emergency_filename = emergency_backup.get(
+            "filename"
+        )
+
+        if not emergency_filename:
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Restore cancelled. "
+                    "Emergency backup has no filename."
+                )
+            }), 500
+
+        # -------------------------------------------------
+        # VERIFY SUPABASE STORAGE PATH
+        # -------------------------------------------------
+
+        emergency_storage_path = emergency_backup.get(
+            "storage_path"
+        )
+
+        if not emergency_storage_path:
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Restore cancelled. "
+                    "Emergency backup was not uploaded to storage."
+                )
+            }), 500
+
+        # -------------------------------------------------
+        # VERIFY FILE SIZE
+        # -------------------------------------------------
+
+        emergency_file_size = emergency_backup.get(
+            "file_size",
+            0
+        )
+
+        try:
+            emergency_file_size = int(
+                emergency_file_size
+            )
+        except Exception:
+            emergency_file_size = 0
+
+        if emergency_file_size <= 0:
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Restore cancelled. "
+                    "Emergency backup file is empty."
+                )
+            }), 500
+
+        # -------------------------------------------------
+        # VERIFY LOCAL EMERGENCY BACKUP FILE
+        # -------------------------------------------------
+
+        emergency_local_path = os.path.join(
+            BACKUP_DIR,
+            emergency_filename
+        )
+
+        if not os.path.exists(
+            emergency_local_path
+        ):
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Restore cancelled. "
+                    "Emergency backup file was not found locally."
+                )
+            }), 500
+
+        local_backup_size = os.path.getsize(
+            emergency_local_path
+        )
+
+        if local_backup_size <= 0:
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Restore cancelled. "
+                    "Emergency backup local file is empty."
+                )
+            }), 500
+
+        # -------------------------------------------------
+        # EMERGENCY BACKUP VERIFIED
+        # -------------------------------------------------
+
+        print("========================================")
+        print("EMERGENCY BACKUP VERIFIED")
+        print("Filename:", emergency_filename)
+        print(
+            "Storage:",
+            emergency_storage_path
+        )
+        print(
+            "Supabase size:",
+            emergency_file_size,
+            "bytes"
+        )
+        print(
+            "Local size:",
+            local_backup_size,
+            "bytes"
+        )
+        print("========================================")
 
         # =================================================
         # 5. CONNECT TO RAILWAY
@@ -1336,13 +1783,16 @@ def admin_restore_database():
 
             cursor = conn.cursor()
 
-            # Disable FK checks
+            # =================================================
+            # 6. DISABLE FOREIGN KEY CHECKS
+            # =================================================
+
             cursor.execute(
                 "SET FOREIGN_KEY_CHECKS=0"
             )
 
             # =================================================
-            # 6. SPLIT SQL STATEMENTS
+            # 7. SPLIT SQL STATEMENTS
             # =================================================
 
             statements = []
@@ -1356,31 +1806,93 @@ def admin_restore_database():
 
             for char in sql_text:
 
+                # -------------------------------------------------
+                # ESCAPE CHARACTER
+                # -------------------------------------------------
+
                 if escape_next:
 
-                    current_statement.append(char)
+                    current_statement.append(
+                        char
+                    )
+
                     escape_next = False
+
                     continue
 
                 if char == "\\":
-                    current_statement.append(char)
+
+                    current_statement.append(
+                        char
+                    )
+
                     escape_next = True
+
                     continue
 
-                if char == "'" and not in_double_quote and not in_backtick:
-                    in_single_quote = not in_single_quote
-                    current_statement.append(char)
+                # -------------------------------------------------
+                # SINGLE QUOTE
+                # -------------------------------------------------
+
+                if (
+                    char == "'"
+                    and not in_double_quote
+                    and not in_backtick
+                ):
+
+                    in_single_quote = (
+                        not in_single_quote
+                    )
+
+                    current_statement.append(
+                        char
+                    )
+
                     continue
 
-                if char == '"' and not in_single_quote and not in_backtick:
-                    in_double_quote = not in_double_quote
-                    current_statement.append(char)
+                # -------------------------------------------------
+                # DOUBLE QUOTE
+                # -------------------------------------------------
+
+                if (
+                    char == '"'
+                    and not in_single_quote
+                    and not in_backtick
+                ):
+
+                    in_double_quote = (
+                        not in_double_quote
+                    )
+
+                    current_statement.append(
+                        char
+                    )
+
                     continue
 
-                if char == "`" and not in_single_quote and not in_double_quote:
-                    in_backtick = not in_backtick
-                    current_statement.append(char)
+                # -------------------------------------------------
+                # BACKTICK
+                # -------------------------------------------------
+
+                if (
+                    char == "`"
+                    and not in_single_quote
+                    and not in_double_quote
+                ):
+
+                    in_backtick = (
+                        not in_backtick
+                    )
+
+                    current_statement.append(
+                        char
+                    )
+
                     continue
+
+                # -------------------------------------------------
+                # END OF SQL STATEMENT
+                # -------------------------------------------------
 
                 if (
                     char == ";"
@@ -1394,36 +1906,49 @@ def admin_restore_database():
                     ).strip()
 
                     if statement:
-                        statements.append(statement)
+                        statements.append(
+                            statement
+                        )
 
                     current_statement = []
 
                 else:
-                    current_statement.append(char)
 
-            # Last statement
+                    current_statement.append(
+                        char
+                    )
+
+            # =================================================
+            # LAST STATEMENT
+            # =================================================
+
             statement = "".join(
                 current_statement
             ).strip()
 
             if statement:
-                statements.append(statement)
+
+                statements.append(
+                    statement
+                )
 
             # =================================================
-            # 7. EXECUTE SQL
+            # 8. EXECUTE SQL
             # =================================================
 
             executed = 0
 
             for statement in statements:
 
-                clean_statement = statement.strip()
+                clean_statement = (
+                    statement.strip()
+                )
 
                 if not clean_statement:
                     continue
 
                 # -------------------------------------------------
-                # REMOVE SQL COMMENTS BEFORE PROCESSING
+                # REMOVE SQL COMMENTS
                 # -------------------------------------------------
 
                 clean_statement = re.sub(
@@ -1437,108 +1962,230 @@ def admin_restore_database():
                     continue
 
                 # -------------------------------------------------
-                # IGNORE USE STATEMENT
+                # IGNORE USE
                 # -------------------------------------------------
 
-                if clean_statement.upper().startswith("USE "):
+                if clean_statement.upper().startswith(
+                    "USE "
+                ):
+
                     continue
 
                 # -------------------------------------------------
                 # IGNORE CREATE DATABASE
                 # -------------------------------------------------
 
-                if clean_statement.upper().startswith("CREATE DATABASE"):
+                if clean_statement.upper().startswith(
+                    "CREATE DATABASE"
+                ):
+
                     continue
 
                 # -------------------------------------------------
                 # EXECUTE
                 # -------------------------------------------------
 
-                cursor.execute(clean_statement)
+                cursor.execute(
+                    clean_statement
+                )
 
                 executed += 1
 
             # =================================================
-            # 8. RESTORE FOREIGN KEY CHECK
+            # 9. RESTORE FOREIGN KEY CHECK
             # =================================================
 
             cursor.execute(
                 "SET FOREIGN_KEY_CHECKS=1"
             )
 
+            # =================================================
+            # 10. COMMIT
+            # =================================================
+
             conn.commit()
 
         except Exception:
 
+            # -------------------------------------------------
+            # ATTEMPT ROLLBACK
+            # -------------------------------------------------
+
             if conn:
-                conn.rollback()
+
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            # -------------------------------------------------
+            # TRY TO RESTORE FOREIGN KEY CHECKS
+            # -------------------------------------------------
 
             try:
+
                 if cursor:
+
                     cursor.execute(
                         "SET FOREIGN_KEY_CHECKS=1"
                     )
+
                     conn.commit()
+
             except Exception:
+
                 pass
 
             raise
 
         finally:
 
+            # -------------------------------------------------
+            # CLOSE CURSOR
+            # -------------------------------------------------
+
             if cursor:
-                cursor.close()
+
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+
+            # -------------------------------------------------
+            # CLOSE CONNECTION
+            # -------------------------------------------------
 
             if conn:
-                conn.close()
+
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         # =================================================
-        # 9. CLEAN TEMP FILE
+        # 11. CLEAN TEMP FILE
         # =================================================
 
         try:
-            if uploaded_path and os.path.exists(uploaded_path):
-                os.remove(uploaded_path)
+
+            if (
+                uploaded_path
+                and os.path.exists(
+                    uploaded_path
+                )
+            ):
+
+                os.remove(
+                    uploaded_path
+                )
+
         except Exception:
+
             pass
 
         # =================================================
-        # 10. RETURN RESULT
+        # 12. RETURN SUCCESS
         # =================================================
 
         return jsonify({
+
             "success": True,
-            "message": "Railway database restored successfully.",
+
+            "message": (
+                "Railway database restored successfully."
+            ),
+
             "restore": {
+
                 "file_name": file.filename,
+
                 "statements_executed": executed,
+
                 "emergency_backup": {
-                    "id": emergency_backup.get("backup_id"),
-                    "file_name": emergency_backup.get("filename"),
-                    "file_size": emergency_backup.get("file_size")
+
+                    "file_name":
+                        emergency_backup.get(
+                            "filename"
+                        ),
+
+                    "file_size":
+                        emergency_backup.get(
+                            "file_size"
+                        ),
+
+                    "storage_path":
+                        emergency_backup.get(
+                            "storage_path"
+                        )
                 }
             }
+
         }), 200
 
     except Exception as e:
 
-        # Cleanup
+        # =================================================
+        # CLEANUP TEMP FILE
+        # =================================================
+
         try:
-            if uploaded_path and os.path.exists(uploaded_path):
-                os.remove(uploaded_path)
+
+            if (
+                uploaded_path
+                and os.path.exists(
+                    uploaded_path
+                )
+            ):
+
+                os.remove(
+                    uploaded_path
+                )
+
         except Exception:
+
             pass
 
+        # =================================================
+        # RETURN ERROR
+        # =================================================
+
         return jsonify({
+
             "success": False,
-            "message": "Database restore failed.",
+
+            "message": (
+                "Database restore failed."
+            ),
+
             "error": str(e),
+
             "emergency_backup": (
-                emergency_backup
+                {
+                    "file_name":
+                        emergency_backup.get(
+                            "filename"
+                        ),
+
+                    "file_size":
+                        emergency_backup.get(
+                            "file_size"
+                        ),
+
+                    "storage_path":
+                        emergency_backup.get(
+                            "storage_path"
+                        )
+                }
                 if emergency_backup
+                and emergency_backup.get(
+                    "success"
+                )
                 else None
             )
+
         }), 500
+
+
 @app.route("/api/admin/restore/validate", methods=["POST"])
 def admin_validate_backup():
 
