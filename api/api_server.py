@@ -1643,6 +1643,12 @@ def restore_emergency_backup(emergency_backup):
             "Emergency recovery failed."
         )
     }
+
+
+# =========================================================
+# ADMIN - RESTORE DATABASE
+# =========================================================
+
 @app.route("/api/admin/restore", methods=["POST"])
 def admin_restore_database():
 
@@ -1754,6 +1760,7 @@ def admin_restore_database():
         # -------------------------------------------------
 
         if not emergency_backup:
+
             return jsonify({
                 "success": False,
                 "message": (
@@ -1763,6 +1770,7 @@ def admin_restore_database():
             }), 500
 
         if not emergency_backup.get("success"):
+
             return jsonify({
                 "success": False,
                 "message": (
@@ -1775,12 +1783,12 @@ def admin_restore_database():
                 )
             }), 500
 
-        # -------------------------------------------------
-        # VERIFY BACKUP FILENAME
-        # -------------------------------------------------
+        # =================================================
+        # 5. VERIFY EMERGENCY BACKUP
+        # =================================================
 
-        emergency_filename = emergency_backup.get(
-            "filename"
+        emergency_filename = (
+            emergency_backup.get("filename")
         )
 
         if not emergency_filename:
@@ -1793,12 +1801,8 @@ def admin_restore_database():
                 )
             }), 500
 
-        # -------------------------------------------------
-        # VERIFY SUPABASE STORAGE PATH
-        # -------------------------------------------------
-
-        emergency_storage_path = emergency_backup.get(
-            "storage_path"
+        emergency_storage_path = (
+            emergency_backup.get("storage_path")
         )
 
         if not emergency_storage_path:
@@ -1807,24 +1811,26 @@ def admin_restore_database():
                 "success": False,
                 "message": (
                     "Restore cancelled. "
-                    "Emergency backup was not uploaded to storage."
+                    "Emergency backup was not uploaded "
+                    "to storage."
                 )
             }), 500
 
-        # -------------------------------------------------
-        # VERIFY FILE SIZE
-        # -------------------------------------------------
-
-        emergency_file_size = emergency_backup.get(
-            "file_size",
-            0
+        emergency_file_size = (
+            emergency_backup.get(
+                "file_size",
+                0
+            )
         )
 
         try:
+
             emergency_file_size = int(
                 emergency_file_size
             )
+
         except Exception:
+
             emergency_file_size = 0
 
         if emergency_file_size <= 0:
@@ -1838,7 +1844,7 @@ def admin_restore_database():
             }), 500
 
         # -------------------------------------------------
-        # VERIFY LOCAL EMERGENCY BACKUP FILE
+        # VERIFY LOCAL FILE
         # -------------------------------------------------
 
         emergency_local_path = os.path.join(
@@ -1854,7 +1860,8 @@ def admin_restore_database():
                 "success": False,
                 "message": (
                     "Restore cancelled. "
-                    "Emergency backup file was not found locally."
+                    "Emergency backup file was not "
+                    "found locally."
                 )
             }), 500
 
@@ -1872,13 +1879,12 @@ def admin_restore_database():
                 )
             }), 500
 
-        # -------------------------------------------------
-        # EMERGENCY BACKUP VERIFIED
-        # -------------------------------------------------
-
         print("========================================")
         print("EMERGENCY BACKUP VERIFIED")
-        print("Filename:", emergency_filename)
+        print(
+            "Filename:",
+            emergency_filename
+        )
         print(
             "Storage:",
             emergency_storage_path
@@ -1896,7 +1902,7 @@ def admin_restore_database():
         print("========================================")
 
         # =================================================
-        # 5. CONNECT TO RAILWAY
+        # 6. CONNECT TO RAILWAY
         # =================================================
 
         conn = None
@@ -1909,7 +1915,7 @@ def admin_restore_database():
             cursor = conn.cursor()
 
             # =================================================
-            # 6. DISABLE FOREIGN KEY CHECKS
+            # 7. DISABLE FOREIGN KEY CHECKS
             # =================================================
 
             cursor.execute(
@@ -1917,7 +1923,7 @@ def admin_restore_database():
             )
 
             # =================================================
-            # 7. SPLIT SQL STATEMENTS
+            # 8. SPLIT SQL STATEMENTS
             # =================================================
 
             statements = []
@@ -1930,10 +1936,6 @@ def admin_restore_database():
             escape_next = False
 
             for char in sql_text:
-
-                # -------------------------------------------------
-                # ESCAPE CHARACTER
-                # -------------------------------------------------
 
                 if escape_next:
 
@@ -2016,7 +2018,7 @@ def admin_restore_database():
                     continue
 
                 # -------------------------------------------------
-                # END OF SQL STATEMENT
+                # END OF STATEMENT
                 # -------------------------------------------------
 
                 if (
@@ -2031,6 +2033,7 @@ def admin_restore_database():
                     ).strip()
 
                     if statement:
+
                         statements.append(
                             statement
                         )
@@ -2044,7 +2047,7 @@ def admin_restore_database():
                     )
 
             # =================================================
-            # LAST STATEMENT
+            # 9. LAST STATEMENT
             # =================================================
 
             statement = "".join(
@@ -2058,7 +2061,7 @@ def admin_restore_database():
                 )
 
             # =================================================
-            # 8. EXECUTE SQL
+            # 10. EXECUTE SQL
             # =================================================
 
             executed = 0
@@ -2117,7 +2120,7 @@ def admin_restore_database():
                 executed += 1
 
             # =================================================
-            # 9. RESTORE FOREIGN KEY CHECK
+            # 11. RESTORE FOREIGN KEY CHECKS
             # =================================================
 
             cursor.execute(
@@ -2125,43 +2128,106 @@ def admin_restore_database():
             )
 
             # =================================================
-            # 10. COMMIT
+            # 12. COMMIT
             # =================================================
 
             conn.commit()
 
-        except Exception:
+        except Exception as restore_error:
+
+            print("========================================")
+            print("DATABASE RESTORE FAILED")
+            print(
+                "ERROR:",
+                restore_error
+            )
+            print("========================================")
 
             # -------------------------------------------------
-            # ATTEMPT ROLLBACK
+            # CLOSE FAILED RESTORE CONNECTION
             # -------------------------------------------------
+
+            if cursor:
+
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+
+                cursor = None
 
             if conn:
 
                 try:
-                    conn.rollback()
+                    conn.close()
                 except Exception:
                     pass
 
+                conn = None
+
             # -------------------------------------------------
-            # TRY TO RESTORE FOREIGN KEY CHECKS
+            # EMERGENCY RECOVERY
             # -------------------------------------------------
 
-            try:
+            print("========================================")
+            print("STARTING EMERGENCY DATABASE RECOVERY")
+            print("========================================")
 
-                if cursor:
+            recovery_result = (
+                restore_emergency_backup(
+                    emergency_backup
+                )
+            )
 
-                    cursor.execute(
-                        "SET FOREIGN_KEY_CHECKS=1"
+            # -------------------------------------------------
+            # RECOVERY FAILED
+            # -------------------------------------------------
+
+            if not recovery_result.get(
+                "success"
+            ):
+
+                print("========================================")
+                print(
+                    "CRITICAL: EMERGENCY RECOVERY FAILED"
+                )
+                print(
+                    "ERROR:",
+                    recovery_result.get(
+                        "error",
+                        "Unknown recovery error."
                     )
+                )
+                print("========================================")
 
-                    conn.commit()
+                raise RuntimeError(
+                    "Database restore failed AND "
+                    "emergency recovery failed. "
+                    + str(
+                        recovery_result.get(
+                            "error",
+                            "Unknown recovery error."
+                        )
+                    )
+                )
 
-            except Exception:
+            # -------------------------------------------------
+            # RECOVERY SUCCESSFUL
+            # -------------------------------------------------
 
-                pass
+            print("========================================")
+            print("DATABASE RECOVERED")
+            print("========================================")
 
-            raise
+            raise RuntimeError(
+                "Database restore failed, "
+                "but the previous database was successfully "
+                "restored from the emergency backup. "
+                "Original restore error: "
+                + str(
+                    restore_error
+                )
+            )
 
         finally:
 
@@ -2188,7 +2254,7 @@ def admin_restore_database():
                     pass
 
         # =================================================
-        # 11. CLEAN TEMP FILE
+        # 13. CLEAN TEMP FILE
         # =================================================
 
         try:
@@ -2209,7 +2275,7 @@ def admin_restore_database():
             pass
 
         # =================================================
-        # 12. RETURN SUCCESS
+        # 14. RETURN SUCCESS
         # =================================================
 
         return jsonify({
@@ -2250,7 +2316,7 @@ def admin_restore_database():
     except Exception as e:
 
         # =================================================
-        # CLEANUP TEMP FILE
+        # CLEAN TEMP FILE
         # =================================================
 
         try:
@@ -2285,6 +2351,7 @@ def admin_restore_database():
             "error": str(e),
 
             "emergency_backup": (
+
                 {
                     "file_name":
                         emergency_backup.get(
@@ -2301,14 +2368,19 @@ def admin_restore_database():
                             "storage_path"
                         )
                 }
-                if emergency_backup
-                and emergency_backup.get(
-                    "success"
+
+                if (
+                    emergency_backup
+                    and emergency_backup.get(
+                        "success"
+                    )
                 )
+
                 else None
             )
 
         }), 500
+
 
 
 @app.route("/api/admin/restore/validate", methods=["POST"])
