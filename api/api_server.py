@@ -334,14 +334,20 @@ def restore_sql_file_to_railway(sql_file_path):
             except Exception:
                 pass
 
-
-
 @app.route("/api/manager_active_member", methods=["GET"])
 def manager_active_member():
     try:
         members = execute_query("""
-            SELECT *
+            SELECT
+                id,
+                full_name,
+                membership_type,
+                membership_expires,
+                monthly_expires,
+                phone_number
             FROM members
+            WHERE membership_expires >= NOW()
+            ORDER BY membership_expires ASC
         """, fetch=True)
 
         return jsonify(members)
@@ -351,6 +357,7 @@ def manager_active_member():
             "success": False,
             "error": str(e)
         }), 500
+
 
 
 @app.route(
