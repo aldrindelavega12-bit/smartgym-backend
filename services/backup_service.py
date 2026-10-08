@@ -67,7 +67,6 @@ GITHUB_FRONTEND_URL = (
     "smartgym-frontend"
 )
 
-
 def download_github_repository(
     repository_url,
     destination_dir
@@ -76,6 +75,19 @@ def download_github_repository(
     Download a public GitHub repository
     and return the extracted repository directory.
     """
+
+    # =========================================================
+    # CREATE DESTINATION DIRECTORY
+    # =========================================================
+
+    os.makedirs(
+        destination_dir,
+        exist_ok=True
+    )
+
+    # =========================================================
+    # GITHUB MAIN BRANCH ZIP
+    # =========================================================
 
     archive_url = (
         repository_url.rstrip("/")
@@ -87,10 +99,36 @@ def download_github_repository(
         "repository.zip"
     )
 
+    # =========================================================
+    # DOWNLOAD REPOSITORY
+    # =========================================================
+
     urllib.request.urlretrieve(
         archive_url,
         archive_path
     )
+
+    # =========================================================
+    # CHECK DOWNLOADED ZIP
+    # =========================================================
+
+    if not os.path.exists(
+        archive_path
+    ):
+        raise RuntimeError(
+            "GitHub repository ZIP download failed."
+        )
+
+    if os.path.getsize(
+        archive_path
+    ) == 0:
+        raise RuntimeError(
+            "Downloaded GitHub repository ZIP is empty."
+        )
+
+    # =========================================================
+    # EXTRACT DIRECTORY
+    # =========================================================
 
     extract_dir = os.path.join(
         destination_dir,
@@ -102,6 +140,10 @@ def download_github_repository(
         exist_ok=True
     )
 
+    # =========================================================
+    # EXTRACT ZIP
+    # =========================================================
+
     with zipfile.ZipFile(
         archive_path,
         "r"
@@ -110,6 +152,10 @@ def download_github_repository(
         zip_file.extractall(
             extract_dir
         )
+
+    # =========================================================
+    # FIND EXTRACTED REPOSITORY DIRECTORY
+    # =========================================================
 
     extracted_items = [
         os.path.join(
@@ -127,13 +173,23 @@ def download_github_repository(
         if os.path.isdir(item)
     ]
 
-    if not directories:
+    # =========================================================
+    # VALIDATE EXTRACTION
+    # =========================================================
 
+    if not directories:
         raise RuntimeError(
             "GitHub repository extraction failed."
         )
 
+    # =========================================================
+    # RETURN REPOSITORY DIRECTORY
+    # =========================================================
+
     return directories[0]
+
+
+
 def get_supabase_client():
     if not SUPABASE_URL:
         raise RuntimeError(
