@@ -42,7 +42,6 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # =========================================================
 # AUDIT LOG HELPER
 # =========================================================
-
 def insert_audit_log(
     cursor,
     action,
@@ -54,55 +53,60 @@ def insert_audit_log(
 ):
     actor_name = "Unknown"
     actor_role = "Unknown"
-    verified_actor_id = None
 
-    # Get actor ID, name, and role from user_accounts
-    if actor_id is not None:
+    try:
+        # Get the logged-in account using user_accounts.id
+        if actor_id is not None:
+            cursor.execute("""
+                SELECT
+                    id,
+                    COALESCE(
+                        NULLIF(fullname, ''),
+                        username
+                    ) AS actor_name,
+                    role AS actor_role
+                FROM user_accounts
+                WHERE id = %s
+                LIMIT 1
+            """, (actor_id,))
+
+            actor = cursor.fetchone()
+
+            if actor:
+                actor_name = actor["actor_name"] or "Unknown"
+                actor_role = actor["actor_role"] or "Unknown"
+
+        # Build audit log details
+        audit_details = (
+            f"{record_type} | "
+            f"ID: {record_id} | "
+            f"Name: {record_name or 'Unknown'}"
+        )
+
+        if details:
+            audit_details += f" | {details}"
+
+        # Insert audit log
         cursor.execute("""
-            SELECT
-                user_id,
-                COALESCE(NULLIF(fullname, ''), username) AS actor_name,
-                role AS actor_role
-            FROM user_accounts
-            WHERE user_id = %s
-            LIMIT 1
-        """, (str(actor_id),))
-
-        actor = cursor.fetchone()
-
-        if actor:
-            verified_actor_id = actor["user_id"]
-            actor_name = actor["actor_name"] or "Unknown"
-            actor_role = actor["actor_role"] or "Unknown"
-
-    audit_details = (
-        f"{record_type} | ID: {record_id} "
-        f"| Name: {record_name or 'Unknown'}"
-    )
-
-    if details:
-        audit_details += f" | {details}"
-
-    cursor.execute("""
-        INSERT INTO audit_logs (
-            actor_id,
+            INSERT INTO audit_logs (
+                actor_id,
+                actor_name,
+                actor_role,
+                action,
+                details
+            )
+            VALUES (%s, %s, %s, %s, %s)
+        """, (
+            int(actor_id) if actor_id is not None else None,
             actor_name,
             actor_role,
             action,
-            details
-        )
-        VALUES (%s, %s, %s, %s, %s)
-    """, (
-        verified_actor_id,
-        actor_name,
-        actor_role,
-        action,
-        audit_details
-    ))
+            audit_details
+        ))
 
-
-
-
+    except Exception as e:
+        print(f"AUDIT LOG ERROR: {e}")
+        raise
 
 # =========================================================
 # GET AUDIT LOGS
@@ -19400,7 +19404,6 @@ ARCHIVE_TABLES = {
         "record_type": "Staff"
     }
 }
-
 @app.route(
     "/api/archive/<record_type>/<record_id>",
     methods=["POST"]
@@ -19422,15 +19425,17 @@ def archive_record(record_type, record_id):
     display_type = config["record_type"]
 
     try:
-        # Resolve the current user through your authentication
-        # mechanism before trusting an actor ID.
-        actor_id = get_authenticated_user_id()
+        data = request.get_json(silent=True) or {}
+        actor_id = data.get("actor_id")
 
-        if not actor_id:
-            return jsonify({
-                "success": False,
-                "message": "Authentication required."
-            }), 401
+        if actor_id is not None:
+            try:
+                actor_id = int(actor_id)
+            except (TypeError, ValueError):
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid actor ID."
+                }), 400
 
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
@@ -19510,6 +19515,7 @@ def archive_record(record_type, record_id):
         if conn:
             conn.close()
 
+
 @app.route(
     "/api/archive/restore/<record_type>/<record_id>",
     methods=["POST"]
@@ -19531,10 +19537,21 @@ def restore_archived_record(record_type, record_id):
     display_type = config["record_type"]
 
     try:
+        data = request.get_json(silent=True) or {}
+        actor_id = data.get("actor_id")
+
+        if actor_id is not None:
+            try:
+                actor_id = int(actor_id)
+            except (TypeError, ValueError):
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid actor ID."
+                }), 400
+
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # Find archived record
         cursor.execute(
             f"""
             SELECT `{id_column}`, `{name_column}`, archived_at
@@ -19554,7 +19571,6 @@ def restore_archived_record(record_type, record_id):
                 "message": "Archived record not found."
             }), 404
 
-        # Restore record
         cursor.execute(
             f"""
             UPDATE `{table}`
@@ -19572,15 +19588,13 @@ def restore_archived_record(record_type, record_id):
                 "message": "Record was not restored."
             }), 409
 
-        # Audit record
-        # Actor identity is not yet connected to authentication.
         insert_audit_log(
             cursor=cursor,
             action=f"RESTORE_{record_type.upper()}",
             record_type=display_type,
             record_id=record_id,
             record_name=record[name_column],
-            actor_id=None,
+            actor_id=actor_id,
             details=f"{display_type} restored successfully."
         )
 
@@ -19609,9 +19623,6 @@ def restore_archived_record(record_type, record_id):
             conn.close()
 
 
-
-
-
 @app.route(
     "/api/archive/<record_type>/<record_id>",
     methods=["DELETE"]
@@ -19633,13 +19644,17 @@ def permanently_delete_archived_record(record_type, record_id):
     display_type = config["record_type"]
 
     try:
-        actor_id = get_authenticated_user_id()
+        data = request.get_json(silent=True) or {}
+        actor_id = data.get("actor_id")
 
-        if not actor_id:
-            return jsonify({
-                "success": False,
-                "message": "Authentication required."
-            }), 401
+        if actor_id is not None:
+            try:
+                actor_id = int(actor_id)
+            except (TypeError, ValueError):
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid actor ID."
+                }), 400
 
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
@@ -19663,20 +19678,6 @@ def permanently_delete_archived_record(record_type, record_id):
                 "message": "Archived record not found."
             }), 404
 
-        # Audit before deleting the archived record
-        insert_audit_log(
-            cursor=cursor,
-            action=f"DELETE_ARCHIVED_{record_type.upper()}",
-            record_type=display_type,
-            record_id=record_id,
-            record_name=record[name_column],
-            actor_id=actor_id,
-            details=(
-                f"{display_type} permanently deleted "
-                "from archive."
-            )
-        )
-
         cursor.execute(
             f"""
             DELETE FROM `{table}`
@@ -19692,6 +19693,18 @@ def permanently_delete_archived_record(record_type, record_id):
                 "success": False,
                 "message": "Record was not deleted."
             }), 409
+
+        insert_audit_log(
+            cursor=cursor,
+            action=f"DELETE_ARCHIVED_{record_type.upper()}",
+            record_type=display_type,
+            record_id=record_id,
+            record_name=record[name_column],
+            actor_id=actor_id,
+            details=(
+                f"{display_type} permanently deleted from archive."
+            )
+        )
 
         conn.commit()
 
@@ -19719,8 +19732,6 @@ def permanently_delete_archived_record(record_type, record_id):
             cursor.close()
         if conn:
             conn.close()
-
-
 
 # =====================================================
 # GET ALL ARCHIVED RECORDS
