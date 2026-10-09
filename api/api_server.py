@@ -42,6 +42,7 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # =========================================================
 # AUDIT LOG HELPER
 # =========================================================
+
 def insert_audit_log(
     cursor,
     action,
@@ -53,9 +54,10 @@ def insert_audit_log(
 ):
     actor_name = "Unknown"
     actor_role = "Unknown"
+    verified_actor_id = None
 
-    # Get the logged-in account from user_accounts
-    if actor_id:
+    # Get actor ID, name, and role from user_accounts
+    if actor_id is not None:
         cursor.execute("""
             SELECT
                 user_id,
@@ -69,8 +71,9 @@ def insert_audit_log(
         actor = cursor.fetchone()
 
         if actor:
-            actor_name = actor["actor_name"]
-            actor_role = actor["actor_role"]
+            verified_actor_id = actor["user_id"]
+            actor_name = actor["actor_name"] or "Unknown"
+            actor_role = actor["actor_role"] or "Unknown"
 
     audit_details = (
         f"{record_type} | ID: {record_id} "
@@ -90,12 +93,16 @@ def insert_audit_log(
         )
         VALUES (%s, %s, %s, %s, %s)
     """, (
-        str(actor_id) if actor_id is not None else None,
+        verified_actor_id,
         actor_name,
         actor_role,
         action,
         audit_details
     ))
+
+
+
+
 
 # =========================================================
 # GET AUDIT LOGS
@@ -19394,8 +19401,6 @@ ARCHIVE_TABLES = {
     }
 }
 
-
-
 @app.route(
     "/api/archive/<record_type>/<record_id>",
     methods=["POST"]
@@ -19417,10 +19422,19 @@ def archive_record(record_type, record_id):
     display_type = config["record_type"]
 
     try:
+        # Resolve the current user through your authentication
+        # mechanism before trusting an actor ID.
+        actor_id = get_authenticated_user_id()
+
+        if not actor_id:
+            return jsonify({
+                "success": False,
+                "message": "Authentication required."
+            }), 401
+
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # Find record and current archive status
         cursor.execute(
             f"""
             SELECT `{id_column}`, `{name_column}`, archived_at
@@ -19445,7 +19459,6 @@ def archive_record(record_type, record_id):
                 "message": "Record is already archived."
             }), 409
 
-        # Archive record
         cursor.execute(
             f"""
             UPDATE `{table}`
@@ -19463,13 +19476,13 @@ def archive_record(record_type, record_id):
                 "message": "Record was not archived."
             }), 409
 
-        # Audit record in the same transaction
         insert_audit_log(
             cursor=cursor,
             action=f"ARCHIVE_{record_type.upper()}",
             record_type=display_type,
             record_id=record_id,
             record_name=record[name_column],
+            actor_id=actor_id,
             details=f"{display_type} archived successfully."
         )
 
@@ -19499,7 +19512,6 @@ def archive_record(record_type, record_id):
 
 
 
-
 @app.route(
     "/api/archive/restore/<record_type>/<record_id>",
     methods=["POST"]
@@ -19521,10 +19533,17 @@ def restore_archived_record(record_type, record_id):
     display_type = config["record_type"]
 
     try:
+        actor_id = get_authenticated_user_id()
+
+        if not actor_id:
+            return jsonify({
+                "success": False,
+                "message": "Authentication required."
+            }), 401
+
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # Find archived record
         cursor.execute(
             f"""
             SELECT `{id_column}`, `{name_column}`, archived_at
@@ -19544,7 +19563,6 @@ def restore_archived_record(record_type, record_id):
                 "message": "Archived record not found."
             }), 404
 
-        # Restore record
         cursor.execute(
             f"""
             UPDATE `{table}`
@@ -19562,13 +19580,13 @@ def restore_archived_record(record_type, record_id):
                 "message": "Record was not restored."
             }), 409
 
-        # Audit record
         insert_audit_log(
             cursor=cursor,
             action=f"RESTORE_{record_type.upper()}",
             record_type=display_type,
             record_id=record_id,
             record_name=record[name_column],
+            actor_id=actor_id,
             details=f"{display_type} restored successfully."
         )
 
@@ -19595,6 +19613,118 @@ def restore_archived_record(record_type, record_id):
             cursor.close()
         if conn:
             conn.close()
+
+
+
+@app.route(
+    "/api/archive/<record_type>/<record_id>",
+    methods=["DELETE"]
+)
+def permanently_delete_archived_record(record_type, record_id):
+    conn = None
+    cursor = None
+
+    if record_type not in ARCHIVE_TABLES:
+        return jsonify({
+            "success": False,
+            "message": "Invalid record type."
+        }), 400
+
+    config = ARCHIVE_TABLES[record_type]
+    table = config["table"]
+    id_column = config["id_column"]
+    name_column = config["name_column"]
+    display_type = config["record_type"]
+
+    try:
+        actor_id = get_authenticated_user_id()
+
+        if not actor_id:
+            return jsonify({
+                "success": False,
+                "message": "Authentication required."
+            }), 401
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute(
+            f"""
+            SELECT `{id_column}`, `{name_column}`
+            FROM `{table}`
+            WHERE `{id_column}` = %s
+              AND archived_at IS NOT NULL
+            LIMIT 1
+            """,
+            (record_id,)
+        )
+
+        record = cursor.fetchone()
+
+        if not record:
+            return jsonify({
+                "success": False,
+                "message": "Archived record not found."
+            }), 404
+
+        # Audit before deleting the archived record
+        insert_audit_log(
+            cursor=cursor,
+            action=f"DELETE_ARCHIVED_{record_type.upper()}",
+            record_type=display_type,
+            record_id=record_id,
+            record_name=record[name_column],
+            actor_id=actor_id,
+            details=(
+                f"{display_type} permanently deleted "
+                "from archive."
+            )
+        )
+
+        cursor.execute(
+            f"""
+            DELETE FROM `{table}`
+            WHERE `{id_column}` = %s
+              AND archived_at IS NOT NULL
+            """,
+            (record_id,)
+        )
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Record was not deleted."
+            }), 409
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"{display_type} permanently deleted."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("PERMANENT DELETE ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": (
+                "Failed to permanently delete record. "
+                "Check database relationships."
+            )
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
 
 # =====================================================
 # GET ALL ARCHIVED RECORDS
@@ -19687,107 +19817,6 @@ def get_archived_records():
         if conn:
             conn.close()
 
-
-@app.route(
-    "/api/archive/<record_type>/<record_id>",
-    methods=["DELETE"]
-)
-def permanently_delete_archived_record(record_type, record_id):
-    conn = None
-    cursor = None
-
-    if record_type not in ARCHIVE_TABLES:
-        return jsonify({
-            "success": False,
-            "message": "Invalid record type."
-        }), 400
-
-    config = ARCHIVE_TABLES[record_type]
-    table = config["table"]
-    id_column = config["id_column"]
-    name_column = config["name_column"]
-    display_type = config["record_type"]
-
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-        # Find archived record before deleting it
-        cursor.execute(
-            f"""
-            SELECT `{id_column}`, `{name_column}`
-            FROM `{table}`
-            WHERE `{id_column}` = %s
-              AND archived_at IS NOT NULL
-            LIMIT 1
-            """,
-            (record_id,)
-        )
-
-        record = cursor.fetchone()
-
-        if not record:
-            return jsonify({
-                "success": False,
-                "message": "Archived record not found."
-            }), 404
-
-        # Permanently delete only archived records
-        cursor.execute(
-            f"""
-            DELETE FROM `{table}`
-            WHERE `{id_column}` = %s
-              AND archived_at IS NOT NULL
-            """,
-            (record_id,)
-        )
-
-        if cursor.rowcount != 1:
-            conn.rollback()
-            return jsonify({
-                "success": False,
-                "message": "Record was not deleted."
-            }), 409
-
-        # Audit record before commit
-        insert_audit_log(
-            cursor=cursor,
-            action=f"DELETE_ARCHIVED_{record_type.upper()}",
-            record_type=display_type,
-            record_id=record_id,
-            record_name=record[name_column],
-            details=(
-                f"{display_type} permanently deleted "
-                "from archive."
-            )
-        )
-
-        conn.commit()
-
-        return jsonify({
-            "success": True,
-            "message": f"{display_type} permanently deleted."
-        }), 200
-
-    except Exception as e:
-        if conn:
-            conn.rollback()
-
-        print("PERMANENT DELETE ERROR:", e)
-
-        return jsonify({
-            "success": False,
-            "message": (
-                "Failed to permanently delete record. "
-                "Check database relationships."
-            )
-        }), 500
-
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
 
 
 
