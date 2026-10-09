@@ -19395,6 +19395,7 @@ ARCHIVE_TABLES = {
 }
 
 
+
 @app.route(
     "/api/archive/<record_type>/<record_id>",
     methods=["POST"]
@@ -19469,8 +19470,6 @@ def archive_record(record_type, record_id):
             record_type=display_type,
             record_id=record_id,
             record_name=record[name_column],
-            actor_name="Unknown",
-            actor_role="Unknown",
             details=f"{display_type} archived successfully."
         )
 
@@ -19497,10 +19496,105 @@ def archive_record(record_type, record_id):
             cursor.close()
         if conn:
             conn.close()
-from datetime import datetime
 
 
 
+
+@app.route(
+    "/api/archive/restore/<record_type>/<record_id>",
+    methods=["POST"]
+)
+def restore_archived_record(record_type, record_id):
+    conn = None
+    cursor = None
+
+    if record_type not in ARCHIVE_TABLES:
+        return jsonify({
+            "success": False,
+            "message": "Invalid record type."
+        }), 400
+
+    config = ARCHIVE_TABLES[record_type]
+    table = config["table"]
+    id_column = config["id_column"]
+    name_column = config["name_column"]
+    display_type = config["record_type"]
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        # Find archived record
+        cursor.execute(
+            f"""
+            SELECT `{id_column}`, `{name_column}`, archived_at
+            FROM `{table}`
+            WHERE `{id_column}` = %s
+              AND archived_at IS NOT NULL
+            LIMIT 1
+            """,
+            (record_id,)
+        )
+
+        record = cursor.fetchone()
+
+        if not record:
+            return jsonify({
+                "success": False,
+                "message": "Archived record not found."
+            }), 404
+
+        # Restore record
+        cursor.execute(
+            f"""
+            UPDATE `{table}`
+            SET archived_at = NULL
+            WHERE `{id_column}` = %s
+              AND archived_at IS NOT NULL
+            """,
+            (record_id,)
+        )
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Record was not restored."
+            }), 409
+
+        # Audit record
+        insert_audit_log(
+            cursor=cursor,
+            action=f"RESTORE_{record_type.upper()}",
+            record_type=display_type,
+            record_id=record_id,
+            record_name=record[name_column],
+            details=f"{display_type} restored successfully."
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"{display_type} restored successfully."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("RESTORE RECORD ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to restore record."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 # =====================================================
 # GET ALL ARCHIVED RECORDS
@@ -19593,103 +19687,6 @@ def get_archived_records():
         if conn:
             conn.close()
 
-@app.route(
-    "/api/archive/restore/<record_type>/<record_id>",
-    methods=["POST"]
-)
-def restore_archived_record(record_type, record_id):
-    conn = None
-    cursor = None
-
-    if record_type not in ARCHIVE_TABLES:
-        return jsonify({
-            "success": False,
-            "message": "Invalid record type."
-        }), 400
-
-    config = ARCHIVE_TABLES[record_type]
-    table = config["table"]
-    id_column = config["id_column"]
-    name_column = config["name_column"]
-    display_type = config["record_type"]
-
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-        # Find archived record
-        cursor.execute(
-            f"""
-            SELECT `{id_column}`, `{name_column}`, archived_at
-            FROM `{table}`
-            WHERE `{id_column}` = %s
-              AND archived_at IS NOT NULL
-            LIMIT 1
-            """,
-            (record_id,)
-        )
-
-        record = cursor.fetchone()
-
-        if not record:
-            return jsonify({
-                "success": False,
-                "message": "Archived record not found."
-            }), 404
-
-        # Restore record
-        cursor.execute(
-            f"""
-            UPDATE `{table}`
-            SET archived_at = NULL
-            WHERE `{id_column}` = %s
-              AND archived_at IS NOT NULL
-            """,
-            (record_id,)
-        )
-
-        if cursor.rowcount != 1:
-            conn.rollback()
-            return jsonify({
-                "success": False,
-                "message": "Record was not restored."
-            }), 409
-
-        # Audit record
-        insert_audit_log(
-            cursor=cursor,
-            action=f"RESTORE_{record_type.upper()}",
-            record_type=display_type,
-            record_id=record_id,
-            record_name=record[name_column],
-            actor_name="Unknown",
-            actor_role="Unknown",
-            details=f"{display_type} restored successfully."
-        )
-
-        conn.commit()
-
-        return jsonify({
-            "success": True,
-            "message": f"{display_type} restored successfully."
-        }), 200
-
-    except Exception as e:
-        if conn:
-            conn.rollback()
-
-        print("RESTORE RECORD ERROR:", e)
-
-        return jsonify({
-            "success": False,
-            "message": "Failed to restore record."
-        }), 500
-
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
 
 @app.route(
     "/api/archive/<record_type>/<record_id>",
@@ -19759,8 +19756,6 @@ def permanently_delete_archived_record(record_type, record_id):
             record_type=display_type,
             record_id=record_id,
             record_name=record[name_column],
-            actor_name="Unknown",
-            actor_role="Unknown",
             details=(
                 f"{display_type} permanently deleted "
                 "from archive."
@@ -19793,6 +19788,9 @@ def permanently_delete_archived_record(record_type, record_id):
             cursor.close()
         if conn:
             conn.close()
+
+
+
 
 
 check_trainer_fee_reminders()    
