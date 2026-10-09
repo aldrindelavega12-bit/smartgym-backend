@@ -19527,7 +19527,75 @@ def restore_archived_record(record_type, record_id):
             cursor.close()
         if conn:
             conn.close()
+@app.route(
+    "/api/archive/<record_type>/<record_id>",
+    methods=["DELETE"]
+)
+def permanently_delete_archived_record(record_type, record_id):
 
+    archive_tables = {
+        "member": ("members", "id"),
+        "walkin": ("walkins", "id"),
+        "staff": ("user_accounts", "user_id")
+    }
+
+    if record_type not in archive_tables:
+        return jsonify({
+            "success": False,
+            "message": "Invalid archive record type."
+        }), 400
+
+    table, id_column = archive_tables[record_type]
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            f"""
+            DELETE FROM `{table}`
+            WHERE `{id_column}` = %s
+              AND archived_at IS NOT NULL
+            """,
+            (record_id,)
+        )
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Archived record not found."
+            }), 404
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Archived record permanently deleted."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("[ARCHIVE DELETE ERROR]", str(e))
+
+        return jsonify({
+            "success": False,
+            "message": (
+                "Could not permanently delete this record. "
+                "It may still be referenced by other database records."
+            )
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 check_trainer_fee_reminders()    
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
