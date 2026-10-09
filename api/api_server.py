@@ -11447,6 +11447,7 @@ def website_walkins():
 
             LEFT JOIN attendance_sessions a
                 ON a.user_id = w.id
+            WHERE w.archived_at IS NULL
 
             GROUP BY
                 w.id,
@@ -16467,6 +16468,7 @@ def staff_accounts():
             role
         FROM user_accounts
         WHERE role IN ('staff','trainer')
+        AND archived_at IS NULL
     """)
 
     rows = cursor.fetchall()
@@ -17092,6 +17094,7 @@ def get_members_list():
             membership_expires,
             monthly_expires
         FROM members
+        WHERE archived_at IS NULL
     """)
 
     rows = cursor.fetchall()
@@ -19255,7 +19258,275 @@ def delete_message(id):
     return jsonify({
         "success": True
     })
+# =====================================================
+# ARCHIVE API
+# =====================================================
 
+from datetime import datetime
+
+
+ARCHIVE_TABLES = {
+    "member": {
+        "table": "members",
+        "id_column": "id"
+    },
+    "walkin": {
+        "table": "walkins",
+        "id_column": "id"
+    },
+    "staff": {
+        "table": "user_accounts",
+        "id_column": "user_id"
+    }
+}
+
+
+# =====================================================
+# GET ALL ARCHIVED RECORDS
+# GET /api/archive
+# =====================================================
+
+@app.route("/api/archive", methods=["GET"])
+def get_archived_records():
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        archived = []
+
+        queries = [
+            (
+                "member",
+                """
+                SELECT id, full_name, archived_at
+                FROM members
+                WHERE archived_at IS NOT NULL
+                """
+            ),
+            (
+                "walkin",
+                """
+                SELECT id, full_name, archived_at
+                FROM walkins
+                WHERE archived_at IS NOT NULL
+                """
+            ),
+            (
+                "staff",
+                """
+                SELECT user_id, fullname, role, archived_at
+                FROM user_accounts
+                WHERE archived_at IS NOT NULL
+                  AND role IN ('staff', 'trainer')
+                """
+            )
+        ]
+
+        for record_type, query in queries:
+            cursor.execute(query)
+
+            for row in cursor.fetchall():
+                archived.append({
+                    "id": (
+                        row.get("user_id")
+                        if record_type == "staff"
+                        else row.get("id")
+                    ),
+                    "name": (
+                        row.get("fullname")
+                        if record_type == "staff"
+                        else row.get("full_name")
+                    ),
+                    "type": (
+                        row.get("role")
+                        if record_type == "staff"
+                        else record_type
+                    ),
+                    "archiveDate": (
+                        row["archived_at"].strftime("%Y-%m-%d %H:%M:%S")
+                        if row.get("archived_at")
+                        else None
+                    )
+                })
+
+        return jsonify({
+            "success": True,
+            "data": archived
+        }), 200
+
+    except Exception as e:
+        print("GET ARCHIVE ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# =====================================================
+# ARCHIVE A RECORD
+# POST /api/archive/<record_type>/<record_id>
+# =====================================================
+
+@app.route(
+    "/api/archive/<record_type>/<record_id>",
+    methods=["POST"]
+)
+def archive_record(record_type, record_id):
+
+    if record_type not in ARCHIVE_TABLES:
+        return jsonify({
+            "success": False,
+            "message": "Invalid record type."
+        }), 400
+
+    config = ARCHIVE_TABLES[record_type]
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        table = config["table"]
+        id_column = config["id_column"]
+
+        extra_condition = ""
+
+        if record_type == "staff":
+            extra_condition = " AND role IN ('staff', 'trainer')"
+
+        cursor.execute(
+            f"""
+            UPDATE {table}
+            SET archived_at = NOW()
+            WHERE {id_column} = %s
+              AND archived_at IS NULL
+              {extra_condition}
+            """,
+            (record_id,)
+        )
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+
+            return jsonify({
+                "success": False,
+                "message": "Record not found or already archived."
+            }), 404
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Record archived successfully."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("ARCHIVE RECORD ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# =====================================================
+# RESTORE A RECORD
+# POST /api/archive/restore/<record_type>/<record_id>
+# =====================================================
+
+@app.route(
+    "/api/archive/restore/<record_type>/<record_id>",
+    methods=["POST"]
+)
+def restore_archived_record(record_type, record_id):
+
+    if record_type not in ARCHIVE_TABLES:
+        return jsonify({
+            "success": False,
+            "message": "Invalid record type."
+        }), 400
+
+    config = ARCHIVE_TABLES[record_type]
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        table = config["table"]
+        id_column = config["id_column"]
+
+        extra_condition = ""
+
+        if record_type == "staff":
+            extra_condition = " AND role IN ('staff', 'trainer')"
+
+        cursor.execute(
+            f"""
+            UPDATE {table}
+            SET archived_at = NULL
+            WHERE {id_column} = %s
+              AND archived_at IS NOT NULL
+              {extra_condition}
+            """,
+            (record_id,)
+        )
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+
+            return jsonify({
+                "success": False,
+                "message": "Archived record not found."
+            }), 404
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Record restored successfully."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("RESTORE RECORD ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 check_trainer_fee_reminders()    
 if __name__ == '__main__':
