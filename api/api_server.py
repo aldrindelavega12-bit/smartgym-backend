@@ -42,7 +42,6 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # =========================================================
 # AUDIT LOG HELPER
 # =========================================================
-
 def insert_audit_log(
     cursor,
     action,
@@ -50,10 +49,37 @@ def insert_audit_log(
     record_id,
     record_name=None,
     actor_id=None,
-    actor_name="Unknown",
-    actor_role="Unknown",
     details=None
 ):
+    actor_name = "Unknown"
+    actor_role = "Unknown"
+
+    # Get the logged-in account from user_accounts
+    if actor_id:
+        cursor.execute("""
+            SELECT
+                user_id,
+                COALESCE(NULLIF(fullname, ''), username) AS actor_name,
+                role AS actor_role
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (str(actor_id),))
+
+        actor = cursor.fetchone()
+
+        if actor:
+            actor_name = actor["actor_name"]
+            actor_role = actor["actor_role"]
+
+    audit_details = (
+        f"{record_type} | ID: {record_id} "
+        f"| Name: {record_name or 'Unknown'}"
+    )
+
+    if details:
+        audit_details += f" | {details}"
+
     cursor.execute("""
         INSERT INTO audit_logs (
             actor_id,
@@ -64,17 +90,12 @@ def insert_audit_log(
         )
         VALUES (%s, %s, %s, %s, %s)
     """, (
-        actor_id,
-        actor_name or "Unknown",
-        actor_role or "Unknown",
+        str(actor_id) if actor_id is not None else None,
+        actor_name,
+        actor_role,
         action,
-        (
-            f"{record_type} | ID: {record_id} | "
-            f"Name: {record_name or 'Unknown'}"
-            + (f" | {details}" if details else "")
-        )
+        audit_details
     ))
-
 
 # =========================================================
 # GET AUDIT LOGS
