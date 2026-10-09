@@ -19510,8 +19510,6 @@ def archive_record(record_type, record_id):
         if conn:
             conn.close()
 
-
-
 @app.route(
     "/api/archive/restore/<record_type>/<record_id>",
     methods=["POST"]
@@ -19533,17 +19531,10 @@ def restore_archived_record(record_type, record_id):
     display_type = config["record_type"]
 
     try:
-        actor_id = get_authenticated_user_id()
-
-        if not actor_id:
-            return jsonify({
-                "success": False,
-                "message": "Authentication required."
-            }), 401
-
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
+        # Find archived record
         cursor.execute(
             f"""
             SELECT `{id_column}`, `{name_column}`, archived_at
@@ -19563,6 +19554,7 @@ def restore_archived_record(record_type, record_id):
                 "message": "Archived record not found."
             }), 404
 
+        # Restore record
         cursor.execute(
             f"""
             UPDATE `{table}`
@@ -19580,13 +19572,15 @@ def restore_archived_record(record_type, record_id):
                 "message": "Record was not restored."
             }), 409
 
+        # Audit record
+        # Actor identity is not yet connected to authentication.
         insert_audit_log(
             cursor=cursor,
             action=f"RESTORE_{record_type.upper()}",
             record_type=display_type,
             record_id=record_id,
             record_name=record[name_column],
-            actor_id=actor_id,
+            actor_id=None,
             details=f"{display_type} restored successfully."
         )
 
@@ -19613,6 +19607,8 @@ def restore_archived_record(record_type, record_id):
             cursor.close()
         if conn:
             conn.close()
+
+
 
 
 
