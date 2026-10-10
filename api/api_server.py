@@ -19515,7 +19515,6 @@ def archive_record(record_type, record_id):
         if conn:
             conn.close()
 
-
 @app.route(
     "/api/archive/restore/<record_type>/<record_id>",
     methods=["POST"]
@@ -19537,13 +19536,14 @@ def restore_archived_record(record_type, record_id):
     display_type = config["record_type"]
 
     try:
+        # Get actor user_id from the frontend
         data = request.get_json(silent=True) or {}
         actor_id = data.get("actor_id")
 
         if actor_id is not None:
-            try:
-                actor_id = int(actor_id)
-            except (TypeError, ValueError):
+            actor_id = str(actor_id).strip()
+
+            if not actor_id:
                 return jsonify({
                     "success": False,
                     "message": "Invalid actor ID."
@@ -19552,6 +19552,7 @@ def restore_archived_record(record_type, record_id):
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
+        # Find archived record
         cursor.execute(
             f"""
             SELECT `{id_column}`, `{name_column}`, archived_at
@@ -19571,6 +19572,7 @@ def restore_archived_record(record_type, record_id):
                 "message": "Archived record not found."
             }), 404
 
+        # Restore record
         cursor.execute(
             f"""
             UPDATE `{table}`
@@ -19588,6 +19590,7 @@ def restore_archived_record(record_type, record_id):
                 "message": "Record was not restored."
             }), 409
 
+        # Insert audit log using user_accounts.user_id
         insert_audit_log(
             cursor=cursor,
             action=f"RESTORE_{record_type.upper()}",
@@ -19619,8 +19622,12 @@ def restore_archived_record(record_type, record_id):
     finally:
         if cursor:
             cursor.close()
+
         if conn:
             conn.close()
+
+
+
 
 
 @app.route(
