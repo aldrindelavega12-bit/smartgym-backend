@@ -53,60 +53,60 @@ def insert_audit_log(
 ):
     actor_name = "Unknown"
     actor_role = "Unknown"
+    actor_user_id = None
 
-    try:
-        # Get the logged-in account using user_accounts.id
-        if actor_id is not None:
-            cursor.execute("""
-                SELECT
-                    id,
-                    COALESCE(
-                        NULLIF(fullname, ''),
-                        username
-                    ) AS actor_name,
-                    role AS actor_role
-                FROM user_accounts
-                WHERE id = %s
-                LIMIT 1
-            """, (actor_id,))
-
-            actor = cursor.fetchone()
-
-            if actor:
-                actor_name = actor["actor_name"] or "Unknown"
-                actor_role = actor["actor_role"] or "Unknown"
-
-        # Build audit log details
-        audit_details = (
-            f"{record_type} | "
-            f"ID: {record_id} | "
-            f"Name: {record_name or 'Unknown'}"
-        )
-
-        if details:
-            audit_details += f" | {details}"
-
-        # Insert audit log
+    # Get actor details using user_accounts.user_id
+    if actor_id is not None:
         cursor.execute("""
-            INSERT INTO audit_logs (
-                actor_id,
-                actor_name,
-                actor_role,
-                action,
-                details
-            )
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            int(actor_id) if actor_id is not None else None,
+            SELECT
+                user_id,
+                COALESCE(
+                    NULLIF(fullname, ''),
+                    username
+                ) AS actor_name,
+                role AS actor_role
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (str(actor_id),))
+
+        actor = cursor.fetchone()
+
+        if actor:
+            actor_user_id = actor["user_id"]
+            actor_name = actor["actor_name"] or "Unknown"
+            actor_role = actor["actor_role"] or "Unknown"
+
+    # Build audit details
+    audit_details = (
+        f"{record_type} | "
+        f"ID: {record_id} | "
+        f"Name: {record_name or 'Unknown'}"
+    )
+
+    if details:
+        audit_details += f" | {details}"
+
+    # Insert audit log
+    cursor.execute("""
+        INSERT INTO audit_logs (
+            actor_id,
             actor_name,
             actor_role,
             action,
-            audit_details
-        ))
+            details
+        )
+        VALUES (%s, %s, %s, %s, %s)
+    """, (
+        actor_user_id,
+        actor_name,
+        actor_role,
+        action,
+        audit_details
+    ))
 
-    except Exception as e:
-        print(f"AUDIT LOG ERROR: {e}")
-        raise
+
+
 
 # =========================================================
 # GET AUDIT LOGS
