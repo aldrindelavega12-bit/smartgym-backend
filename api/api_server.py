@@ -15566,6 +15566,7 @@ def get_attendance():
 
             conn.close()
         
+
 @app.route("/api/create_staff_account", methods=["POST"])
 def create_staff_account():
 
@@ -15573,7 +15574,6 @@ def create_staff_account():
     cursor = None
 
     try:
-
         data = request.get_json() or {}
 
         print("CREATE STAFF DATA:", data)
@@ -15587,153 +15587,101 @@ def create_staff_account():
         price_week = data.get("price_week")
         price_month = data.get("price_month")
 
+        # Audit actor: optional muna habang backend phase
+        actor_id = data.get("actor_id")
+        if actor_id is not None:
+            actor_id = str(actor_id).strip()
+            if not actor_id:
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid actor ID."
+                }), 400
 
-        # =========================
         # BASIC VALIDATION
-        # =========================
-
         if not fullname or not username or not password or not role:
-
             return jsonify({
                 "status": "error",
                 "message": "Please complete all required fields."
             }), 400
 
-
         if role not in ["staff", "trainer"]:
-
             return jsonify({
                 "status": "error",
                 "message": "Invalid role."
             }), 400
 
-
-        # =========================
         # TRAINER VALIDATION
-        # =========================
-
         if role == "trainer":
-
             if (
-                price_day is None or
-                price_week is None or
-                price_month is None
+                price_day is None
+                or price_week is None
+                or price_month is None
             ):
-
                 return jsonify({
                     "status": "error",
                     "message": "All trainer prices are required."
                 }), 400
 
-
             try:
-
                 price_day = float(price_day)
                 price_week = float(price_week)
                 price_month = float(price_month)
-
             except (ValueError, TypeError):
-
                 return jsonify({
                     "status": "error",
                     "message": "Invalid trainer price."
                 }), 400
 
-
             if (
-                price_day < 0 or
-                price_week < 0 or
-                price_month < 0
+                price_day < 0
+                or price_week < 0
+                or price_month < 0
             ):
-
                 return jsonify({
                     "status": "error",
                     "message": "Trainer prices cannot be negative."
                 }), 400
 
-
-        # =========================
         # DATABASE
-        # =========================
-
         conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        cursor = conn.cursor(
-            pymysql.cursors.DictCursor
-        )
-
-
-        # =========================
         # CHECK USERNAME
-        # =========================
-
         cursor.execute("""
-            SELECT id
+            SELECT user_id
             FROM user_accounts
-            WHERE username=%s
+            WHERE username = %s
             LIMIT 1
-        """, (
-            username,
-        ))
+        """, (username,))
 
-        existing = cursor.fetchone()
-
-        if existing:
-
+        if cursor.fetchone():
             return jsonify({
                 "status": "error",
                 "message": "Username already exists."
             }), 409
 
-
-        # =========================
         # GENERATE USER ID
-        # =========================
-
-        if role == "staff":
-
-            prefix = "S"
-
-        else:
-
-            prefix = "T"
-
+        prefix = "S" if role == "staff" else "T"
 
         cursor.execute("""
             SELECT user_id
             FROM user_accounts
             WHERE user_id LIKE %s
             ORDER BY
-                CAST(
-                    SUBSTRING(user_id, 2)
-                    AS UNSIGNED
-                ) DESC
+                CAST(SUBSTRING(user_id, 2) AS UNSIGNED) DESC
             LIMIT 1
-        """, (
-            f"{prefix}%",
-        ))
+        """, (f"{prefix}%",))
 
         row = cursor.fetchone()
 
-
         if row and row["user_id"]:
-
-            last_number = int(
-                row["user_id"][1:]
-            )
-
+            last_number = int(row["user_id"][1:])
         else:
-
             last_number = 0
-
 
         user_id = f"{prefix}{last_number + 1:04d}"
 
-
-        # =========================
         # CREATE ACCOUNT
-        # =========================
-
         cursor.execute("""
             INSERT INTO user_accounts
             (
@@ -15743,14 +15691,7 @@ def create_staff_account():
                 password,
                 role
             )
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                %s
-            )
+            VALUES (%s, %s, %s, %s, %s)
         """, (
             user_id,
             fullname,
@@ -15759,14 +15700,8 @@ def create_staff_account():
             role
         ))
 
-
-        # =========================
         # SAVE TRAINER RATES
-        # ONE SET ONLY
-        # =========================
-
         if role == "trainer":
-
             cursor.execute("""
                 INSERT INTO trainer_plans
                 (
@@ -15781,27 +15716,27 @@ def create_staff_account():
                     (%s, '1 Week', 7, %s, 1),
                     (%s, '1 Month', 30, %s, 1)
             """, (
-                user_id,
-                price_day,
-
-                user_id,
-                price_week,
-
-                user_id,
-                price_month
+                user_id, price_day,
+                user_id, price_week,
+                user_id, price_month
             ))
 
+        # AUDIT LOG
+        insert_audit_log(
+            cursor=cursor,
+            action="CREATE_STAFF",
+            record_type="Trainer" if role == "trainer" else "Staff",
+            record_id=user_id,
+            record_name=fullname,
+            actor_id=actor_id,
+            details=(
+                f"{role.title()} account created. "
+                f"Username: {username}."
+            )
+        )
 
-        # =========================
-        # COMMIT
-        # =========================
-
+        # COMMIT ACCOUNT + RATES + AUDIT LOG
         conn.commit()
-
-
-        # =========================
-        # LOG
-        # =========================
 
         print("================================")
         print("ACCOUNT CREATED")
@@ -15809,73 +15744,41 @@ def create_staff_account():
         print("ROLE    :", role)
 
         if role == "trainer":
-
-            print("1 DAY    :", price_day)
-            print("1 WEEK   :", price_week)
-            print("1 MONTH  :", price_month)
+            print("1 DAY   :", price_day)
+            print("1 WEEK  :", price_week)
+            print("1 MONTH :", price_month)
 
         print("================================")
 
-
-        # =========================
-        # RESPONSE
-        # =========================
-
         return jsonify({
-
             "status": "success",
-
-            "message":
+            "message": (
                 "Trainer account and rates created successfully."
                 if role == "trainer"
-                else
-                "Staff account created successfully.",
-
+                else "Staff account created successfully."
+            ),
             "user_id": user_id
-
         }), 201
 
-
-    # =========================
-    # ERROR
-    # =========================
-
     except Exception as e:
-
         if conn:
-
             conn.rollback()
 
-
-        print(
-            "CREATE STAFF ERROR:",
-            e
-        )
-
+        print("CREATE STAFF ERROR:", e)
 
         return jsonify({
-
             "status": "error",
-
             "message": str(e)
-
         }), 500
 
-
-    # =========================
-    # CLOSE CONNECTION
-    # =========================
-
     finally:
-
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
-@app.route("/api/admin/create_account", methods=["POST"])
+
+app.route("/api/admin/create_account", methods=["POST"])
 def admin_create_account():
 
     conn = None
@@ -16599,78 +16502,60 @@ def staff_accounts():
     conn.close()
 
     return jsonify(rows)
-@app.route(
-    "/api/delete_staff/<user_id>",
-    methods=["DELETE"]
-)
+    
+ 
+@app.route("/api/delete_staff/<user_id>", methods=["DELETE"])
 def delete_staff(user_id):
 
     conn = None
     cursor = None
 
     try:
+        data = request.get_json(silent=True) or {}
+        actor_id = data.get("actor_id")
+
+        if actor_id is not None:
+            actor_id = str(actor_id).strip()
+
+            if not actor_id:
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid actor ID."
+                }), 400
 
         conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        cursor = conn.cursor(
-            pymysql.cursors.DictCursor
-        )
-
-        # ==========================================
         # CHECK USER
-        # ==========================================
-
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT
                 user_id,
+                fullname,
                 role
             FROM user_accounts
-            WHERE user_id=%s
+            WHERE user_id = %s
             LIMIT 1
-            """,
-            (user_id,)
-        )
+        """, (user_id,))
 
         user = cursor.fetchone()
 
         if not user:
-
             return jsonify({
                 "status": "error",
                 "message": "User not found."
             }), 404
 
         role = user["role"]
+        fullname = user["fullname"] or user_id
 
-        # ==========================================
         # DELETE ACCOUNT FROM RAILWAY
-        #
-        # IMPORTANT:
-        # Turnstile deletion is NOT done here.
-        #
-        # The cloud sync worker will detect that
-        # this account no longer exists in Railway
-        # and will automatically delete it locally.
-        #
-        # If role == trainer, the sync worker will also
-        # delete the trainer_plans records.
-        # ==========================================
-
-        cursor.execute(
-            """
+        # Cloud sync handles local Turnstile deletion.
+        cursor.execute("""
             DELETE FROM user_accounts
-            WHERE user_id=%s
-            """,
-            (user_id,)
-        )
-
-        # ==========================================
-        # CHECK DELETE
-        # ==========================================
+            WHERE user_id = %s
+        """, (user_id,))
 
         if cursor.rowcount == 0:
-
             conn.rollback()
 
             return jsonify({
@@ -16679,87 +16564,58 @@ def delete_staff(user_id):
                 "user_id": user_id
             }), 400
 
-        # ==========================================
-        # COMMIT RAILWAY DELETE
-        # ==========================================
+        # AUDIT LOG
+        insert_audit_log(
+            cursor=cursor,
+            action="DELETE_STAFF",
+            record_type=(
+                "Trainer" if role == "trainer" else "Staff"
+            ),
+            record_id=user_id,
+            record_name=fullname,
+            actor_id=actor_id,
+            details=(
+                f"{role.title()} account permanently deleted. "
+                f"User ID: {user_id}."
+            )
+        )
 
+        # COMMIT DELETE + AUDIT LOG
         conn.commit()
 
-        print(
-            "========================================"
-        )
-
-        print(
-            "USER ACCOUNT DELETED FROM RAILWAY"
-        )
-
-        print(
-            "USER ID:",
-            user_id
-        )
-
-        print(
-            "ROLE:",
-            role
-        )
-
-        print(
-            "TURNSTILE DELETE:"
-            " WILL BE HANDLED BY CLOUD SYNC"
-        )
-
-        print(
-            "========================================"
-        )
-
-        # ==========================================
-        # RESPONSE
-        # ==========================================
+        print("========================================")
+        print("USER ACCOUNT DELETED FROM RAILWAY")
+        print("USER ID:", user_id)
+        print("ROLE:", role)
+        print("AUDIT ACTION: DELETE_STAFF")
+        print("TURNSTILE DELETE: HANDLED BY CLOUD SYNC")
+        print("========================================")
 
         return jsonify({
-
             "status": "success",
-
-            "message":
-                "User deleted successfully.",
-
-            "user_id":
-                user_id,
-
-            "role":
-                role
-
+            "message": "User deleted successfully.",
+            "user_id": user_id,
+            "role": role
         }), 200
 
     except Exception as e:
-
         if conn:
-
             conn.rollback()
 
-        print(
-            "DELETE STAFF ERROR:",
-            e
-        )
+        print("DELETE STAFF ERROR:", e)
 
         return jsonify({
-
             "status": "error",
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
     finally:
-
         if cursor:
-
             cursor.close()
 
         if conn:
+            conn.close()    
 
-            conn.close()
 
 @app.route("/api/attendance_summary", methods=["GET"])
 def attendance_summary():
