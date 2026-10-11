@@ -47,6 +47,7 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # GET /api/reports/income
 # ============================================
 @app.route("/api/reports/income", methods=["GET"])
+
 def reports_income():
 
     conn = None
@@ -77,7 +78,10 @@ def reports_income():
             if not start_date or not end_date:
                 return jsonify({
                     "success": False,
-                    "message": "start_date and end_date are required."
+                    "message": (
+                        "start_date and end_date are required "
+                        "for custom period."
+                    )
                 }), 400
 
             try:
@@ -98,7 +102,9 @@ def reports_income():
         else:
             return jsonify({
                 "success": False,
-                "message": "Invalid period. Use daily, weekly, or custom."
+                "message": (
+                    "Invalid period. Use daily, weekly, or custom."
+                )
             }), 400
 
         if start > end:
@@ -128,9 +134,8 @@ def reports_income():
         cursor.execute("""
             SELECT
 
-                -- ALL INCOME
-                COALESCE(SUM(amount), 0)
-                    AS total_income,
+                -- TOTAL INCOME
+                COALESCE(SUM(amount), 0) AS total_income,
 
                 -- MEMBER INCOME
                 COALESCE(SUM(
@@ -168,11 +173,13 @@ def reports_income():
                     END
                 ), 0) AS trainer_income,
 
-                -- LOCKER AND LOCKER OVERTIME INCOME
+                -- LOCKER AND OVERTIME INCOME
                 COALESCE(SUM(
                     CASE
-                        WHEN UPPER(TRIM(payment_type)) LIKE '%LOCKER%'
-                          OR UPPER(TRIM(payment_type)) LIKE '%OVERTIME%'
+                        WHEN UPPER(TRIM(payment_type))
+                                LIKE '%%LOCKER%%'
+                          OR UPPER(TRIM(payment_type))
+                                LIKE '%%OVERTIME%%'
                         THEN amount
                         ELSE 0
                     END
@@ -191,13 +198,15 @@ def reports_income():
         row = cursor.fetchone()
 
         # ========================================
-        # CONVERT DECIMAL VALUES
+        # CONVERT VALUES
         # ========================================
         total_income = float(row["total_income"] or 0)
         member_income = float(row["member_income"] or 0)
         walkin_income = float(row["walkin_income"] or 0)
         trainer_income = float(row["trainer_income"] or 0)
         locker_income = float(row["locker_income"] or 0)
+
+        payment_count = int(row["payment_count"] or 0)
 
         # ========================================
         # RESPONSE
@@ -214,9 +223,7 @@ def reports_income():
                 "walkin_income": walkin_income,
                 "trainer_income": trainer_income,
                 "locker_income": locker_income,
-                "payment_count": int(
-                    row["payment_count"] or 0
-                )
+                "payment_count": payment_count
             }
 
         }), 200
@@ -235,7 +242,6 @@ def reports_income():
 
         if conn:
             conn.close()
-
 
 
 
