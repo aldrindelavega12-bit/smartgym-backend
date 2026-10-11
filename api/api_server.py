@@ -90,22 +90,21 @@ def get_turnstile_lockers():
 
 @app.route("/api/reports/income", methods=["GET"])
 def reports_income():
-
     conn = None
     cursor = None
 
     try:
         from datetime import datetime, timedelta
 
-        # ========================================
-        # DATE FILTER
-        # ========================================
         period = request.args.get("period", "daily").lower()
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
 
         today = datetime.now().date()
 
+        # =========================================
+        # DATE FILTER
+        # =========================================
         try:
             if period == "daily":
                 selected_date = (
@@ -134,10 +133,7 @@ def reports_income():
                 if not start_date or not end_date:
                     return jsonify({
                         "success": False,
-                        "message": (
-                            "start_date and end_date are required "
-                            "for custom period."
-                        )
+                        "message": "Start date and end date are required."
                     }), 400
 
                 start = datetime.strptime(
@@ -151,9 +147,7 @@ def reports_income():
             else:
                 return jsonify({
                     "success": False,
-                    "message": (
-                        "Invalid period. Use daily, weekly, or custom."
-                    )
+                    "message": "Invalid report period."
                 }), 400
 
         except ValueError:
@@ -168,13 +162,10 @@ def reports_income():
                 "message": "Start date cannot be later than end date."
             }), 400
 
-        # ========================================
-        # DATABASE CONNECTION
-        # ========================================
-        conn = get_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-        # Include the entire end date.
+        # =========================================
+        # DATETIME RANGE
+        # Includes the entire end date.
+        # =========================================
         range_start = datetime.combine(
             start, datetime.min.time()
         )
@@ -184,108 +175,132 @@ def reports_income():
             datetime.min.time()
         )
 
-        # ========================================
-        # INCOME REPORT
-        # ========================================
-        cursor.execute("""
+        # =========================================
+        # DATABASE CONNECTION
+        # =========================================
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        # =========================================
+        # INCOME SUMMARY
+        # =========================================
+        query = """
             SELECT
-                -- TOTAL INCOME
                 COALESCE(SUM(amount), 0) AS total_income,
 
-                -- MEMBER INCOME
-                COALESCE(SUM(
-                    CASE
-                        WHEN UPPER(TRIM(payment_type)) IN (
-                            'MEMBERSHIP',
-                            'MONTHLY',
-                            'MEMBERSHIP-MONTHLY'
-                        )
-                        THEN amount
-                        ELSE 0
-                    END
-                ), 0) AS member_income,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(payment_type)) IN (
+                                'MEMBERSHIP',
+                                'MONTHLY',
+                                'MEMBERSHIP-MONTHLY'
+                            )
+                            THEN amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS member_income,
 
-                -- WALK-IN INCOME
-                COALESCE(SUM(
-                    CASE
-                        WHEN UPPER(TRIM(payment_type)) IN (
-                            'WALKIN',
-                            'WALK-IN',
-                            'DAILY',
-                            'MEMBERSHIP-DAILY'
-                        )
-                        THEN amount
-                        ELSE 0
-                    END
-                ), 0) AS walkin_income,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(payment_type)) IN (
+                                'WALKIN',
+                                'WALK-IN',
+                                'DAILY',
+                                'MEMBERSHIP-DAILY'
+                            )
+                            THEN amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS walkin_income,
 
-                -- TRAINER INCOME
-                COALESCE(SUM(
-                    CASE
-                        WHEN LOWER(TRIM(payment_type)) = 'trainer_fee'
-                        THEN amount
-                        ELSE 0
-                    END
-                ), 0) AS trainer_income,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN LOWER(TRIM(payment_type)) = 'trainer_fee'
+                            THEN amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS trainer_income,
 
-                -- LOCKER AND OVERTIME INCOME
-                COALESCE(SUM(
-                    CASE
-                        WHEN UPPER(TRIM(payment_type)) LIKE '%LOCKER%'
-                          OR UPPER(TRIM(payment_type)) LIKE '%OVERTIME%'
-                        THEN amount
-                        ELSE 0
-                    END
-                ), 0) AS locker_income,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(payment_type))
+                                LIKE '%%LOCKER%%'
+                            OR UPPER(TRIM(payment_type))
+                                LIKE '%%OVERTIME%%'
+                            THEN amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS locker_income,
 
-                -- PAYMENT COUNT
                 COUNT(*) AS payment_count
 
             FROM payments
 
             WHERE paid_at >= %s
               AND paid_at < %s
+        """
 
-        """, (range_start, range_end))
+        cursor.execute(
+            query,
+            (range_start, range_end)
+        )
 
-        row = cursor.fetchone()
+        row = cursor.fetchone() or {}
 
-        # ========================================
-        # CONVERT DECIMAL VALUES
-        # ========================================
-        total_income = float(row["total_income"] or 0)
-        member_income = float(row["member_income"] or 0)
-        walkin_income = float(row["walkin_income"] or 0)
-        trainer_income = float(row["trainer_income"] or 0)
-        locker_income = float(row["locker_income"] or 0)
-
-        # ========================================
+        # =========================================
         # RESPONSE
-        # ========================================
+        # =========================================
+        summary = {
+            "total_income": float(
+                row.get("total_income") or 0
+            ),
+            "member_income": float(
+                row.get("member_income") or 0
+            ),
+            "walkin_income": float(
+                row.get("walkin_income") or 0
+            ),
+            "trainer_income": float(
+                row.get("trainer_income") or 0
+            ),
+            "locker_income": float(
+                row.get("locker_income") or 0
+            ),
+            "payment_count": int(
+                row.get("payment_count") or 0
+            )
+        }
+
         return jsonify({
             "success": True,
             "period": period,
             "start_date": start.strftime("%Y-%m-%d"),
             "end_date": end.strftime("%Y-%m-%d"),
-
-            "summary": {
-                "total_income": total_income,
-                "member_income": member_income,
-                "walkin_income": walkin_income,
-                "trainer_income": trainer_income,
-                "locker_income": locker_income,
-                "payment_count": int(
-                    row["payment_count"] or 0
-                )
-            }
+            "summary": summary
         }), 200
 
     except Exception as e:
-        print("INCOME REPORT API ERROR:", e)
+        print("INCOME REPORT API ERROR:", repr(e))
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message": "Failed to load income report.",
+            "error": str(e)
         }), 500
 
     finally:
@@ -294,7 +309,6 @@ def reports_income():
 
         if conn:
             conn.close()
-
 
 
 
