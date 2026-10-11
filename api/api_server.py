@@ -47,7 +47,6 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # GET /api/reports/income
 # ============================================
 
-@app.route("/api/reports/income", methods=["GET"])
 def reports_income():
 
     conn = None
@@ -56,9 +55,9 @@ def reports_income():
     try:
         from datetime import datetime, timedelta
 
-        # ----------------------------------------
+        # ========================================
         # DATE FILTER
-        # ----------------------------------------
+        # ========================================
         period = request.args.get("period", "daily").lower()
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
@@ -74,15 +73,22 @@ def reports_income():
             end = today
 
         elif period == "custom":
+
             if not start_date or not end_date:
                 return jsonify({
                     "success": False,
-                    "message": "start_date and end_date are required for custom period."
+                    "message": "start_date and end_date are required."
                 }), 400
 
             try:
-                start = datetime.strptime(start_date, "%Y-%m-%d").date()
-                end = datetime.strptime(end_date, "%Y-%m-%d").date()
+                start = datetime.strptime(
+                    start_date, "%Y-%m-%d"
+                ).date()
+
+                end = datetime.strptime(
+                    end_date, "%Y-%m-%d"
+                ).date()
+
             except ValueError:
                 return jsonify({
                     "success": False,
@@ -101,74 +107,118 @@ def reports_income():
                 "message": "Start date cannot be later than end date."
             }), 400
 
-        # ----------------------------------------
-        # DATABASE
-        # ----------------------------------------
+        # ========================================
+        # DATABASE CONNECTION
+        # ========================================
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # Use a half-open datetime range so the entire
-        # end date is included, even if paid_at has a time.
-        range_start = datetime.combine(start, datetime.min.time())
+        range_start = datetime.combine(
+            start, datetime.min.time()
+        )
+
         range_end = datetime.combine(
             end + timedelta(days=1),
             datetime.min.time()
         )
 
+        # ========================================
+        # INCOME REPORT
+        # ========================================
         cursor.execute("""
             SELECT
-                COALESCE(SUM(amount), 0) AS total_income,
+
+                -- ALL INCOME
+                COALESCE(SUM(amount), 0)
+                    AS total_income,
+
+                -- MEMBER INCOME
                 COALESCE(SUM(
                     CASE
-                        WHEN LOWER(payment_type) = 'trainer_fee'
-                        THEN amount ELSE 0
-                    END
-                ), 0) AS trainer_income,
-                COALESCE(SUM(
-                    CASE
-                        WHEN UPPER(payment_type) IN (
-                            'DAILY',
-                            'MONTHLY',
+                        WHEN UPPER(TRIM(payment_type)) IN (
                             'MEMBERSHIP',
-                            'MEMBERSHIP-DAILY',
+                            'MONTHLY',
                             'MEMBERSHIP-MONTHLY'
                         )
-                        THEN amount ELSE 0
+                        THEN amount
+                        ELSE 0
                     END
-                ), 0) AS membership_access_income,
+                ), 0) AS member_income,
+
+                -- WALK-IN INCOME
+                COALESCE(SUM(
+                    CASE
+                        WHEN UPPER(TRIM(payment_type)) IN (
+                            'WALKIN',
+                            'WALK-IN',
+                            'DAILY',
+                            'MEMBERSHIP-DAILY'
+                        )
+                        THEN amount
+                        ELSE 0
+                    END
+                ), 0) AS walkin_income,
+
+                -- TRAINER INCOME
+                COALESCE(SUM(
+                    CASE
+                        WHEN LOWER(TRIM(payment_type)) = 'trainer_fee'
+                        THEN amount
+                        ELSE 0
+                    END
+                ), 0) AS trainer_income,
+
+                -- LOCKER AND LOCKER OVERTIME INCOME
+                COALESCE(SUM(
+                    CASE
+                        WHEN UPPER(TRIM(payment_type)) LIKE '%LOCKER%'
+                          OR UPPER(TRIM(payment_type)) LIKE '%OVERTIME%'
+                        THEN amount
+                        ELSE 0
+                    END
+                ), 0) AS locker_income,
+
+                -- PAYMENT COUNT
                 COUNT(*) AS payment_count
+
             FROM payments
+
             WHERE paid_at >= %s
               AND paid_at < %s
+
         """, (range_start, range_end))
 
         row = cursor.fetchone()
 
+        # ========================================
+        # CONVERT DECIMAL VALUES
+        # ========================================
         total_income = float(row["total_income"] or 0)
+        member_income = float(row["member_income"] or 0)
+        walkin_income = float(row["walkin_income"] or 0)
         trainer_income = float(row["trainer_income"] or 0)
-        membership_access_income = float(
-            row["membership_access_income"] or 0
-        )
+        locker_income = float(row["locker_income"] or 0)
 
+        # ========================================
+        # RESPONSE
+        # ========================================
         return jsonify({
             "success": True,
             "period": period,
             "start_date": start.strftime("%Y-%m-%d"),
             "end_date": end.strftime("%Y-%m-%d"),
+
             "summary": {
                 "total_income": total_income,
-                "member_income": None,
-                "walkin_income": None,
-                "locker_income": None,
-                "membership_access_income": membership_access_income,
+                "member_income": member_income,
+                "walkin_income": walkin_income,
                 "trainer_income": trainer_income,
-                "payment_count": int(row["payment_count"] or 0)
-            },
-            "message": (
-                "Income totals loaded. Member, walk-in, and locker "
-                "classification still needs to be connected to their "
-                "actual payment records."
-            )
+                "locker_income": locker_income,
+                "payment_count": int(
+                    row["payment_count"] or 0
+                )
+            }
+
         }), 200
 
     except Exception as e:
@@ -185,6 +235,9 @@ def reports_income():
 
         if conn:
             conn.close()
+
+
+
 
 # =========================================================
 # AUDIT LOG HELPER

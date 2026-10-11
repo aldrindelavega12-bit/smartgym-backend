@@ -113,66 +113,87 @@ def handle_walkin_payment_updated(payload):
     cursor = connection.cursor()
 
     try:
+        walkin_id = payload["walkin_id"]
+        payment_id = payload.get("payment_id")
+        payment_type = payload["payment_type"]
+        amount = float(payload["amount"])
+
+        if payment_id is None:
+            raise ValueError("payment_id is required.")
+
+        if amount <= 0:
+            raise ValueError("Payment amount must be greater than zero.")
+
+        # Check if this payment was already synchronized
+        cursor.execute(
+            """
+            SELECT id
+            FROM payments
+            WHERE source_payment_id = %s
+            LIMIT 1
+            """,
+            (payment_id,)
+        )
+
+        existing = cursor.fetchone()
+
+        if existing:
+            connection.commit()
+            return {
+                "success": True,
+                "message": "Walk-in payment already synchronized.",
+                "payment_id": existing[0]
+            }
+
+        # Save the original payment type: WALKIN or LOCKER
+        cursor.execute(
+            """
+            INSERT INTO payments (
+                user_id,
+                payment_type,
+                amount,
+                source_payment_id
+            )
+            VALUES (%s, %s, %s, %s)
+            """,
+            (
+                walkin_id,
+                payment_type,
+                amount,
+                payment_id
+            )
+        )
+
+        local_payment_id = cursor.lastrowid
 
         cursor.execute(
             """
-            INSERT INTO payments(
-
-                user_id,
-                payment_type,
-                amount
-
-            )
-
-            VALUES(%s,%s,%s)
-            """,
-            (
-
-                payload["walkin_id"],
-                payload["payment_type"],
-                payload["amount"]
-
-            )
+            UPDATE sync_versions
+            SET version = version + 1
+            WHERE resource = 'walkins'
+            """
         )
-        
-        cursor.execute("""
-        UPDATE sync_versions
-        SET version = version + 1
-        WHERE resource='walkins'
-        """)
-
-        cursor.execute("""
-        UPDATE sync_versions
-        SET version = version + 1
-        WHERE resource='fingerprints'
-        """)
 
         connection.commit()
 
         return {
-
             "success": True,
-
-            "message": "Walk-in payment synchronized."
-
+            "message": "Walk-in payment synchronized.",
+            "payment_id": local_payment_id
         }
 
     except Exception as e:
-
         connection.rollback()
 
         return {
-
             "success": False,
-
             "message": str(e)
-
         }
 
     finally:
-
         cursor.close()
         connection.close()
+
 
 
 def handle_walkin_deleted(payload, fp_manager):
