@@ -12696,7 +12696,7 @@ def payment_updated():
             data["payment_type"],
             data["amount"],
             data.get("trainer_id"),
-            data.get("paid_at"),
+            data.get("paid_at") or datetime.now(),
             data["payment_id"]
         ))
 
