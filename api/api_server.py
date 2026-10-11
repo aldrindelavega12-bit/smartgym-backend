@@ -3700,7 +3700,116 @@ def admin_create_database_backup():
             "error": str(e)
 
         }), 500
+# ==========================================
+# TRAINER ASSIGNMENT RENEWED
+# UPDATE EXISTING RAILWAY RECORD
+# ==========================================
 
+@app.route("/api/trainer_assignment_renewed", methods=["POST"])
+def trainer_assignment_renewed():
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json() or {}
+
+        print("\n========== TRAINER ASSIGNMENT RENEWAL ==========")
+        print("DATA:", data)
+
+        required = [
+            "trainer_id",
+            "member_id",
+            "plan_id",
+            "start_date",
+            "end_date"
+        ]
+
+        for field in required:
+            if data.get(field) is None or data.get(field) == "":
+                return jsonify({
+                    "success": False,
+                    "message": f"{field} is required"
+                }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        # Find the latest existing assignment for this trainer/member
+        cursor.execute("""
+            SELECT id
+            FROM trainer_trainees
+            WHERE trainer_id = %s
+              AND member_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+            FOR UPDATE
+        """, (
+            data["trainer_id"],
+            data["member_id"]
+        ))
+
+        assignment = cursor.fetchone()
+
+        if not assignment:
+            conn.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Existing trainer assignment not found."
+            }), 404
+
+        # Renew the existing assignment; do not insert a duplicate
+        cursor.execute("""
+            UPDATE trainer_trainees
+            SET
+                plan_id = %s,
+                start_date = %s,
+                end_date = %s,
+                status = %s
+            WHERE id = %s
+        """, (
+            data["plan_id"],
+            data["start_date"],
+            data["end_date"],
+            data.get("status", "active"),
+            assignment["id"]
+        ))
+
+        conn.commit()
+
+        print("Assignment ID:", assignment["id"])
+        print("Renewal successful.")
+
+        return jsonify({
+            "success": True,
+            "message": "Trainer assignment renewed successfully.",
+            "assignment_id": assignment["id"],
+            "trainer_id": data["trainer_id"],
+            "member_id": data["member_id"],
+            "plan_id": data["plan_id"],
+            "start_date": data["start_date"],
+            "end_date": data["end_date"],
+            "status": data.get("status", "active")
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        import traceback
+        traceback.print_exc()
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 @app.route("/api/trainer_assignment_created", methods=["POST"])
 def trainer_assignment_created():
 
