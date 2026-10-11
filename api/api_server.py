@@ -39,6 +39,153 @@ socketio = SocketIO(
 # --- MILESTONE 4: SECURITY KEY ---
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
+
+
+
+# ============================================
+# INCOME REPORT API
+# GET /api/reports/income
+# ============================================
+
+@app.route("/api/reports/income", methods=["GET"])
+def reports_income():
+
+    conn = None
+    cursor = None
+
+    try:
+        from datetime import datetime, timedelta
+
+        # ----------------------------------------
+        # DATE FILTER
+        # ----------------------------------------
+        period = request.args.get("period", "daily").lower()
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        today = datetime.now().date()
+
+        if period == "daily":
+            start = today
+            end = today
+
+        elif period == "weekly":
+            start = today - timedelta(days=today.weekday())
+            end = today
+
+        elif period == "custom":
+            if not start_date or not end_date:
+                return jsonify({
+                    "success": False,
+                    "message": "start_date and end_date are required for custom period."
+                }), 400
+
+            try:
+                start = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end = datetime.strptime(end_date, "%Y-%m-%d").date()
+            except ValueError:
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid date format. Use YYYY-MM-DD."
+                }), 400
+
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Invalid period. Use daily, weekly, or custom."
+            }), 400
+
+        if start > end:
+            return jsonify({
+                "success": False,
+                "message": "Start date cannot be later than end date."
+            }), 400
+
+        # ----------------------------------------
+        # DATABASE
+        # ----------------------------------------
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        # Use a half-open datetime range so the entire
+        # end date is included, even if paid_at has a time.
+        range_start = datetime.combine(start, datetime.min.time())
+        range_end = datetime.combine(
+            end + timedelta(days=1),
+            datetime.min.time()
+        )
+
+        cursor.execute("""
+            SELECT
+                COALESCE(SUM(amount), 0) AS total_income,
+                COALESCE(SUM(
+                    CASE
+                        WHEN LOWER(payment_type) = 'trainer_fee'
+                        THEN amount ELSE 0
+                    END
+                ), 0) AS trainer_income,
+                COALESCE(SUM(
+                    CASE
+                        WHEN UPPER(payment_type) IN (
+                            'DAILY',
+                            'MONTHLY',
+                            'MEMBERSHIP',
+                            'MEMBERSHIP-DAILY',
+                            'MEMBERSHIP-MONTHLY'
+                        )
+                        THEN amount ELSE 0
+                    END
+                ), 0) AS membership_access_income,
+                COUNT(*) AS payment_count
+            FROM payments
+            WHERE paid_at >= %s
+              AND paid_at < %s
+        """, (range_start, range_end))
+
+        row = cursor.fetchone()
+
+        total_income = float(row["total_income"] or 0)
+        trainer_income = float(row["trainer_income"] or 0)
+        membership_access_income = float(
+            row["membership_access_income"] or 0
+        )
+
+        return jsonify({
+            "success": True,
+            "period": period,
+            "start_date": start.strftime("%Y-%m-%d"),
+            "end_date": end.strftime("%Y-%m-%d"),
+            "summary": {
+                "total_income": total_income,
+                "member_income": None,
+                "walkin_income": None,
+                "locker_income": None,
+                "membership_access_income": membership_access_income,
+                "trainer_income": trainer_income,
+                "payment_count": int(row["payment_count"] or 0)
+            },
+            "message": (
+                "Income totals loaded. Member, walk-in, and locker "
+                "classification still needs to be connected to their "
+                "actual payment records."
+            )
+        }), 200
+
+    except Exception as e:
+        print("INCOME REPORT API ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 # =========================================================
 # AUDIT LOG HELPER
 # =========================================================
@@ -118,7 +265,78 @@ def get_trainer_assignments_for_sync():
         if conn:
             conn.close()
 
+@app.route("/api/local/trainer_trainees", methods=["GET"])
+def get_local_trainer_trainees():
 
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status,
+                request_type,
+                created_at
+            FROM trainer_trainees
+            ORDER BY id ASC
+        """)
+
+        rows = cursor.fetchall()
+        data = []
+
+        for row in rows:
+            data.append({
+                "id": row[0],
+                "trainer_id": row[1],
+                "member_id": row[2],
+                "program_id": row[3],
+                "program_plan_id": row[4],
+                "plan_id": row[5],
+                "start_date": (
+                    row[6].isoformat() if row[6] else None
+                ),
+                "end_date": (
+                    row[7].isoformat() if row[7] else None
+                ),
+                "status": row[8],
+                "request_type": row[9],
+                "created_at": (
+                    row[10].isoformat(sep=" ")
+                    if row[10] else None
+                )
+            })
+
+        return jsonify({
+            "status": "success",
+            "count": len(data),
+            "data": data
+        }), 200
+
+    except Exception as e:
+        print("LOCAL TRAINER TRAINEES SYNC ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 def insert_audit_log(
     cursor,
     action,
@@ -11785,55 +12003,7 @@ def walkin_created():
         cursor.close()
         conn.close()
         
-        
-@app.route("/api/walkin_payment_updated", methods=["POST"])
-def walkin_payment_updated():
-
-    data = request.get_json()
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-
-        cursor.execute("""
-            INSERT INTO payments(
-                user_id,
-                payment_type,
-                amount
-            )
-            VALUES(
-                %s,
-                %s,
-                %s
-            )
-        """, (
-            data["walkin_id"],
-            data["payment_type"],
-            data["amount"]
-        ))
-
-        conn.commit()
-
-        return jsonify({
-            "success": True,
-            "message": "Walk-in payment synchronized."
-        })
-
-    except Exception as e:
-
-        conn.rollback()
-
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-    finally:
-
-        cursor.close()
-        conn.close()
-        
+      
 @app.route("/api/walkin_deleted", methods=["POST"])
 def walkin_deleted():
 
