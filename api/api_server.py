@@ -42,6 +42,83 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # =========================================================
 # AUDIT LOG HELPER
 # =========================================================
+# ==========================================================
+# GET TRAINER ASSIGNMENTS FOR AUTOMATIC TURNSTILE SYNC
+# ==========================================================
+
+@app.route("/api/trainer_assignments", methods=["GET"])
+def get_trainer_assignments_for_sync():
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT
+                id,
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                plan_id,
+                start_date,
+                end_date,
+                status,
+                request_type
+            FROM trainer_trainees
+            ORDER BY id ASC
+        """)
+
+        rows = cursor.fetchall()
+        assignments = []
+
+        for row in rows:
+            start_date = row.get("start_date")
+            end_date = row.get("end_date")
+
+            assignments.append({
+                "id": row["id"],
+                "trainer_id": row["trainer_id"],
+                "member_id": row["member_id"],
+                "program_id": row["program_id"],
+                "program_plan_id": row["program_plan_id"],
+                "plan_id": row["plan_id"],
+                "start_date": (
+                    start_date.strftime("%Y-%m-%d")
+                    if start_date else None
+                ),
+                "end_date": (
+                    end_date.strftime("%Y-%m-%d")
+                    if end_date else None
+                ),
+                "status": row["status"],
+                "request_type": row["request_type"]
+            })
+
+        return jsonify({
+            "success": True,
+            "count": len(assignments),
+            "data": assignments
+        }), 200
+
+    except Exception as e:
+        print("[TRAINER ASSIGNMENTS SYNC ERROR]", str(e))
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to retrieve trainer assignments."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
 def insert_audit_log(
     cursor,
     action,
