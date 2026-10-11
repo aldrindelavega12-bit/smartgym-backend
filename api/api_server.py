@@ -197,6 +197,143 @@ def get_turnstile_lockers():
 
 
 
+# =========================================================
+# TRAINER REPORT API
+# GET /api/reports/trainer
+# =========================================================
+
+@app.route("/api/reports/trainer", methods=["GET"])
+def reports_trainer():
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        # TRAINERS + ASSIGNMENT COUNTS
+        cursor.execute("""
+            SELECT
+                ua.user_id AS trainer_id,
+                COALESCE(
+                    NULLIF(ua.fullname, ''),
+                    ua.username,
+                    ua.user_id
+                ) AS trainer_name,
+                COUNT(DISTINCT CASE
+                    WHEN tt.status = 'active'
+                    THEN tt.member_id
+                END) AS active_clients,
+                COUNT(DISTINCT tt.id) AS program_count
+            FROM user_accounts ua
+            LEFT JOIN trainer_trainees tt
+                ON CAST(tt.trainer_id AS CHAR) =
+                   CAST(ua.user_id AS CHAR)
+            WHERE LOWER(ua.role) = 'trainer'
+            GROUP BY
+                ua.user_id,
+                ua.fullname,
+                ua.username
+            ORDER BY trainer_name ASC
+        """)
+
+        trainers = cursor.fetchall()
+
+        # ACTUAL TRAINER FEE PAYMENTS
+        # Only payment_type = trainer_fee is counted.
+        cursor.execute("""
+            SELECT
+                CAST(trainer_id AS CHAR) AS trainer_id,
+                COALESCE(SUM(amount), 0) AS total_fees
+            FROM payments
+            WHERE LOWER(TRIM(payment_type)) = 'trainer_fee'
+            GROUP BY CAST(trainer_id AS CHAR)
+        """)
+
+        fee_rows = cursor.fetchall()
+
+        fee_map = {
+            str(row["trainer_id"]): float(row["total_fees"] or 0)
+            for row in fee_rows
+            if row["trainer_id"] is not None
+        }
+
+        # TRAINEE DETAILS
+        cursor.execute("""
+            SELECT
+                tt.id AS assignment_id,
+                tt.trainer_id,
+                tt.member_id,
+                COALESCE(m.full_name, CAST(tt.member_id AS CHAR))
+                    AS member_name,
+                COALESCE(p.program_name, '—') AS program_name,
+                tt.start_date,
+                tt.status
+            FROM trainer_trainees tt
+            LEFT JOIN members m
+                ON m.id = tt.member_id
+            LEFT JOIN programs p
+                ON p.id = tt.program_id
+            ORDER BY tt.trainer_id, tt.start_date DESC
+        """)
+
+        assignments = cursor.fetchall()
+
+        trainee_map = {}
+
+        for item in assignments:
+            trainer_id = str(item["trainer_id"])
+
+            trainee_map.setdefault(trainer_id, []).append({
+                "id": item["assignment_id"],
+                "member_id": item["member_id"],
+                "name": item["member_name"],
+                "program": item["program_name"],
+                "start_date": (
+                    item["start_date"].strftime("%Y-%m-%d")
+                    if item["start_date"] else None
+                ),
+                "status": item["status"]
+            })
+
+        data = []
+
+        for trainer in trainers:
+            trainer_id = str(trainer["trainer_id"])
+            trainees = trainee_map.get(trainer_id, [])
+
+            data.append({
+                "trainer_id": trainer_id,
+                "trainer_name": trainer["trainer_name"],
+                "program_count": int(trainer["program_count"] or 0),
+                "active_clients": int(trainer["active_clients"] or 0),
+                "total_fees": fee_map.get(trainer_id, 0),
+                "trainees": trainees
+            })
+
+        return jsonify({
+            "success": True,
+            "count": len(data),
+            "total_trainer_income": sum(
+                item["total_fees"] for item in data
+            ),
+            "data": data
+        }), 200
+
+    except Exception as e:
+        app.logger.exception("TRAINER REPORT API ERROR")
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.route("/api/reports/income", methods=["GET"])
 def reports_income():
     conn = None
