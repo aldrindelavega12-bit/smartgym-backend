@@ -11936,7 +11936,94 @@ def website_walkins():
             conn.close()        
 
 
+@app.route("/api/walkin_payment_updated", methods=["POST"])
+def walkin_payment_updated():
 
+    data = request.get_json() or {}
+
+    walkin_id = data.get("walkin_id")
+    payment_id = data.get("payment_id")
+    payment_type = data.get("payment_type")
+    amount = data.get("amount")
+
+    if not all([
+        walkin_id,
+        payment_id,
+        payment_type,
+        amount is not None
+    ]):
+        return jsonify({
+            "success": False,
+            "message": "walkin_id, payment_id, payment_type, and amount are required."
+        }), 400
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Prevent duplicate payment synchronization
+        cursor.execute("""
+            SELECT id
+            FROM payments
+            WHERE source_payment_id = %s
+            LIMIT 1
+        """, (payment_id,))
+
+        existing = cursor.fetchone()
+
+        if existing:
+            return jsonify({
+                "success": True,
+                "message": "Walk-in payment already synchronized.",
+                "payment_id": existing[0]
+            }), 200
+
+        # Save Walk-in payment in Railway
+        cursor.execute("""
+            INSERT INTO payments (
+                user_id,
+                payment_type,
+                amount,
+                paid_at,
+                source_payment_id
+            )
+            VALUES (%s, %s, %s, NOW(), %s)
+        """, (
+            str(walkin_id),
+            payment_type,
+            amount,
+            payment_id
+        ))
+
+        conn.commit()
+
+        socketio.emit("payment_update")
+
+        return jsonify({
+            "success": True,
+            "message": "Walk-in payment synchronized.",
+            "payment_id": cursor.lastrowid
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("[WALKIN PAYMENT SYNC ERROR]", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 # ----------------ENROLLMENT-------------
 
 @app.route("/api/walkin_created", methods=["POST"])
