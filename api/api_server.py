@@ -40,14 +40,55 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+@app.route("/api/turnstile/lockers", methods=["GET"])
+def get_turnstile_lockers():
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                locker_number,
+                status
+            FROM lockers
+            ORDER BY locker_number ASC
+        """)
+
+        columns = [column[0] for column in cursor.description]
+        rows = cursor.fetchall()
+
+        lockers = [
+            dict(zip(columns, row))
+            for row in rows
+        ]
+
+        return jsonify({
+            "success": True,
+            "count": len(lockers),
+            "lockers": lockers
+        }), 200
+
+    except Exception as e:
+        app.logger.exception("Failed to retrieve Turnstile lockers")
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 
 
-# ============================================
-# INCOME REPORT API
-# GET /api/reports/income
-# ============================================
+
 @app.route("/api/reports/income", methods=["GET"])
-
 def reports_income():
 
     conn = None
@@ -65,26 +106,40 @@ def reports_income():
 
         today = datetime.now().date()
 
-        if period == "daily":
-            start = today
-            end = today
+        try:
+            if period == "daily":
+                selected_date = (
+                    datetime.strptime(start_date, "%Y-%m-%d").date()
+                    if start_date
+                    else today
+                )
 
-        elif period == "weekly":
-            start = today - timedelta(days=today.weekday())
-            end = today
+                start = selected_date
+                end = selected_date
 
-        elif period == "custom":
+            elif period == "weekly":
+                selected_date = (
+                    datetime.strptime(start_date, "%Y-%m-%d").date()
+                    if start_date
+                    else today
+                )
 
-            if not start_date or not end_date:
-                return jsonify({
-                    "success": False,
-                    "message": (
-                        "start_date and end_date are required "
-                        "for custom period."
-                    )
-                }), 400
+                # Monday to Sunday
+                start = selected_date - timedelta(
+                    days=selected_date.weekday()
+                )
+                end = start + timedelta(days=6)
 
-            try:
+            elif period == "custom":
+                if not start_date or not end_date:
+                    return jsonify({
+                        "success": False,
+                        "message": (
+                            "start_date and end_date are required "
+                            "for custom period."
+                        )
+                    }), 400
+
                 start = datetime.strptime(
                     start_date, "%Y-%m-%d"
                 ).date()
@@ -93,18 +148,18 @@ def reports_income():
                     end_date, "%Y-%m-%d"
                 ).date()
 
-            except ValueError:
+            else:
                 return jsonify({
                     "success": False,
-                    "message": "Invalid date format. Use YYYY-MM-DD."
+                    "message": (
+                        "Invalid period. Use daily, weekly, or custom."
+                    )
                 }), 400
 
-        else:
+        except ValueError:
             return jsonify({
                 "success": False,
-                "message": (
-                    "Invalid period. Use daily, weekly, or custom."
-                )
+                "message": "Invalid date format. Use YYYY-MM-DD."
             }), 400
 
         if start > end:
@@ -119,6 +174,7 @@ def reports_income():
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
+        # Include the entire end date.
         range_start = datetime.combine(
             start, datetime.min.time()
         )
@@ -133,7 +189,6 @@ def reports_income():
         # ========================================
         cursor.execute("""
             SELECT
-
                 -- TOTAL INCOME
                 COALESCE(SUM(amount), 0) AS total_income,
 
@@ -176,10 +231,8 @@ def reports_income():
                 -- LOCKER AND OVERTIME INCOME
                 COALESCE(SUM(
                     CASE
-                        WHEN UPPER(TRIM(payment_type))
-                                LIKE '%%LOCKER%%'
-                          OR UPPER(TRIM(payment_type))
-                                LIKE '%%OVERTIME%%'
+                        WHEN UPPER(TRIM(payment_type)) LIKE '%LOCKER%'
+                          OR UPPER(TRIM(payment_type)) LIKE '%OVERTIME%'
                         THEN amount
                         ELSE 0
                     END
@@ -198,15 +251,13 @@ def reports_income():
         row = cursor.fetchone()
 
         # ========================================
-        # CONVERT VALUES
+        # CONVERT DECIMAL VALUES
         # ========================================
         total_income = float(row["total_income"] or 0)
         member_income = float(row["member_income"] or 0)
         walkin_income = float(row["walkin_income"] or 0)
         trainer_income = float(row["trainer_income"] or 0)
         locker_income = float(row["locker_income"] or 0)
-
-        payment_count = int(row["payment_count"] or 0)
 
         # ========================================
         # RESPONSE
@@ -223,9 +274,10 @@ def reports_income():
                 "walkin_income": walkin_income,
                 "trainer_income": trainer_income,
                 "locker_income": locker_income,
-                "payment_count": payment_count
+                "payment_count": int(
+                    row["payment_count"] or 0
+                )
             }
-
         }), 200
 
     except Exception as e:
@@ -242,6 +294,7 @@ def reports_income():
 
         if conn:
             conn.close()
+
 
 
 
@@ -12499,124 +12552,85 @@ def members_without_account():
         "data": members
     })
 
+
 @app.route("/api/locker_overtime/<user_id>", methods=["GET"])
 def api_get_locker_overtime(user_id):
-
     connection = get_connection()
     cursor = connection.cursor()
 
     try:
-
         cursor.execute("""
             SELECT
-
                 ls.user_id,
-
-                COALESCE(
-                    m.full_name,
-                    w.full_name
-                ) AS full_name,
-
+                COALESCE(m.full_name, w.full_name) AS full_name,
                 ls.locker_number,
-
                 ls.start_time,
-
                 ls.overtime_paid,
-
                 ls.status,
-
                 GREATEST(
-
                     TIMESTAMPDIFF(
-
                         MINUTE,
-
                         DATE_ADD(ls.start_time, INTERVAL 3 HOUR),
-
                         NOW()
-
                     ),
-
                     0
-
                 ) AS overtime_minutes
-
             FROM locker_sessions ls
-
             LEFT JOIN members m
                 ON ls.user_id = m.id
-
             LEFT JOIN walkins w
                 ON ls.user_id = w.id
-
-            WHERE
-
-                ls.user_id=%s
-
-                AND ls.status='active'
-
-                AND ls.overtime_paid=0
-
+            WHERE ls.user_id = %s
+              AND ls.status = 'overtime'
+              AND ls.end_time IS NULL
+              AND ls.overtime_paid = 0
+            ORDER BY ls.start_time DESC
             LIMIT 1
-
         """, (user_id,))
 
         row = cursor.fetchone()
 
         if not row:
-
             return jsonify({
-
-                "success": False
-
+                "success": False,
+                "message": "No unpaid locker overtime found."
             })
 
-        import math
+        overtime_minutes = int(row[6] or 0)
 
-        overtime_fee = math.ceil(row[6] / 2)   # PHP 1 per minute
+        # ₱1 per overtime minute
+        overtime_fee = overtime_minutes
 
         locker = {
-
             "user_id": row[0],
-
             "full_name": row[1],
-
             "locker_number": row[2],
-
             "start_time": str(row[3]),
-
             "overtime_paid": row[4],
-
             "status": row[5],
-
-            "overtime_minutes": row[6],
-
+            "overtime_minutes": overtime_minutes,
             "overtime_fee": overtime_fee
-
         }
 
         return jsonify({
-
             "success": True,
-
             "locker": locker
-
         })
 
     except Exception as e:
-
+        print("LOCKER OVERTIME API ERROR:", str(e))
         return jsonify({
-
             "success": False,
-
             "message": str(e)
-
-        })
+        }), 500
 
     finally:
-
         cursor.close()
         connection.close()
+
+
+
+
 
 @app.route("/api/payment_updated", methods=["POST"])
 def payment_updated():
@@ -20162,4 +20176,10 @@ def get_archived_records():
 
 check_trainer_fee_reminders()    
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5001, debug=True)
+	socketio.run(
+    app,
+    host='0.0.0.0',
+    port=5001,
+    debug=False,
+    allow_unsafe_werkzeug=True
+)
