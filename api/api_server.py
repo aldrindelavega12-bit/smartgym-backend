@@ -46,7 +46,7 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # INCOME REPORT API
 # GET /api/reports/income
 # ============================================
-
+@app.route("/api/reports/income", methods=["GET"])
 def reports_income():
 
     conn = None
