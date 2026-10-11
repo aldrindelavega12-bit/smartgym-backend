@@ -40,6 +40,115 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+@app.route("/api/locker_overtime/paid", methods=["POST"])
+def api_pay_locker_overtime():
+    data = request.get_json(silent=True) or {}
+
+    user_id = data.get("user_id")
+    locker_number = data.get("locker_number")
+    overtime_fee = data.get("overtime_fee")
+    payment_id = data.get("payment_id")
+
+    if not all([
+        user_id,
+        locker_number is not None,
+        overtime_fee is not None,
+        payment_id
+    ]):
+        return jsonify({
+            "success": False,
+            "message": "user_id, locker_number, overtime_fee, and payment_id are required."
+        }), 400
+
+    try:
+        overtime_fee = float(overtime_fee)
+
+        if overtime_fee <= 0:
+            return jsonify({
+                "success": False,
+                "message": "Invalid overtime fee."
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Find the locker session that is currently in overtime
+            cursor.execute("""
+                SELECT user_id, locker_number, overtime_paid, status
+                FROM locker_sessions
+                WHERE user_id = %s
+                  AND locker_number = %s
+                  AND LOWER(status) = 'overtime'
+                ORDER BY id DESC
+                LIMIT 1
+            """, (user_id, locker_number))
+
+            session = cursor.fetchone()
+
+            if not session:
+                return jsonify({
+                    "success": False,
+                    "message": "No overtime locker session found."
+                }), 404
+
+            # Support dictionary or tuple cursor results
+            if isinstance(session, dict):
+                overtime_paid = session["overtime_paid"]
+            else:
+                overtime_paid = session[2]
+
+            if overtime_paid:
+                return jsonify({
+                    "success": False,
+                    "message": "Locker overtime is already marked as paid."
+                }), 409
+
+            # Mark the overtime session as paid
+            cursor.execute("""
+                UPDATE locker_sessions
+                SET overtime_paid = 1
+                WHERE user_id = %s
+                  AND locker_number = %s
+                  AND LOWER(status) = 'overtime'
+                  AND COALESCE(overtime_paid, 0) = 0
+            """, (user_id, locker_number))
+
+            if cursor.rowcount != 1:
+                conn.rollback()
+                return jsonify({
+                    "success": False,
+                    "message": "Unable to update locker payment status."
+                }), 409
+
+            conn.commit()
+
+            return jsonify({
+                "success": True,
+                "message": "Locker overtime marked as paid.",
+                "user_id": user_id,
+                "locker_number": locker_number,
+                "overtime_fee": overtime_fee,
+                "payment_id": payment_id
+            }), 200
+
+        except Exception:
+            conn.rollback()
+            raise
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    except Exception as e:
+        print("[LOCKER OVERTIME PAYMENT ERROR]", str(e))
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to update locker overtime payment."
+        }), 500
+
+
 @app.route("/api/turnstile/lockers", methods=["GET"])
 def get_turnstile_lockers():
     conn = None
