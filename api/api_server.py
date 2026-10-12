@@ -113,7 +113,50 @@ def get_user_module_access(user_id):
             conn.close()
 
 
+@app.route("/api/modules", methods=["GET"])
+def get_active_modules():
+    conn = None
+    cursor = None
 
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, module_key
+            FROM modules
+            WHERE active = 1
+            ORDER BY id ASC
+        """)
+
+        rows = cursor.fetchall()
+
+        modules = [
+            {
+                "id": row[0],
+                "module_key": row[1]
+            }
+            for row in rows
+        ]
+
+        return jsonify({
+            "status": "success",
+            "modules": modules
+        }), 200
+
+    except Exception as e:
+        print("GET ACTIVE MODULES ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": "Failed to load modules."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 # ============================================================
 # SAVE USER MODULE ACCESS
 # ============================================================
