@@ -114,6 +114,152 @@ def get_user_module_access(user_id):
 
 
 
+# ============================================================
+# SAVE USER MODULE ACCESS
+# ============================================================
+
+@app.route(
+    "/api/user/module-access/<string:user_id>",
+    methods=["PUT"]
+)
+def save_user_module_access(user_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True)
+
+        if not isinstance(data, dict):
+            return jsonify({
+                "status": "error",
+                "message": "Invalid JSON request."
+            }), 400
+
+        selected_modules = data.get("modules")
+
+        if not isinstance(selected_modules, list):
+            return jsonify({
+                "status": "error",
+                "message": "Modules must be a list."
+            }), 400
+
+        if not all(
+            isinstance(module, str)
+            for module in selected_modules
+        ):
+            return jsonify({
+                "status": "error",
+                "message": "Invalid module value."
+            }), 400
+
+        # Remove duplicate selections
+        selected_modules = list(dict.fromkeys(selected_modules))
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Verify user exists
+        cursor.execute("""
+            SELECT user_id
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (user_id,))
+
+        if not cursor.fetchone():
+            return jsonify({
+                "status": "error",
+                "message": "User account not found."
+            }), 404
+
+        # Validate all selected modules before changing permissions
+        module_ids = []
+
+        for module_key in selected_modules:
+            cursor.execute("""
+                SELECT id
+                FROM modules
+                WHERE module_key = %s
+                  AND active = 1
+                LIMIT 1
+            """, (module_key,))
+
+            module_row = cursor.fetchone()
+
+            if not module_row:
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid or inactive module.",
+                    "module": module_key
+                }), 400
+
+            module_ids.append(module_row[0])
+
+        # Disable existing access first
+        cursor.execute("""
+            UPDATE user_module_access
+            SET has_access = 0
+            WHERE user_id = %s
+        """, (user_id,))
+
+        # Enable the selected modules
+        for module_id in module_ids:
+
+            cursor.execute("""
+                SELECT id
+                FROM user_module_access
+                WHERE user_id = %s
+                  AND module_id = %s
+                LIMIT 1
+            """, (user_id, module_id))
+
+            existing = cursor.fetchone()
+
+            if existing:
+                cursor.execute("""
+                    UPDATE user_module_access
+                    SET has_access = 1
+                    WHERE id = %s
+                """, (existing[0],))
+
+            else:
+                cursor.execute("""
+                    INSERT INTO user_module_access (
+                        user_id,
+                        module_id,
+                        has_access
+                    )
+                    VALUES (%s, %s, 1)
+                """, (user_id, module_id))
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Module access saved successfully.",
+            "user_id": user_id,
+            "modules": selected_modules
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("SAVE USER MODULE ACCESS ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 
 @app.route("/api/locker_overtime/paid", methods=["POST"])
 def api_pay_locker_overtime():
