@@ -706,8 +706,14 @@ def reports_income():
                         CASE
                             WHEN UPPER(TRIM(payment_type)) IN (
                                 'MEMBERSHIP',
+                                'MEMBERSHIP',
+                                'MEMBERSHIP',
                                 'MONTHLY',
-                                'MEMBERSHIP-MONTHLY'
+                                'DAILY',
+                                'MEMBERSHIP-DAILY',
+                                'MEMBERSHIP-MONTHLY',
+                                'MEMBERSHIP_FEE',
+                                'ACCESS_FEE'     
                             )
                             THEN amount
                             ELSE 0
@@ -721,9 +727,7 @@ def reports_income():
                         CASE
                             WHEN UPPER(TRIM(payment_type)) IN (
                                 'WALKIN',
-                                'WALK-IN',
-                                'DAILY',
-                                'MEMBERSHIP-DAILY'
+                                'WALK-IN'
                             )
                             THEN amount
                             ELSE 0
