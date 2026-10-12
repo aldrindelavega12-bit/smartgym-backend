@@ -1,4 +1,3 @@
-
 import requests
 
 from db.connection import get_connection
@@ -14,7 +13,7 @@ def sync_trainer_assignments():
     cursor = None
 
     try:
-        # Get assignments from Railway first.
+        # Get assignments from Railway.
         response = requests.get(
             API_ENDPOINT,
             timeout=TIMEOUT
@@ -23,7 +22,6 @@ def sync_trainer_assignments():
 
         result = response.json()
 
-        # Do not modify local data if the response is invalid.
         if not isinstance(result, dict):
             raise ValueError("Invalid API response format.")
 
@@ -64,27 +62,25 @@ def sync_trainer_assignments():
                     f"Assignment has missing fields: {missing}"
                 )
 
-            # Use the Railway assignment ID as the source identifier.
-            # Local auto-increment IDs may be different, so match using
-            # the assignment's identifying fields instead.
+            trainer_id = str(row["trainer_id"])
+            member_id = str(row["member_id"])
+
+            # Find the existing active assignment for this trainer/member.
+            # Local and Railway assignment IDs can differ.
             cursor.execute(
                 """
-                SELECT id, program_id, program_plan_id, status,
-                       request_type
+                SELECT id, program_id, program_plan_id, plan_id,
+                       start_date, end_date, status, request_type
                 FROM trainer_trainees
                 WHERE trainer_id = %s
                   AND member_id = %s
-                  AND plan_id = %s
-                  AND start_date = %s
-                  AND end_date = %s
+                  AND status = 'active'
+                ORDER BY id DESC
                 LIMIT 1
                 """,
                 (
-                    str(row["trainer_id"]),
-                    str(row["member_id"]),
-                    row["plan_id"],
-                    row["start_date"],
-                    row["end_date"]
+                    trainer_id,
+                    member_id
                 )
             )
 
@@ -95,12 +91,18 @@ def sync_trainer_assignments():
                     existing[1],
                     existing[2],
                     existing[3],
-                    existing[4]
+                    str(existing[4]),
+                    str(existing[5]),
+                    existing[6],
+                    existing[7]
                 )
 
                 new_values = (
                     row.get("program_id"),
                     row.get("program_plan_id"),
+                    row["plan_id"],
+                    str(row["start_date"]),
+                    str(row["end_date"]),
                     row["status"],
                     row["request_type"]
                 )
@@ -111,6 +113,9 @@ def sync_trainer_assignments():
                         UPDATE trainer_trainees
                         SET program_id = %s,
                             program_plan_id = %s,
+                            plan_id = %s,
+                            start_date = %s,
+                            end_date = %s,
                             status = %s,
                             request_type = %s
                         WHERE id = %s
@@ -118,16 +123,43 @@ def sync_trainer_assignments():
                         (
                             row.get("program_id"),
                             row.get("program_plan_id"),
+                            row["plan_id"],
+                            row["start_date"],
+                            row["end_date"],
                             row["status"],
                             row["request_type"],
                             existing[0]
                         )
                     )
+
                     updated += 1
                 else:
                     skipped += 1
 
             else:
+                # Do not create a duplicate active assignment for the same
+                # trainer/member pair. Insert only when no active match exists.
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM trainer_trainees
+                    WHERE trainer_id = %s
+                      AND member_id = %s
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    (
+                        trainer_id,
+                        member_id
+                    )
+                )
+
+                duplicate = cursor.fetchone()
+
+                if duplicate:
+                    skipped += 1
+                    continue
+
                 cursor.execute(
                     """
                     INSERT INTO trainer_trainees (
@@ -144,8 +176,8 @@ def sync_trainer_assignments():
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
-                        str(row["trainer_id"]),
-                        str(row["member_id"]),
+                        trainer_id,
+                        member_id,
                         row.get("program_id"),
                         row.get("program_plan_id"),
                         row["plan_id"],
@@ -155,6 +187,7 @@ def sync_trainer_assignments():
                         row["request_type"]
                     )
                 )
+
                 inserted += 1
 
         connection.commit()

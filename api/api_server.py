@@ -3925,18 +3925,13 @@ def admin_create_database_backup():
 # TRAINER ASSIGNMENT RENEWED
 # UPDATE EXISTING RAILWAY RECORD
 # ==========================================
-
 @app.route("/api/trainer_assignment_renewed", methods=["POST"])
 def trainer_assignment_renewed():
-
     conn = None
     cursor = None
 
     try:
         data = request.get_json() or {}
-
-        print("\n========== TRAINER ASSIGNMENT RENEWAL ==========")
-        print("DATA:", data)
 
         required = [
             "trainer_id",
@@ -3956,7 +3951,9 @@ def trainer_assignment_renewed():
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # Find the latest existing assignment for this trainer/member
+        # Begin transaction before locking the existing assignment
+        conn.begin()
+
         cursor.execute("""
             SELECT id
             FROM trainer_trainees
@@ -3974,43 +3971,55 @@ def trainer_assignment_renewed():
 
         if not assignment:
             conn.rollback()
+
             return jsonify({
                 "success": False,
-                "message": "Existing trainer assignment not found."
+                "message": (
+                    "Existing trainer assignment not found. "
+                    "No new assignment was created."
+                )
             }), 404
 
-        # Renew the existing assignment; do not insert a duplicate
+        assignment_id = assignment["id"]
+
+        # UPDATE existing row only
         cursor.execute("""
             UPDATE trainer_trainees
             SET
                 plan_id = %s,
                 start_date = %s,
                 end_date = %s,
-                status = %s
+                status = 'active'
             WHERE id = %s
+              AND trainer_id = %s
+              AND member_id = %s
         """, (
             data["plan_id"],
             data["start_date"],
             data["end_date"],
-            data.get("status", "active"),
-            assignment["id"]
+            assignment_id,
+            data["trainer_id"],
+            data["member_id"]
         ))
 
         conn.commit()
 
-        print("Assignment ID:", assignment["id"])
-        print("Renewal successful.")
+        print("========== TRAINER ASSIGNMENT RENEWAL ==========")
+        print("Assignment ID:", assignment_id)
+        print("Trainer ID:", data["trainer_id"])
+        print("Member ID:", data["member_id"])
+        print("Updated existing assignment successfully.")
 
         return jsonify({
             "success": True,
-            "message": "Trainer assignment renewed successfully.",
-            "assignment_id": assignment["id"],
+            "message": "Existing trainer assignment updated successfully.",
+            "assignment_id": assignment_id,
             "trainer_id": data["trainer_id"],
             "member_id": data["member_id"],
             "plan_id": data["plan_id"],
             "start_date": data["start_date"],
             "end_date": data["end_date"],
-            "status": data.get("status", "active")
+            "status": "active"
         }), 200
 
     except Exception as e:
@@ -4031,6 +4040,10 @@ def trainer_assignment_renewed():
 
         if conn:
             conn.close()
+
+
+
+
 @app.route("/api/trainer_assignment_created", methods=["POST"])
 def trainer_assignment_created():
 
