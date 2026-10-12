@@ -9991,7 +9991,7 @@ def accept_trainer_request(request_id):
         # STAFF WILL ACTIVATE AFTER TRAINER FEE PAYMENT.
         # =====================================================
 
-        if request_type in ("normal, standard):
+        if request_type in ("normal", "standard"):
 		
 
             member_id = request_row["member_id"]
