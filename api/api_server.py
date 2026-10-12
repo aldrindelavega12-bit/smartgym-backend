@@ -40,6 +40,81 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+
+# ============================================================
+# GET USER MODULE ACCESS
+# ============================================================
+
+@app.route(
+    "/api/user/module-access/<string:user_id>",
+    methods=["GET"]
+)
+def get_user_module_access(user_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Check if user exists
+        cursor.execute("""
+            SELECT user_id
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+        """, (user_id,))
+
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({
+                "status": "error",
+                "message": "User account not found."
+            }), 404
+
+        # Get modules assigned to this user
+        cursor.execute("""
+            SELECT m.module_key
+            FROM user_module_access AS uma
+            INNER JOIN modules AS m
+                ON m.id = uma.module_id
+            WHERE uma.user_id = %s
+              AND uma.has_access = 1
+              AND m.active = 1
+            ORDER BY m.id ASC
+        """, (user_id,))
+
+        rows = cursor.fetchall()
+
+        modules = [
+            row[0] for row in rows
+        ]
+
+        return jsonify({
+            "user_id": user_id,
+            "modules": modules
+        }), 200
+
+    except Exception as e:
+        print("GET USER MODULE ACCESS ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+
+
 @app.route("/api/locker_overtime/paid", methods=["POST"])
 def api_pay_locker_overtime():
     data = request.get_json(silent=True) or {}
