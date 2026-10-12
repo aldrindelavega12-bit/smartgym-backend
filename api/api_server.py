@@ -9258,6 +9258,7 @@ def get_trainer_trainees(trainer_id):
 
             AND tt.status IN (
                 'active',
+                'unpaid',
                 'completed'
             )
 
