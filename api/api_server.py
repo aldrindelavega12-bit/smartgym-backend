@@ -112,7 +112,6 @@ def get_user_module_access(user_id):
         if conn:
             conn.close()
 
-
 @app.route("/api/modules", methods=["GET"])
 def get_active_modules():
     conn = None
@@ -131,13 +130,42 @@ def get_active_modules():
 
         rows = cursor.fetchall()
 
-        modules = [
-            {
-                "id": row[0],
-                "module_key": row[1]
-            }
-            for row in rows
-        ]
+        module_labels = {
+            "dashboard": "Dashboard",
+            "messages": "Messages",
+            "program": "Program",
+            "get_program": "Get Program",
+            "book_locker": "Book Locker",
+            "membership": "Membership",
+            "attendance": "Attendance",
+            "locker": "Locker",
+            "trainee": "Trainee",
+            "schedule": "Trainee Schedule",
+            "client_requests": "Client Requests",
+            "reports": "Reports",
+            "members": "Members",
+            "walkins": "Walk-ins",
+            "staff": "Staff",
+            "archive": "Archive",
+            "user_account_maintenance": "User Account Maintenance",
+            "backup_restore": "Backup and Restore",
+            "audit_logs": "Audit Logs"
+        }
+
+        modules = []
+
+        for row in rows:
+            module_id = row[0]
+            module_key = row[1]
+
+            modules.append({
+                "id": module_id,
+                "module_key": module_key,
+                "module_name": module_labels.get(
+                    module_key,
+                    module_key.replace("_", " ").title()
+                )
+            })
 
         return jsonify({
             "status": "success",
@@ -149,14 +177,19 @@ def get_active_modules():
 
         return jsonify({
             "status": "error",
-            "message": "Failed to load modules."
+            "message": "Failed to load modules.",
+            "details": str(e)
         }), 500
 
     finally:
         if cursor:
             cursor.close()
+
         if conn:
             conn.close()
+
+
+
 # ============================================================
 # SAVE USER MODULE ACCESS
 # ============================================================
