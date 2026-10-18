@@ -15863,6 +15863,7 @@ def ping():
 
 # --- MILESTONE 2: LOCKER & MEMBER ENDPOINTS ---
 
+
 @app.route("/api/audit-logs/walkin-payment", methods=["POST"])
 @require_api_key
 def audit_walkin_payment():
@@ -15870,23 +15871,31 @@ def audit_walkin_payment():
     cursor = None
 
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
 
         walkin_id = data.get("walkin_id")
-        walkin_name = data.get("walkin_name")
+        walkin_name = str(data.get("walkin_name") or "").strip()
         actor_id = data.get("actor_id")
+        details = str(data.get("details") or "").strip()
 
+        # Validate required fields
         if not walkin_id or not walkin_name:
             return jsonify({
                 "success": False,
                 "message": "Walk-in ID and name are required."
             }), 400
 
-        details = data.get("details", "")
+        # Validate details
+        if not details:
+            return jsonify({
+                "success": False,
+                "message": "Payment details are required."
+            }), 400
 
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
+        # Record walk-in payment activity
         insert_audit_log(
             cursor=cursor,
             action="WALKIN_PAYMENT",
@@ -15901,25 +15910,45 @@ def audit_walkin_payment():
 
         return jsonify({
             "success": True,
-            "message": "Walk-in payment audit log saved."
+            "message": "Walk-in payment audit logged successfully.",
+            "data": {
+                "walkin_id": walkin_id,
+                "walkin_name": walkin_name,
+                "action": "WALKIN_PAYMENT",
+                "details": details
+            }
         }), 201
 
-    except Exception as exc:
+    except Exception as e:
         if conn:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
 
-        print("[AUDIT] Walk-in payment log error:", exc)
+        app.logger.exception("Failed to record walk-in payment audit")
 
         return jsonify({
             "success": False,
-            "message": "Unable to save walk-in payment audit log."
+            "message": "Failed to record walk-in payment audit.",
+            "error": str(e)
         }), 500
 
     finally:
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+
 @app.route("/api/validate_locker", methods=["POST"])
 @require_api_key
 def validate_locker():
