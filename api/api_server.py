@@ -41,6 +41,9 @@ API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
 
+
+
+
 # ============================================================
 # GET USER MODULE ACCESS
 # ============================================================
@@ -4278,10 +4281,12 @@ def trainer_assignment_created():
 @app.route("/api/local/user_accounts", methods=["GET"])
 def get_local_user_accounts():
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
 
     try:
+        conn = get_connection()
+        cursor = conn.cursor()
 
         cursor.execute("""
             SELECT
@@ -4289,7 +4294,7 @@ def get_local_user_accounts():
                 fullname,
                 role
             FROM user_accounts
-            WHERE role = 'trainer'
+            WHERE LOWER(TRIM(role)) IN ('trainer', 'staff')
             ORDER BY fullname ASC
         """)
 
@@ -4298,7 +4303,6 @@ def get_local_user_accounts():
         data = []
 
         for row in rows:
-
             data.append({
                 "user_id": row[0],
                 "fullname": row[1],
@@ -4308,10 +4312,9 @@ def get_local_user_accounts():
         return jsonify({
             "status": "success",
             "data": data
-        })
+        }), 200
 
     except Exception as e:
-
         print("LOCAL USER ACCOUNT SYNC ERROR:", e)
 
         return jsonify({
@@ -4320,9 +4323,14 @@ def get_local_user_accounts():
         }), 500
 
     finally:
+        if cursor:
+            cursor.close()
 
-        cursor.close()
-        conn.close()
+        if conn:
+            conn.close()
+
+
+
 
 @app.route("/api/local/trainer_plans", methods=["GET"])
 def get_local_trainer_plans():
@@ -15854,6 +15862,126 @@ def ping():
     return jsonify({"status": "online", "message": "Gym Master Server is Active"}), 200
 
 # --- MILESTONE 2: LOCKER & MEMBER ENDPOINTS ---
+
+@app.route("/api/audit-logs/walkin-payment", methods=["POST"])
+@require_api_key
+def audit_walkin_payment():
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json() or {}
+
+        walkin_id = data.get("walkin_id")
+        walkin_name = data.get("walkin_name")
+        actor_id = data.get("actor_id")
+
+        if not walkin_id or not walkin_name:
+            return jsonify({
+                "success": False,
+                "message": "Walk-in ID and name are required."
+            }), 400
+
+        details = data.get("details", "")
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        insert_audit_log(
+            cursor=cursor,
+            action="WALKIN_PAYMENT",
+            record_type="Walk-in Payment",
+            record_id=walkin_id,
+            record_name=walkin_name,
+            actor_id=actor_id,
+            details=details
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Walk-in payment audit log saved."
+        }), 201
+
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+
+        print("[AUDIT] Walk-in payment log error:", exc)
+
+        return jsonify({
+            "success": False,
+            "message": "Unable to save walk-in payment audit log."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+@app.route("/api/validate_locker", methods=["POST"])
+@require_api_key
+def validate_locker():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        user_id = data.get("user_id")
+        locker_number = data.get("locker_number")
+
+        if user_id is None or locker_number is None:
+            return jsonify({
+                "success": False,
+                "valid": False,
+                "message": "Missing user_id or locker_number"
+            }), 400
+
+        result = execute_query("""
+            SELECT
+                ls.user_id,
+                ls.locker_number,
+                ls.start_time,
+                a.time_out
+            FROM locker_sessions ls
+            JOIN attendance_sessions a
+              ON a.user_id = ls.user_id
+             AND a.time_in >= ls.start_time
+             AND a.time_out IS NOT NULL
+            WHERE ls.user_id = %s
+              AND ls.locker_number = %s
+              AND ls.status = 'active'
+              AND ls.end_time IS NULL
+            ORDER BY a.time_in DESC
+            LIMIT 1
+        """, (user_id, locker_number), fetch=True)
+
+        if not result:
+            return jsonify({
+                "success": True,
+                "valid": False,
+                "message": "Member exit not confirmed"
+            }), 200
+
+        return jsonify({
+            "success": True,
+            "valid": True,
+            "user_id": user_id,
+            "locker_number": locker_number,
+            "message": "Member exit confirmed"
+        }), 200
+
+    except Exception as e:
+        print("[LOCKER VALIDATION ERROR]", e)
+
+        return jsonify({
+            "success": False,
+            "valid": False,
+            "message": "Internal server error"
+        }), 500
+
+
+
+
 
 @app.route('/api/verify_member', methods=['POST'])
 @require_api_key
