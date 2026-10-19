@@ -16120,6 +16120,147 @@ def audit_walkin_payment():
 
 
 
+@app.route(
+    "/api/audit-logs/locker-overtime-payment",
+    methods=["POST"]
+)
+def audit_locker_overtime_payment():
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        actor_id = data.get("actor_id")
+        record_id = data.get("record_id")
+        record_name = str(
+            data.get("record_name") or ""
+        ).strip()
+
+        locker_number = data.get("locker_number")
+        payment_id = data.get("payment_id")
+        details = str(data.get("details") or "").strip()
+
+        payment_amount = data.get("payment_amount", 0)
+
+        # Validate required fields
+        if not actor_id:
+            return jsonify({
+                "success": False,
+                "message": "Staff actor ID is required."
+            }), 400
+
+        if not record_id or not record_name:
+            return jsonify({
+                "success": False,
+                "message": "User ID and name are required."
+            }), 400
+
+        if locker_number is None:
+            return jsonify({
+                "success": False,
+                "message": "Locker number is required."
+            }), 400
+
+        if not payment_id:
+            return jsonify({
+                "success": False,
+                "message": "Payment ID is required."
+            }), 400
+
+        if not details:
+            return jsonify({
+                "success": False,
+                "message": "Audit details are required."
+            }), 400
+
+        try:
+            payment_amount = float(payment_amount)
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid payment amount."
+            }), 400
+
+        if payment_amount <= 0:
+            return jsonify({
+                "success": False,
+                "message": "Payment amount must be greater than zero."
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        # Record locker overtime payment activity
+        insert_audit_log(
+            cursor=cursor,
+            action="LOCKER_OVERTIME_PAYMENT",
+            record_type="Locker Overtime Payment",
+            record_id=str(record_id),
+            record_name=record_name,
+            actor_id=actor_id,
+            details=details
+        )
+
+        conn.commit()
+
+        app.logger.info(
+            "Locker overtime audit recorded: "
+            "payment_id=%s, locker=%s, actor_id=%s",
+            payment_id,
+            locker_number,
+            actor_id
+        )
+
+        return jsonify({
+            "success": True,
+            "message": (
+                "Locker overtime payment audit "
+                "logged successfully."
+            ),
+            "data": {
+                "record_id": str(record_id),
+                "record_name": record_name,
+                "locker_number": locker_number,
+                "payment_id": payment_id,
+                "payment_amount": payment_amount,
+                "action": "LOCKER_OVERTIME_PAYMENT",
+                "details": details
+            }
+        }), 201
+
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        app.logger.exception(
+            "Failed to record locker overtime payment audit"
+        )
+
+        return jsonify({
+            "success": False,
+            "message": (
+                "Failed to record locker overtime payment audit."
+            ),
+            "error": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 
 
 @app.route("/api/audit-logs/member-create", methods=["POST"])
