@@ -501,7 +501,10 @@ def get_turnstile_lockers():
 # TRAINER REPORT API
 # GET /api/reports/trainer
 # =========================================================
-
+# ============================================
+# TRAINER REPORT API
+# GET /api/reports/trainer
+# ============================================
 
 @app.route("/api/reports/trainer", methods=["GET"])
 def reports_trainer():
@@ -518,10 +521,11 @@ def reports_trainer():
         cursor.execute("""
             SELECT
                 ua.user_id AS trainer_id,
+
                 COALESCE(
                     NULLIF(ua.fullname, ''),
                     ua.username,
-                    ua.user_id
+                    CAST(ua.user_id AS CHAR)
                 ) AS trainer_name,
 
                 COUNT(DISTINCT CASE
@@ -550,8 +554,9 @@ def reports_trainer():
         trainers = cursor.fetchall()
 
         # ========================================
-        # ACTUAL TRAINER FEE PAYMENTS
-        # Accepts TRAINER and TRAINER_FEE
+        # ACTUAL TRAINER INCOME
+        # Accept TRAINER and TRAINER_FEE
+        # Case-insensitive
         # ========================================
         cursor.execute("""
             SELECT
@@ -565,6 +570,8 @@ def reports_trainer():
                 'TRAINER_FEE'
             )
 
+            AND trainer_id IS NOT NULL
+
             GROUP BY CAST(trainer_id AS CHAR)
         """)
 
@@ -575,7 +582,6 @@ def reports_trainer():
                 row["total_fees"] or 0
             )
             for row in fee_rows
-            if row["trainer_id"] is not None
         }
 
         # ========================================
@@ -609,7 +615,7 @@ def reports_trainer():
                 ON p.id = tt.program_id
 
             ORDER BY
-                tt.trainer_id,
+                tt.trainer_id ASC,
                 tt.start_date DESC
         """)
 
@@ -656,15 +662,19 @@ def reports_trainer():
             data.append({
                 "trainer_id": trainer_id,
                 "trainer_name": trainer["trainer_name"],
+
                 "program_count": int(
                     trainer["program_count"] or 0
                 ),
+
                 "active_clients": int(
                     trainer["active_clients"] or 0
                 ),
+
                 "total_fees": fee_map.get(
                     trainer_id, 0.0
                 ),
+
                 "trainees": trainees
             })
 
@@ -15982,8 +15992,6 @@ def ping():
 # --- MILESTONE 2: LOCKER & MEMBER ENDPOINTS ---
 
 
-@app.route("/api/audit-logs/walkin-payment", methods=["POST"])
-@require_api_key
 def audit_walkin_payment():
     conn = None
     cursor = None
@@ -15996,6 +16004,17 @@ def audit_walkin_payment():
         actor_id = data.get("actor_id")
         details = str(data.get("details") or "").strip()
 
+        # Trainer information
+        trainer_name = str(data.get("trainer_name") or "None").strip()
+        trainer_id = data.get("trainer_id")
+        trainer_plan = str(data.get("trainer_plan") or "None").strip()
+
+        # Payment amounts
+        payment_amount = data.get("payment_amount", 0)
+        access_fee = data.get("access_fee", 0)
+        locker_fee = data.get("locker_fee", 0)
+        trainer_fee = data.get("trainer_fee", 0)
+
         # Validate required fields
         if not walkin_id or not walkin_name:
             return jsonify({
@@ -16003,12 +16022,22 @@ def audit_walkin_payment():
                 "message": "Walk-in ID and name are required."
             }), 400
 
-        # Validate details
         if not details:
             return jsonify({
                 "success": False,
                 "message": "Payment details are required."
             }), 400
+
+        # Append trainer information to audit details
+        trainer_details = (
+            f"Trainer Name: {trainer_name} | "
+            f"Trainer ID: {trainer_id or 'None'} | "
+            f"Trainer Plan: {trainer_plan} | "
+            f"Trainer Fee: PHP {float(trainer_fee or 0):,.2f}"
+        )
+
+        if "Trainer Name:" not in details:
+            details = f"{details} | {trainer_details}"
 
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
@@ -16033,7 +16062,14 @@ def audit_walkin_payment():
                 "walkin_id": walkin_id,
                 "walkin_name": walkin_name,
                 "action": "WALKIN_PAYMENT",
-                "details": details
+                "details": details,
+                "payment_amount": payment_amount,
+                "access_fee": access_fee,
+                "locker_fee": locker_fee,
+                "trainer_fee": trainer_fee,
+                "trainer_name": trainer_name,
+                "trainer_id": trainer_id,
+                "trainer_plan": trainer_plan
             }
         }), 201
 
@@ -16044,7 +16080,9 @@ def audit_walkin_payment():
             except Exception:
                 pass
 
-        app.logger.exception("Failed to record walk-in payment audit")
+        app.logger.exception(
+            "Failed to record walk-in payment audit"
+        )
 
         return jsonify({
             "success": False,
@@ -16064,7 +16102,6 @@ def audit_walkin_payment():
                 conn.close()
             except Exception:
                 pass
-
 
 
 @app.route("/api/audit-logs/member-create", methods=["POST"])
