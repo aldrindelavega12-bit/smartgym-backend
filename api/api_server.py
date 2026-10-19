@@ -15997,7 +15997,10 @@ def ping():
 
 # --- MILESTONE 2: LOCKER & MEMBER ENDPOINTS ---
 
-
+@app.route(
+   "/api/audit-logs/walkin-payment",
+    methods=["POST"]
+) 
 def audit_walkin_payment():
     conn = None
     cursor = None
