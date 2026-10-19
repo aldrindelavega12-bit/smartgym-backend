@@ -15996,128 +15996,8 @@ def ping():
     return jsonify({"status": "online", "message": "Gym Master Server is Active"}), 200
 
 # --- MILESTONE 2: LOCKER & MEMBER ENDPOINTS ---
-@app.route(
-    "/api/audit-logs/locker-overtime-payment",
-    methods=["POST"]
-)
-def audit_locker_overtime_payment():
-    from flask import request, jsonify
-    from datetime import datetime
-
-    conn = None
-    cursor = None
-
-    try:
-        # Validate API key using your existing project mechanism.
-        api_key = request.headers.get("X-API-KEY")
-
-        if api_key != "GYM_MASTER_2026":
-            return jsonify({
-                "success": False,
-                "message": "Unauthorized."
-            }), 401
-
-        data = request.get_json(silent=True) or {}
-
-        actor_id = data.get("actor_id")
-        record_id = data.get("record_id")
-        record_name = data.get("record_name")
-        locker_number = data.get("locker_number")
-        payment_id = data.get("payment_id")
-        payment_amount = data.get("payment_amount")
-
-        if not all([
-            actor_id,
-            record_id,
-            record_name,
-            locker_number,
-            payment_id,
-        ]) or payment_amount is None:
-            return jsonify({
-                "success": False,
-                "message": "Missing required audit fields."
-            }), 400
-
-        try:
-            payment_amount = float(payment_amount)
-        except (TypeError, ValueError):
-            return jsonify({
-                "success": False,
-                "message": "Invalid payment amount."
-            }), 400
-
-        if payment_amount <= 0:
-            return jsonify({
-                "success": False,
-                "message": "Payment amount must be greater than zero."
-            }), 400
-
-        action = "PAYMENT"
-
-        details = (
-            f"Locker Overtime | "
-            f"ID: {record_id} | "
-            f"Name: {record_name} | "
-            f"Locker: {locker_number} | "
-            f"Payment ID: {payment_id} | "
-            f"Amount Paid: ₱{payment_amount:,.2f}"
-        )
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO audit_logs
-                (actor_id, action, details, created_at)
-            VALUES
-                (%s, %s, %s, %s)
-            """,
-            (
-                actor_id,
-                action,
-                details,
-                datetime.now(),
-            )
-        )
-
-        conn.commit()
-
-        return jsonify({
-            "success": True,
-            "message": "Locker overtime payment audit recorded.",
-            "action": action,
-            "details": details,
-        }), 201
-
-    except Exception as exc:
-        if conn:
-            conn.rollback()
-
-        print(
-            "[AUDIT ERROR] Locker overtime payment:",
-            repr(exc)
-        )
-
-        return jsonify({
-            "success": False,
-            "message": "Failed to record locker overtime audit."
-        }), 500
-
-    finally:
-        if cursor:
-            cursor.close()
-
-        if conn:
-            conn.close()
 
 
-
-
-@app.route(
-   "/api/audit-logs/walkin-payment",
-    methods=["POST"]
-) 
 def audit_walkin_payment():
     conn = None
     cursor = None
@@ -16234,6 +16114,7 @@ def audit_walkin_payment():
                 conn.close()
             except Exception:
                 pass
+
 
 
 
@@ -16376,6 +16257,145 @@ def audit_member_payment():
 # AUDIT LOG: CREATE WALK-IN
 # POST /api/audit-logs/walkin-create
 # ==========================================================
+
+
+@app.route(
+    "/api/audit-logs/locker-overtime-payment",
+    methods=["POST"]
+)
+def audit_locker_overtime_payment():
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        actor_id = data.get("actor_id")
+        record_id = data.get("record_id")
+        record_name = str(
+            data.get("record_name") or ""
+        ).strip()
+        locker_number = data.get("locker_number")
+        payment_id = data.get("payment_id")
+        payment_amount = data.get("payment_amount")
+
+        if not actor_id:
+            return jsonify({
+                "success": False,
+                "message": "Staff actor ID is required."
+            }), 400
+
+        if not record_id or not record_name:
+            return jsonify({
+                "success": False,
+                "message": "User ID and name are required."
+            }), 400
+
+        if locker_number is None:
+            return jsonify({
+                "success": False,
+                "message": "Locker number is required."
+            }), 400
+
+        if not payment_id:
+            return jsonify({
+                "success": False,
+                "message": "Payment ID is required."
+            }), 400
+
+        try:
+            payment_amount = float(payment_amount)
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid payment amount."
+            }), 400
+
+        if payment_amount <= 0:
+            return jsonify({
+                "success": False,
+                "message": "Payment amount must be greater than zero."
+            }), 400
+
+        details = (
+            f"Locker Overtime | "
+            f"ID: {record_id} | "
+            f"Name: {record_name} | "
+            f"Locker: {locker_number} | "
+            f"Payment ID: {payment_id} | "
+            f"Amount Paid: ₱{payment_amount:,.2f}"
+        )
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        insert_audit_log(
+            cursor=cursor,
+            action="PAYMENT",
+            record_type="Locker Overtime Payment",
+            record_id=str(record_id),
+            record_name=record_name,
+            actor_id=actor_id,
+            details=details
+        )
+
+        conn.commit()
+
+        app.logger.info(
+            "Locker overtime payment audit recorded: "
+            "payment_id=%s, locker=%s, amount=%.2f",
+            payment_id,
+            locker_number,
+            payment_amount
+        )
+
+        return jsonify({
+            "success": True,
+            "message": "Locker overtime payment audit logged successfully.",
+            "data": {
+                "record_id": str(record_id),
+                "record_name": record_name,
+                "locker_number": locker_number,
+                "payment_id": payment_id,
+                "payment_amount": payment_amount,
+                "action": "PAYMENT",
+                "details": details
+            }
+        }), 201
+
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        app.logger.exception(
+            "Failed to record locker overtime payment audit"
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to record locker overtime payment audit.",
+            "error": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+
+
 
 @app.route("/api/audit-logs/walkin-create", methods=["POST"])
 @require_api_key
