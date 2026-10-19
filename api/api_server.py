@@ -12741,15 +12741,17 @@ def website_walkins():
             conn.close()        
 
 
+
 @app.route("/api/walkin_payment_updated", methods=["POST"])
 def walkin_payment_updated():
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
 
     walkin_id = data.get("walkin_id")
     payment_id = data.get("payment_id")
     payment_type = data.get("payment_type")
     amount = data.get("amount")
+    trainer_id = data.get("trainer_id")
 
     if not all([
         walkin_id,
@@ -12759,7 +12761,10 @@ def walkin_payment_updated():
     ]):
         return jsonify({
             "success": False,
-            "message": "walkin_id, payment_id, payment_type, and amount are required."
+            "message": (
+                "walkin_id, payment_id, payment_type, "
+                "and amount are required."
+            )
         }), 400
 
     conn = None
@@ -12769,9 +12774,9 @@ def walkin_payment_updated():
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Prevent duplicate payment synchronization
+        # Check if this payment was already synchronized
         cursor.execute("""
-            SELECT id
+            SELECT id, trainer_id
             FROM payments
             WHERE source_payment_id = %s
             LIMIT 1
@@ -12780,28 +12785,62 @@ def walkin_payment_updated():
         existing = cursor.fetchone()
 
         if existing:
+            existing_payment_id = existing[0]
+            existing_trainer_id = existing[1]
+
+            # Update the existing payment if a trainer ID
+            # was provided but the saved trainer ID is missing.
+            if trainer_id and not existing_trainer_id:
+                cursor.execute("""
+                    UPDATE payments
+                    SET trainer_id = %s
+                    WHERE id = %s
+                """, (
+                    trainer_id,
+                    existing_payment_id
+                ))
+
+                conn.commit()
+
+                return jsonify({
+                    "success": True,
+                    "message": (
+                        "Existing payment synchronized "
+                        "and trainer ID updated."
+                    ),
+                    "payment_id": existing_payment_id,
+                    "trainer_id": trainer_id
+                }), 200
+
             return jsonify({
                 "success": True,
-                "message": "Walk-in payment already synchronized.",
-                "payment_id": existing[0]
+                "message": (
+                    "Walk-in payment already synchronized."
+                ),
+                "payment_id": existing_payment_id,
+                "trainer_id": existing_trainer_id
             }), 200
 
-        # Save Walk-in payment in Railway
+        # Save new walk-in payment
         cursor.execute("""
             INSERT INTO payments (
                 user_id,
                 payment_type,
                 amount,
+                trainer_id,
                 paid_at,
                 source_payment_id
             )
-            VALUES (%s, %s, %s, NOW(), %s)
+            VALUES (%s, %s, %s, %s, NOW(), %s)
         """, (
             str(walkin_id),
             payment_type,
             amount,
+            trainer_id,
             payment_id
         ))
+
+        new_payment_id = cursor.lastrowid
 
         conn.commit()
 
@@ -12810,25 +12849,34 @@ def walkin_payment_updated():
         return jsonify({
             "success": True,
             "message": "Walk-in payment synchronized.",
-            "payment_id": cursor.lastrowid
+            "payment_id": new_payment_id,
+            "trainer_id": trainer_id
         }), 200
 
     except Exception as e:
         if conn:
             conn.rollback()
 
-        print("[WALKIN PAYMENT SYNC ERROR]", e)
+        app.logger.exception(
+            "Walk-in payment synchronization failed"
+        )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message": "Walk-in payment synchronization failed.",
+            "error": str(e)
         }), 500
 
     finally:
         if cursor:
             cursor.close()
+
         if conn:
             conn.close()
+
+
+
+
 # ----------------ENROLLMENT-------------
 
 @app.route("/api/walkin_created", methods=["POST"])
