@@ -15949,6 +15949,65 @@ def audit_walkin_payment():
 
 
 
+@app.route("/api/audit-logs/member-create", methods=["POST"])
+@require_api_key
+def audit_member_create():
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        member_id = str(data.get("member_id") or "").strip()
+        member_name = str(data.get("member_name") or "").strip()
+        actor_id = data.get("actor_id")
+
+        if not member_id or not member_name:
+            return jsonify({
+                "success": False,
+                "message": "Member ID and name are required."
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        insert_audit_log(
+            cursor=cursor,
+            action="CREATE_MEMBER",
+            record_type="Member",
+            record_id=member_id,
+            record_name=member_name,
+            actor_id=actor_id,
+            details="Member registered through Enrollment System"
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Member creation audit logged successfully."
+        }), 201
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        app.logger.exception("Member creation audit error")
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to record member creation audit."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+
+
 @app.route("/api/validate_locker", methods=["POST"])
 @require_api_key
 def validate_locker():
