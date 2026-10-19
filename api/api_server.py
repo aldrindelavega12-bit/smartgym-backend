@@ -16006,6 +16006,84 @@ def audit_member_create():
             conn.close()
 
 
+@app.route("/api/audit-logs/member-payment", methods=["POST"])
+@require_api_key
+def audit_member_payment():
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        member_id = str(data.get("member_id") or "").strip()
+        member_name = str(data.get("member_name") or "").strip()
+        actor_id = data.get("actor_id")
+        details = str(data.get("details") or "").strip()
+
+        if not member_id or not member_name:
+            return jsonify({
+                "success": False,
+                "message": "Member ID and name are required."
+            }), 400
+
+        if not actor_id:
+            return jsonify({
+                "success": False,
+                "message": "Actor user ID is required."
+            }), 400
+
+        if not details:
+            return jsonify({
+                "success": False,
+                "message": "Payment details are required."
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        insert_audit_log(
+            cursor=cursor,
+            action="PAYMENT",
+            record_type="Member Payment",
+            record_id=member_id,
+            record_name=member_name,
+            actor_id=actor_id,
+            details=details
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Member payment audit logged successfully.",
+            "data": {
+                "member_id": member_id,
+                "member_name": member_name,
+                "action": "PAYMENT",
+                "details": details
+            }
+        }), 201
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        app.logger.exception(
+            "Failed to record member payment audit"
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to record member payment audit."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 
 
 @app.route("/api/validate_locker", methods=["POST"])
