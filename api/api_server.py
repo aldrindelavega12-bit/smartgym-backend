@@ -15996,6 +15996,123 @@ def ping():
     return jsonify({"status": "online", "message": "Gym Master Server is Active"}), 200
 
 # --- MILESTONE 2: LOCKER & MEMBER ENDPOINTS ---
+@app.route(
+    "/api/audit-logs/locker-overtime-payment",
+    methods=["POST"]
+)
+def audit_locker_overtime_payment():
+    from flask import request, jsonify
+    from datetime import datetime
+
+    conn = None
+    cursor = None
+
+    try:
+        # Validate API key using your existing project mechanism.
+        api_key = request.headers.get("X-API-KEY")
+
+        if api_key != "GYM_MASTER_2026":
+            return jsonify({
+                "success": False,
+                "message": "Unauthorized."
+            }), 401
+
+        data = request.get_json(silent=True) or {}
+
+        actor_id = data.get("actor_id")
+        record_id = data.get("record_id")
+        record_name = data.get("record_name")
+        locker_number = data.get("locker_number")
+        payment_id = data.get("payment_id")
+        payment_amount = data.get("payment_amount")
+
+        if not all([
+            actor_id,
+            record_id,
+            record_name,
+            locker_number,
+            payment_id,
+        ]) or payment_amount is None:
+            return jsonify({
+                "success": False,
+                "message": "Missing required audit fields."
+            }), 400
+
+        try:
+            payment_amount = float(payment_amount)
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid payment amount."
+            }), 400
+
+        if payment_amount <= 0:
+            return jsonify({
+                "success": False,
+                "message": "Payment amount must be greater than zero."
+            }), 400
+
+        action = "PAYMENT"
+
+        details = (
+            f"Locker Overtime | "
+            f"ID: {record_id} | "
+            f"Name: {record_name} | "
+            f"Locker: {locker_number} | "
+            f"Payment ID: {payment_id} | "
+            f"Amount Paid: ₱{payment_amount:,.2f}"
+        )
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO audit_logs
+                (actor_id, action, details, created_at)
+            VALUES
+                (%s, %s, %s, %s)
+            """,
+            (
+                actor_id,
+                action,
+                details,
+                datetime.now(),
+            )
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Locker overtime payment audit recorded.",
+            "action": action,
+            "details": details,
+        }), 201
+
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+
+        print(
+            "[AUDIT ERROR] Locker overtime payment:",
+            repr(exc)
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to record locker overtime audit."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+
 
 @app.route(
    "/api/audit-logs/walkin-payment",
@@ -16118,89 +16235,6 @@ def audit_walkin_payment():
             except Exception:
                 pass
 
-@app.route(
-    "/api/audit-logs/locker-overtime-payment",
-    methods=["POST"]
-)
-def audit_locker_overtime_payment():
-    from flask import request, jsonify
-    from datetime import datetime
-
-    try:
-        data = request.get_json(silent=True) or {}
-
-        actor_id = data.get("actor_id")
-        record_id = data.get("record_id")
-        record_name = data.get("record_name")
-        locker_number = data.get("locker_number")
-        payment_id = data.get("payment_id")
-        payment_amount = data.get("payment_amount")
-
-        if not all([
-            actor_id,
-            record_id,
-            record_name,
-            locker_number,
-            payment_id,
-        ]) or payment_amount is None:
-            return jsonify({
-                "success": False,
-                "message": "Missing required audit fields."
-            }), 400
-
-        try:
-            payment_amount = float(payment_amount)
-        except (TypeError, ValueError):
-            return jsonify({
-                "success": False,
-                "message": "Invalid payment amount."
-            }), 400
-
-        if payment_amount <= 0:
-            return jsonify({
-                "success": False,
-                "message": "Payment amount must be greater than zero."
-            }), 400
-
-        action = "Payment"
-
-        details = (
-            f"Locker Overtime | "
-            f"ID: {record_id} | "
-            f"Name: {record_name} | "
-            f"Locker: {locker_number} | "
-            f"Payment ID: {payment_id} | "
-            f"Amount Paid: ₱{payment_amount:,.2f}"
-        )
-
-        # IMPORTANT:
-        # Insert into your existing audit-log table here.
-        # Use the same database connection, column names,
-        # and role lookup used by your existing audit endpoint.
-        #
-        # Save these values:
-        # actor_id, action, details, record_id, record_name
-
-        # Replace this section with your project's existing
-        # audit insert helper before deploying.
-
-        return jsonify({
-            "success": True,
-            "action": action,
-            "details": details,
-            "message": "Locker overtime payment audit prepared."
-        }), 200
-
-    except Exception as exc:
-        print(
-            "[AUDIT ERROR] Locker overtime payment:",
-            repr(exc)
-        )
-
-        return jsonify({
-            "success": False,
-            "message": "Unable to record locker overtime audit."
-        }), 500
 
 
 
