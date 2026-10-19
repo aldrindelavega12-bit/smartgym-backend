@@ -16258,6 +16258,169 @@ def audit_member_payment():
 # POST /api/audit-logs/walkin-create
 # ==========================================================
 
+@app.route(
+    "/api/audit-logs/trainer-payment",
+    methods=["POST"]
+)
+def audit_trainer_payment():
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        actor_id = data.get("actor_id")
+        record_id = data.get("record_id")
+        record_name = str(
+            data.get("record_name") or ""
+        ).strip()
+
+        trainer_id = data.get("trainer_id")
+        trainer_name = str(
+            data.get("trainer_name") or ""
+        ).strip()
+
+        plan_name = str(
+            data.get("plan_name") or ""
+        ).strip()
+
+        payment_id = data.get("payment_id")
+        payment_amount = data.get("payment_amount")
+
+        start_date = str(data.get("start_date") or "").strip()
+        end_date = str(data.get("end_date") or "").strip()
+
+        if not actor_id:
+            return jsonify({
+                "success": False,
+                "message": "Staff actor ID is required."
+            }), 400
+
+        if not record_id or not record_name:
+            return jsonify({
+                "success": False,
+                "message": "Member ID and name are required."
+            }), 400
+
+        if not trainer_id or not trainer_name:
+            return jsonify({
+                "success": False,
+                "message": "Trainer ID and name are required."
+            }), 400
+
+        if not plan_name:
+            return jsonify({
+                "success": False,
+                "message": "Trainer plan is required."
+            }), 400
+
+        if not payment_id:
+            return jsonify({
+                "success": False,
+                "message": "Payment ID is required."
+            }), 400
+
+        try:
+            payment_amount = float(payment_amount)
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid payment amount."
+            }), 400
+
+        if payment_amount <= 0:
+            return jsonify({
+                "success": False,
+                "message": "Payment amount must be greater than zero."
+            }), 400
+
+        details = (
+            f"Trainer Payment | "
+            f"ID: {record_id} | "
+            f"Name: {record_name} | "
+            f"Trainer ID: {trainer_id} | "
+            f"Trainer Name: {trainer_name} | "
+            f"Trainer Plan: {plan_name} | "
+            f"Trainer Fee: ₱{payment_amount:,.2f} | "
+            f"Payment ID: {payment_id}"
+        )
+
+        if start_date:
+            details += f" | Start Date: {start_date}"
+
+        if end_date:
+            details += f" | End Date: {end_date}"
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        insert_audit_log(
+            cursor=cursor,
+            action="PAYMENT",
+            record_type="Trainer Payment",
+            record_id=str(record_id),
+            record_name=record_name,
+            actor_id=actor_id,
+            details=details
+        )
+
+        conn.commit()
+
+        app.logger.info(
+            "Trainer payment audit recorded: "
+            "payment_id=%s, member_id=%s, trainer_id=%s, amount=%.2f",
+            payment_id,
+            record_id,
+            trainer_id,
+            payment_amount
+        )
+
+        return jsonify({
+            "success": True,
+            "message": "Trainer payment audit logged successfully.",
+            "data": {
+                "record_id": str(record_id),
+                "record_name": record_name,
+                "trainer_id": trainer_id,
+                "trainer_name": trainer_name,
+                "plan_name": plan_name,
+                "payment_id": payment_id,
+                "payment_amount": payment_amount,
+                "action": "PAYMENT",
+                "details": details
+            }
+        }), 201
+
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        app.logger.exception(
+            "Failed to record trainer payment audit"
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to record trainer payment audit.",
+            "error": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 
 @app.route(
     "/api/audit-logs/locker-overtime-payment",
