@@ -16083,7 +16083,97 @@ def audit_member_payment():
 
         if conn:
             conn.close()
+# ==========================================================
+# AUDIT LOG: CREATE WALK-IN
+# POST /api/audit-logs/walkin-create
+# ==========================================================
 
+@app.route("/api/audit-logs/walkin-create", methods=["POST"])
+@require_api_key
+def audit_walkin_create():
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        walkin_id = str(data.get("walkin_id") or "").strip()
+        walkin_name = str(data.get("walkin_name") or "").strip()
+        actor_id = data.get("actor_id")
+
+        # --------------------------------------------------
+        # VALIDATION
+        # --------------------------------------------------
+        if not walkin_id or not walkin_name:
+            return jsonify({
+                "success": False,
+                "message": "Walk-in ID and name are required."
+            }), 400
+
+        if actor_id is None or not str(actor_id).strip():
+            return jsonify({
+                "success": False,
+                "message": "Logged-in staff ID is required."
+            }), 400
+
+        # --------------------------------------------------
+        # DATABASE CONNECTION
+        # --------------------------------------------------
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        # --------------------------------------------------
+        # INSERT AUDIT LOG
+        # --------------------------------------------------
+        insert_audit_log(
+            cursor=cursor,
+            action="CREATE_WALKIN",
+            record_type="Walk-in",
+            record_id=walkin_id,
+            record_name=walkin_name,
+            actor_id=actor_id
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Walk-in creation audit logged successfully.",
+            "data": {
+                "walkin_id": walkin_id,
+                "walkin_name": walkin_name,
+                "action": "CREATE_WALKIN"
+            }
+        }), 201
+
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        app.logger.exception(
+            "Failed to record walk-in creation audit"
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to record walk-in creation audit."
+        }), 500
+
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 @app.route("/api/validate_locker", methods=["POST"])
