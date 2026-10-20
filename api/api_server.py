@@ -4094,6 +4094,11 @@ def admin_create_database_backup():
 # TRAINER ASSIGNMENT RENEWED
 # UPDATE EXISTING RAILWAY RECORD
 # ==========================================
+
+# ==========================================
+# TRAINER ASSIGNMENT RENEWED
+# ACTIVATE ASSIGNMENT + GENERATE WORKOUT SCHEDULE
+# ==========================================
 @app.route("/api/trainer_assignment_renewed", methods=["POST"])
 def trainer_assignment_renewed():
     conn = None
@@ -4119,12 +4124,17 @@ def trainer_assignment_renewed():
 
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-        # Begin transaction before locking the existing assignment
         conn.begin()
 
+        # Find the existing assignment
         cursor.execute("""
-            SELECT id
+            SELECT
+                id,
+                trainer_id,
+                member_id,
+                program_id,
+                program_plan_id,
+                program_start_date
             FROM trainer_trainees
             WHERE trainer_id = %s
               AND member_id = %s
@@ -4140,24 +4150,31 @@ def trainer_assignment_renewed():
 
         if not assignment:
             conn.rollback()
-
             return jsonify({
                 "success": False,
-                "message": (
-                    "Existing trainer assignment not found. "
-                    "No new assignment was created."
-                )
+                "message": "Existing trainer assignment not found."
             }), 404
 
         assignment_id = assignment["id"]
+        program_id = assignment.get("program_id")
+        program_plan_id = assignment.get("program_plan_id")
+        program_start_date = assignment.get("program_start_date")
 
-        # UPDATE existing row only
+        # Use the existing program start date.
+        # If it has not been set, initialize it from start_date.
+        if not program_start_date:
+            program_start_date = data["start_date"]
+
+        # Activate the assignment without removing its program details
         cursor.execute("""
             UPDATE trainer_trainees
             SET
                 plan_id = %s,
                 start_date = %s,
                 end_date = %s,
+                program_start_date = COALESCE(
+                    program_start_date, %s
+                ),
                 status = 'active'
             WHERE id = %s
               AND trainer_id = %s
@@ -4166,29 +4183,152 @@ def trainer_assignment_renewed():
             data["plan_id"],
             data["start_date"],
             data["end_date"],
+            program_start_date,
             assignment_id,
             data["trainer_id"],
             data["member_id"]
         ))
 
+        # No program details means we cannot generate a workout schedule.
+        if not program_id or not program_plan_id:
+            conn.commit()
+            return jsonify({
+                "success": True,
+                "message": "Assignment activated, but program details are missing.",
+                "assignment_id": assignment_id,
+                "schedule_generated": False,
+                "missing": {
+                    "program_id": not bool(program_id),
+                    "program_plan_id": not bool(program_plan_id)
+                }
+            }), 200
+
+        # Load the program plan's active days
+        cursor.execute("""
+            SELECT id AS plan_day_id, day_number, day_name
+            FROM plan_days
+            WHERE plan_id = %s
+              AND active = 1
+            ORDER BY day_number ASC
+        """, (program_plan_id,))
+
+        plan_days = cursor.fetchall()
+
+        if not plan_days:
+            conn.commit()
+            return jsonify({
+                "success": True,
+                "message": "Assignment activated, but no active plan days were found.",
+                "assignment_id": assignment_id,
+                "schedule_generated": False
+            }), 200
+
+        # Build the recurring workout pattern
+        workout_pattern = []
+
+        for day in plan_days:
+            day_name = day.get("day_name") or "Workout"
+
+            if day_name.strip().lower() == "rest":
+                workout_name = "Rest"
+            else:
+                cursor.execute("""
+                    SELECT body_part
+                    FROM plan_day_body_parts
+                    WHERE plan_day_id = %s
+                      AND active = 1
+                    ORDER BY id ASC
+                """, (day["plan_day_id"],))
+
+                body_parts = [
+                    row["body_part"]
+                    for row in cursor.fetchall()
+                ]
+
+                workout_name = (
+                    ", ".join(body_parts)
+                    if body_parts
+                    else day_name
+                )
+
+            workout_pattern.append(workout_name)
+
+        # Prevent duplicate schedules for this member and trainer
+        cursor.execute("""
+            SELECT COUNT(*) AS schedule_count
+            FROM trainer_workout_schedule
+            WHERE member_id = %s
+              AND trainer_id = %s
+        """, (
+            data["member_id"],
+            data["trainer_id"]
+        ))
+
+        existing = cursor.fetchone()
+        schedule_count = int(existing["schedule_count"] or 0)
+
+        if schedule_count > 0:
+            conn.commit()
+            return jsonify({
+                "success": True,
+                "message": "Assignment activated. Existing workout schedule was preserved.",
+                "assignment_id": assignment_id,
+                "schedule_generated": False,
+                "existing_schedule_count": schedule_count
+            }), 200
+
+        # Normalize program_start_date to a Python date
+        if isinstance(program_start_date, str):
+            program_start_date = datetime.strptime(
+                program_start_date[:10], "%Y-%m-%d"
+            ).date()
+        elif hasattr(program_start_date, "date"):
+            program_start_date = program_start_date.date()
+
+        # Generate a year of workouts from program_start_date
+        generated_count = 0
+
+        for day_offset in range(365):
+            workout_date = (
+                program_start_date + timedelta(days=day_offset)
+            )
+            workout_name = workout_pattern[
+                day_offset % len(workout_pattern)
+            ]
+
+            cursor.execute("""
+                INSERT INTO trainer_workout_schedule
+                    (member_id, trainer_id, workout_date, workout_name, status)
+                VALUES (%s, %s, %s, %s, 'scheduled')
+            """, (
+                data["member_id"],
+                data["trainer_id"],
+                workout_date,
+                workout_name
+            ))
+
+            generated_count += 1
+
         conn.commit()
 
-        print("========== TRAINER ASSIGNMENT RENEWAL ==========")
+        print("========== TRAINER ASSIGNMENT + SCHEDULE ==========")
         print("Assignment ID:", assignment_id)
-        print("Trainer ID:", data["trainer_id"])
         print("Member ID:", data["member_id"])
-        print("Updated existing assignment successfully.")
+        print("Trainer ID:", data["trainer_id"])
+        print("Program ID:", program_id)
+        print("Program Plan ID:", program_plan_id)
+        print("Generated workouts:", generated_count)
 
         return jsonify({
             "success": True,
-            "message": "Existing trainer assignment updated successfully.",
+            "message": "Assignment activated and workout schedule generated.",
             "assignment_id": assignment_id,
             "trainer_id": data["trainer_id"],
             "member_id": data["member_id"],
-            "plan_id": data["plan_id"],
-            "start_date": data["start_date"],
-            "end_date": data["end_date"],
-            "status": "active"
+            "status": "active",
+            "schedule_generated": True,
+            "generated_count": generated_count,
+            "program_start_date": program_start_date.strftime("%Y-%m-%d")
         }), 200
 
     except Exception as e:
