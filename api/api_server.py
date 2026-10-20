@@ -15997,7 +15997,8 @@ def ping():
 
 # --- MILESTONE 2: LOCKER & MEMBER ENDPOINTS ---
 
-
+@app.route("/api/audit-logs/walkin-payment", methods=["POST"])
+@require_api_key
 def audit_walkin_payment():
     conn = None
     cursor = None
@@ -16010,16 +16011,7 @@ def audit_walkin_payment():
         actor_id = data.get("actor_id")
         details = str(data.get("details") or "").strip()
 
-        # Trainer information from client payload
-        trainer_name = str(data.get("trainer_name") or "").strip()
-        trainer_id = data.get("trainer_id")
-        trainer_plan = str(data.get("trainer_plan") or "").strip()
-
-        payment_amount = data.get("payment_amount", 0)
-        access_fee = data.get("access_fee", 0)
-        locker_fee = data.get("locker_fee", 0)
-        trainer_fee = data.get("trainer_fee", 0)
-
+        # Validate required fields
         if not walkin_id or not walkin_name:
             return jsonify({
                 "success": False,
@@ -16032,29 +16024,10 @@ def audit_walkin_payment():
                 "message": "Payment details are required."
             }), 400
 
-        # Do not overwrite trainer information already present in details.
-        # Otherwise append the fields received from the client.
-        if "Trainer Name:" not in details:
-            details = (
-                f"{details} | "
-                f"Trainer Name: {trainer_name or 'None'} | "
-                f"Trainer ID: {trainer_id or 'None'} | "
-                f"Trainer Plan: {trainer_plan or 'None'} | "
-                f"Trainer Fee: PHP {float(trainer_fee or 0):,.2f}"
-            )
-
-        app.logger.info(
-            "Walk-in payment audit: walkin_id=%s trainer_name=%s "
-            "trainer_id=%s trainer_plan=%s",
-            walkin_id,
-            trainer_name or "None",
-            trainer_id or "None",
-            trainer_plan or "None"
-        )
-
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
+        # Record walk-in payment activity
         insert_audit_log(
             cursor=cursor,
             action="WALKIN_PAYMENT",
@@ -16074,16 +16047,9 @@ def audit_walkin_payment():
                 "walkin_id": walkin_id,
                 "walkin_name": walkin_name,
                 "action": "WALKIN_PAYMENT",
-                "details": details,
-                "payment_amount": payment_amount,
-                "access_fee": access_fee,
-                "locker_fee": locker_fee,
-                "trainer_fee": trainer_fee,
-                "trainer_name": trainer_name or None,
-                "trainer_id": trainer_id,
-                "trainer_plan": trainer_plan or None
+                "details": details
             }
-        }), 200
+        }), 201
 
     except Exception as e:
         if conn:
@@ -16114,9 +16080,6 @@ def audit_walkin_payment():
                 conn.close()
             except Exception:
                 pass
-
-
-
 
 
 @app.route("/api/audit-logs/member-create", methods=["POST"])
