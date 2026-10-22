@@ -16750,53 +16750,84 @@ def audit_walkin_create():
             except Exception:
                 pass
 
+
 @app.route("/api/confirm_exit", methods=["POST"])
 @require_api_key
 def confirm_exit():
     try:
         data = request.get_json(silent=True) or {}
+
         user_id = str(data.get("user_id") or "").strip()
 
-        if not user_id:
+        try:
+            locker_number = int(data.get("locker_number"))
+        except (TypeError, ValueError):
+            locker_number = 0
+
+        if not user_id or locker_number <= 0:
             return jsonify({
                 "success": False,
                 "confirmed": False,
-                "message": "Missing user_id"
+                "message": "user_id and locker_number are required"
             }), 400
 
+        # Confirm only if:
+        # 1. The exact locker session is still active.
+        # 2. The locker was confirmed empty.
+        # 3. A successful Turnstile OUT happened after that confirmation.
         result = execute_query("""
-            SELECT user_id, time_in, time_out
-            FROM attendance_sessions
-            WHERE user_id = %s
-              AND time_out IS NOT NULL
-            ORDER BY time_out DESC
+            SELECT
+                ls.user_id,
+                ls.locker_number,
+                ls.status,
+                lec.confirmed_at,
+                a.time_out
+            FROM locker_sessions AS ls
+
+            INNER JOIN locker_exit_checks AS lec
+                ON lec.user_id = ls.user_id
+               AND lec.locker_number = ls.locker_number
+
+            INNER JOIN attendance_sessions AS a
+                ON a.user_id = ls.user_id
+               AND a.time_out IS NOT NULL
+               AND a.time_out >= lec.confirmed_at
+               AND a.time_in <= ls.start_time
+
+            WHERE ls.user_id = %s
+              AND ls.locker_number = %s
+              AND LOWER(ls.status) IN ('active', 'overtime')
+              AND ls.end_time IS NULL
+
+            ORDER BY ls.start_time DESC
             LIMIT 1
-        """, (user_id,), fetch=True)
+        """, (user_id, locker_number), fetch=True)
 
         if not result:
-            print(f"[EXIT NOT CONFIRMED] user_id={user_id}")
-
             return jsonify({
                 "success": True,
                 "confirmed": False,
                 "user_id": user_id,
-                "message": "No confirmed exit found"
+                "locker_number": locker_number,
+                "message": "Exit not yet confirmed for this locker"
             }), 200
 
         row = result[0]
 
         print(
-            f"[EXIT CONFIRMED] user_id={user_id}, "
-            f"time_in={row['time_in']}, "
+            f"[LOCKER EXIT CONFIRMED] "
+            f"user_id={row['user_id']}, "
+            f"locker={row['locker_number']}, "
             f"time_out={row['time_out']}"
         )
 
         return jsonify({
             "success": True,
             "confirmed": True,
-            "user_id": user_id,
+            "user_id": row["user_id"],
+            "locker_number": row["locker_number"],
             "time_out": str(row["time_out"]),
-            "message": "Exit confirmed"
+            "message": "Turnstile exit confirmed"
         }), 200
 
     except Exception as e:
