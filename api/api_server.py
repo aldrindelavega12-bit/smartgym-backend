@@ -16750,139 +16750,22 @@ def audit_walkin_create():
             except Exception:
                 pass
 
-
-
-@app.route("/api/validate_locker", methods=["POST"])
-@require_api_key
-def validate_locker():
-    try:
-        data = request.get_json(silent=True) or {}
-
-        user_id = data.get("user_id")
-        locker_number = data.get("locker_number")
-
-        # =========================
-        # VALIDATE REQUEST
-        # =========================
-        if user_id is None or locker_number is None:
-            return jsonify({
-                "success": False,
-                "valid": False,
-                "message": "Missing user_id or locker_number"
-            }), 400
-
-        user_id = str(user_id).strip()
-
-        try:
-            locker_number = int(locker_number)
-        except (TypeError, ValueError):
-            return jsonify({
-                "success": False,
-                "valid": False,
-                "message": "Invalid locker_number"
-            }), 400
-
-        if not user_id or locker_number <= 0:
-            return jsonify({
-                "success": False,
-                "valid": False,
-                "message": "Invalid user_id or locker_number"
-            }), 400
-
-        # =========================
-        # DOUBLE VALIDATION
-        # 1. Correct active locker session
-        # 2. Confirmed Turnstile OUT
-        # =========================
-        result = execute_query("""
-            SELECT
-                ls.user_id,
-                ls.locker_number,
-                ls.start_time,
-                ls.status AS locker_status,
-                a.time_out
-            FROM locker_sessions AS ls
-            WHERE ls.user_id = %s
-              AND ls.locker_number = %s
-              AND LOWER(ls.status) IN ('active', 'overtime')
-              AND ls.end_time IS NULL
-              AND EXISTS (
-                  SELECT 1
-                  FROM attendance_sessions AS a
-                  WHERE a.user_id = ls.user_id
-                    AND a.time_out IS NOT NULL
-                    AND a.time_in <= ls.start_time
-              )
-            ORDER BY ls.start_time DESC
-            LIMIT 1
-        """, (user_id, locker_number), fetch=True)
-
-        # =========================
-        # VALIDATION DENIED
-        # =========================
-        if not result:
-            print(
-                f"[LOCKER VALIDATION DENIED] "
-                f"user_id={user_id}, locker={locker_number}: "
-                "No matching active locker session with confirmed OUT."
-            )
-
-            return jsonify({
-                "success": True,
-                "valid": False,
-                "user_id": user_id,
-                "locker_number": locker_number,
-                "message": "Member exit not confirmed or locker session mismatch"
-            }), 200
-
-        row = result[0]
-
-        # =========================
-        # VALIDATION APPROVED
-        # =========================
-        print(
-            f"[LOCKER VALIDATION APPROVED] "
-            f"user_id={row['user_id']}, "
-            f"locker={row['locker_number']}, "
-            f"status={row['locker_status']}, "
-            f"time_out={row['time_out']}"
-        )
-
-        return jsonify({
-            "success": True,
-            "valid": True,
-            "user_id": row["user_id"],
-            "locker_number": row["locker_number"],
-            "message": "Member exit confirmed"
-        }), 200
-
-    except Exception as e:
-        print("[LOCKER VALIDATION ERROR]", e)
-
-        return jsonify({
-            "success": False,
-            "valid": False,
-            "message": "Internal server error"
-        }), 500
-
-
 @app.route("/api/confirm_exit", methods=["POST"])
 @require_api_key
 def confirm_exit():
     try:
         data = request.get_json(silent=True) or {}
-
         user_id = str(data.get("user_id") or "").strip()
 
         if not user_id:
             return jsonify({
                 "success": False,
+                "confirmed": False,
                 "message": "Missing user_id"
             }), 400
 
-        # Verify that the member has a confirmed OUT record.
         result = execute_query("""
-            SELECT user_id, time_out
+            SELECT user_id, time_in, time_out
             FROM attendance_sessions
             WHERE user_id = %s
               AND time_out IS NOT NULL
@@ -16891,6 +16774,8 @@ def confirm_exit():
         """, (user_id,), fetch=True)
 
         if not result:
+            print(f"[EXIT NOT CONFIRMED] user_id={user_id}")
+
             return jsonify({
                 "success": True,
                 "confirmed": False,
@@ -16902,6 +16787,7 @@ def confirm_exit():
 
         print(
             f"[EXIT CONFIRMED] user_id={user_id}, "
+            f"time_in={row['time_in']}, "
             f"time_out={row['time_out']}"
         )
 
@@ -16909,6 +16795,7 @@ def confirm_exit():
             "success": True,
             "confirmed": True,
             "user_id": user_id,
+            "time_out": str(row["time_out"]),
             "message": "Exit confirmed"
         }), 200
 
@@ -16921,6 +16808,139 @@ def confirm_exit():
             "message": "Internal server error"
         }), 500
 
+
+@app.route("/api/validate_locker", methods=["POST"])
+@require_api_key
+def validate_locker():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        user_id = str(data.get("user_id") or "").strip()
+
+        try:
+            locker_number = int(data.get("locker_number"))
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "valid": False,
+                "message": "Invalid locker_number"
+            }), 400
+
+        if not user_id or locker_number <= 0:
+            return jsonify({
+                "success": False,
+                "valid": False,
+                "message": "Missing or invalid user_id/locker_number"
+            }), 400
+
+        # Validation 1: verify the exact active locker session.
+        session = execute_query("""
+            SELECT user_id, locker_number, status
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND LOWER(status) IN ('active', 'overtime')
+              AND end_time IS NULL
+            ORDER BY start_time DESC
+            LIMIT 1
+        """, (user_id, locker_number), fetch=True)
+
+        if not session:
+            print(
+                f"[LOCKER EMPTY REJECTED] "
+                f"No active session: {user_id}, locker {locker_number}"
+            )
+            return jsonify({
+                "success": True,
+                "valid": False,
+                "message": "No matching active locker session"
+            }), 200
+
+        # Record the empty event as pending confirmation.
+        execute_query("""
+            INSERT INTO locker_exit_checks
+                (user_id, locker_number, confirmed_at)
+            VALUES (%s, %s, NOW())
+            ON DUPLICATE KEY UPDATE confirmed_at = NOW()
+        """, (user_id, locker_number))
+
+        print(
+            f"[LOCKER EMPTY RECORDED] "
+            f"user_id={user_id}, locker={locker_number}"
+        )
+
+        return jsonify({
+            "success": True,
+            "valid": True,
+            "pending_exit": True,
+            "user_id": user_id,
+            "locker_number": locker_number,
+            "message": "Locker empty confirmed; waiting for Turnstile exit"
+        }), 200
+
+    except Exception as e:
+        print("[LOCKER VALIDATION ERROR]", e)
+        return jsonify({
+            "success": False,
+            "valid": False,
+            "message": "Internal server error"
+        }), 500
+
+
+@app.route("/api/check_locker_exit_ready", methods=["GET"])
+@require_api_key
+def check_locker_exit_ready():
+    try:
+        user_id = str(request.args.get("user_id") or "").strip()
+
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "ready": False,
+                "message": "Missing user_id"
+            }), 400
+
+        result = execute_query("""
+            SELECT
+                ls.user_id,
+                ls.locker_number,
+                ls.status,
+                lec.confirmed_at
+            FROM locker_sessions AS ls
+            INNER JOIN locker_exit_checks AS lec
+                ON lec.user_id = ls.user_id
+               AND lec.locker_number = ls.locker_number
+            WHERE ls.user_id = %s
+              AND LOWER(ls.status) IN ('active', 'overtime')
+              AND ls.end_time IS NULL
+            ORDER BY ls.start_time DESC
+            LIMIT 1
+        """, (user_id,), fetch=True)
+
+        if not result:
+            return jsonify({
+                "success": True,
+                "ready": False,
+                "message": "No matching empty-locker confirmation"
+            }), 200
+
+        row = result[0]
+
+        return jsonify({
+            "success": True,
+            "ready": True,
+            "user_id": row["user_id"],
+            "locker_number": row["locker_number"],
+            "message": "Locker empty confirmed"
+        }), 200
+
+    except Exception as e:
+        print("[LOCKER EXIT READY ERROR]", e)
+        return jsonify({
+            "success": False,
+            "ready": False,
+            "message": "Internal server error"
+        }), 500
 
 
 @app.route('/api/verify_member', methods=['POST'])

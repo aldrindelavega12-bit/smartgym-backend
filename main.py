@@ -477,6 +477,36 @@ def in_lane_loop(in_fp, face_recognizer, ui):
             
 
         time.sleep(0.3)
+     
+     
+def locker_exit_ready(user_id):
+    try:
+        response = requests.get(
+            "http://192.168.8.109:5001/api/check_locker_exit_ready",
+            params={"user_id": user_id},
+            headers={"X-API-KEY": "GYM_MASTER_2026"},
+            timeout=2
+        )
+
+        if response.status_code != 200:
+            print("[LOCKER EXIT READY API ERROR]", response.text)
+            return False
+
+        data = response.json()
+        ready = data.get("success") is True and data.get("ready") is True
+
+        print(
+            f"[LOCKER EXIT READY] user_id={user_id}, "
+            f"ready={ready}, message={data.get('message')}"
+        )
+
+        return ready
+
+    except Exception as e:
+        print("[LOCKER EXIT READY ERROR]", e)
+        return False
+
+     
         
 def has_unpaid_overtime(user_id):
 
@@ -565,16 +595,31 @@ def out_lane_loop(out_fp):
             time.sleep(0.3)
             continue
 
+ 
+        
         # =========================
-        # 🔥 CHECK ACTIVE LOCKER
+        # CHECK ACTIVE LOCKER
         # =========================
         if has_active_locker(user_id):
 
-            print_access(full_name, user_type, "EXIT DENIED", "ACTIVE LOCKER")
+            # Locker is still active, so require its empty confirmation.
+            if not locker_exit_ready(user_id):
+                print_access(
+                    full_name,
+                    user_type,
+                    "EXIT DENIED",
+                    "ACTIVE LOCKER - EMPTY NOT CONFIRMED"
+                )
 
-            send_to_arduino("OUT:DENY:ACTIVE_LOCKER")
-            time.sleep(0.3)
-            continue
+                send_to_arduino("OUT:DENY:ACTIVE_LOCKER")
+                time.sleep(0.3)
+                continue
+
+            print(
+                f"[LOCKER VALIDATED] {user_id} has a matching "
+                "empty-locker confirmation. Proceeding with exit checks."
+            )
+
 
         
 
@@ -699,7 +744,7 @@ def main():
 
     in_fp = fp_manager.in_fp
     out_fp = fp_manager.out_fp
-#     init_serial("/dev/ttyACM0", 115200)
+    init_serial("/dev/ttyACM0", 115200)
 
     threading.Thread(
         target=start_server,
