@@ -83,24 +83,32 @@ def check_time_out(user_id):
             "allowed": False,
             "reason": "NO_ACTIVE_SESSION"
         }
-
-    # 2. Check locker
-    locker = execute_query(
-        """
+    locker = execute_query("""
         SELECT locker_number, start_time, overtime_paid
         FROM locker_sessions
-        WHERE user_id=%s
-        AND end_time IS NULL
+        WHERE user_id = %s
+          AND end_time IS NULL
+          AND status = 'ACTIVE'
+          AND start_time IS NOT NULL
+        ORDER BY start_time DESC
         LIMIT 1
-        """,
-        (user_id,),
-        fetch=True
-    )
+    """, (user_id,), fetch=True)
+
 
     if locker:
 
         start_time = locker[0]["start_time"]
         overtime_paid = int(locker[0]["overtime_paid"] or 0)
+        
+        if start_time is None:
+            print(
+                f"[TIME OUT ERROR] Missing locker start_time "
+                f"for user={user_id}"
+            )
+            return {
+                "allowed": False,
+                "reason": "LOCKER_START_TIME_MISSING"
+            }
 
         allowed_time = start_time + timedelta(
             hours=LOCKER_ALLOWED_HOURS
@@ -126,59 +134,15 @@ def check_time_out(user_id):
 
 
 # ==========================
-# SAVE ONLY (AFTER VALIDATED)
+# SAVE ONLY AFTER EXIT PASSED
 # ==========================
 def save_time_out(user_id):
 
     now = datetime.now()
 
     # ==========================
-    # HANDLE LOCKER RELEASE
-    # ==========================
-    locker = execute_query(
-        """
-        SELECT locker_number
-        FROM locker_sessions
-        WHERE user_id=%s
-        AND end_time IS NULL
-        LIMIT 1
-        """,
-        (user_id,),
-        fetch=True
-    )
-
-    if locker:
-
-        locker_number = locker[0]["locker_number"]
-
-        # close locker session
-        execute_query(
-            """
-            UPDATE locker_sessions
-            SET end_time=%s
-            WHERE user_id=%s
-            AND end_time IS NULL
-            """,
-            (now, user_id)
-        )
-
-        # make locker available
-        execute_query(
-            """
-            UPDATE lockers
-            SET status='AVAILABLE'
-            WHERE locker_number=%s
-            """,
-            (locker_number,)
-        )
-
-        print(f"[LOCKER RELEASED]: {locker_number}")
-
-    # ==========================
-    # CLOSE ATTENDANCE
-    # ==========================
-    # ==========================
     # CLOSE LATEST ATTENDANCE ONLY
+    # DO NOT RELEASE LOCKER HERE
     # ==========================
     execute_query(
         """
@@ -186,18 +150,15 @@ def save_time_out(user_id):
         SET time_out=%s,
             status='COMPLETED'
         WHERE session_id = (
-
             SELECT session_id
             FROM (
-
                 SELECT session_id
                 FROM attendance_sessions
                 WHERE user_id=%s
-                AND time_out IS NULL
+                  AND time_out IS NULL
                 ORDER BY session_id DESC
                 LIMIT 1
-
-            ) temp
+            ) AS temp
         )
         """,
         (now, user_id)
@@ -212,7 +173,7 @@ def save_time_out(user_id):
         """
         INSERT INTO access_logs
         (user_id, direction, result, reason)
-        VALUES (%s,%s,%s,%s)
+        VALUES (%s, %s, %s, %s)
         """,
         (user_id, "OUT", "ALLOW", "VALID")
     )
@@ -225,4 +186,9 @@ def save_time_out(user_id):
         args=(user_id, now),
         daemon=True
     ).start()
+
+# ==========================
+# SAVE ONLY (AFTER VALIDATED)
+# ==========================
+
    

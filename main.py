@@ -635,30 +635,33 @@ def out_lane_loop(out_fp):
             send_to_arduino(f"OUT:ALLOW:{full_name}:{current_time}")
 
             passed = wait_for_exit()
-
+            
+            
             if passed:
                 print("✅ EXIT PASSED")
 
                 send_to_arduino("OUT:LOCK")
 
+                # Save the exit record only after successful exit.
                 save_time_out(user_id)
 
-                try:
-                    release_locker(user_id)
-                except:
-                    pass
+                # Do not release the locker directly from Turnstile.
+                # Locker Pi will poll /api/confirm_exit and send
+                # IN:AVAILABLE:<locker_number> to its Arduino.
 
                 threading.Thread(
                     target=notify_attendance,
                     daemon=True
                 ).start()
+
                 threading.Thread(
                     target=notify_locker,
                     daemon=True
                 ).start()
-                
+
                 check_tailgating("OUT")
-                
+
+
 
             else:
                 print("❌ EXIT TIMEOUT")

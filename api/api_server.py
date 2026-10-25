@@ -42,7 +42,231 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
 
 
+# =========================================================
+# MEMBER PROGRAM ONLY
+# No trainer assignment
+# No trainer payment
+# =========================================================
 
+@app.route(
+    "/api/member/program-only",
+    methods=["POST"]
+)
+def create_member_program_only():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json() or {}
+
+        member_id = data.get("member_id")
+        program_id = data.get("program_id")
+        program_plan_id = data.get("program_plan_id")
+        start_date = data.get("start_date")
+
+        # -------------------------------------------------
+        # VALIDATION
+        # -------------------------------------------------
+
+        if not all([
+            member_id,
+            program_id,
+            program_plan_id,
+            start_date
+        ]):
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Member, program, program plan, "
+                    "and start date are required."
+                )
+            }), 400
+
+        try:
+            start_date_obj = datetime.strptime(
+                start_date,
+                "%Y-%m-%d"
+            ).date()
+
+        except (ValueError, TypeError):
+            return jsonify({
+                "status": "error",
+                "message": "Invalid start date. Use YYYY-MM-DD."
+            }), 400
+
+        # -------------------------------------------------
+        # DATABASE
+        # -------------------------------------------------
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        conn.begin()
+
+        # -------------------------------------------------
+        # VERIFY MEMBER
+        # -------------------------------------------------
+
+        cursor.execute("""
+            SELECT id
+            FROM members
+            WHERE id = %s
+            LIMIT 1
+            FOR UPDATE
+        """, (member_id,))
+
+        member = cursor.fetchone()
+
+        if not member:
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": "Member not found."
+            }), 404
+
+        # -------------------------------------------------
+        # CHECK EXISTING ACTIVE PROGRAM
+        # -------------------------------------------------
+
+        cursor.execute("""
+            SELECT id
+            FROM member_programs
+            WHERE member_id = %s
+              AND status = 'active'
+            LIMIT 1
+            FOR UPDATE
+        """, (member_id,))
+
+        existing_program = cursor.fetchone()
+
+        if existing_program:
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": "You already have an active program."
+            }), 409
+
+        # -------------------------------------------------
+        # VERIFY PROGRAM
+        # -------------------------------------------------
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_name,
+                duration_days
+            FROM programs
+            WHERE id = %s
+              AND active = 1
+            LIMIT 1
+        """, (program_id,))
+
+        program = cursor.fetchone()
+
+        if not program:
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": "Program not found or inactive."
+            }), 404
+
+        # -------------------------------------------------
+        # VERIFY PROGRAM PLAN
+        # -------------------------------------------------
+
+        cursor.execute("""
+            SELECT
+                id,
+                program_id,
+                plan_name
+            FROM program_plans
+            WHERE id = %s
+              AND program_id = %s
+              AND active = 1
+            LIMIT 1
+        """, (
+            program_plan_id,
+            program_id
+        ))
+
+        program_plan = cursor.fetchone()
+
+        if not program_plan:
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Program plan not found "
+                    "for the selected program."
+                )
+            }), 404
+
+        # -------------------------------------------------
+        # SAVE PROGRAM WITHOUT TRAINER
+        # -------------------------------------------------
+
+        cursor.execute("""
+            INSERT INTO member_programs (
+                member_id,
+                program_id,
+                program_plan_id,
+                start_date,
+                status
+            )
+            VALUES (%s, %s, %s, %s, 'active')
+        """, (
+            member_id,
+            program_id,
+            program_plan_id,
+            start_date_obj
+        ))
+
+        member_program_id = cursor.lastrowid
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Program started successfully.",
+            "member_program_id": member_program_id,
+            "member_id": member_id,
+            "program_id": program_id,
+            "program_plan_id": program_plan_id,
+            "start_date": start_date_obj.isoformat(),
+            "program_status": "active",
+            "trainer_assigned": False
+        }), 201
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        app.logger.exception(
+            "Failed to create member-only program"
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": "Failed to start program."
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 
 # ============================================================
 # GET USER MODULE ACCESS
@@ -373,63 +597,68 @@ def api_pay_locker_overtime():
         cursor = conn.cursor()
 
         try:
-            # Find the locker session that is currently in overtime
+            # Find the latest unpaid overtime session.
             cursor.execute("""
-                SELECT user_id, locker_number, overtime_paid, status
+                SELECT id, user_id, locker_number, overtime_paid, status
                 FROM locker_sessions
                 WHERE user_id = %s
                   AND locker_number = %s
                   AND LOWER(status) = 'overtime'
+                  AND end_time IS NULL
+                  AND COALESCE(overtime_paid, 0) = 0
                 ORDER BY id DESC
                 LIMIT 1
+                FOR UPDATE
             """, (user_id, locker_number))
 
             session = cursor.fetchone()
 
             if not session:
+                conn.rollback()
                 return jsonify({
                     "success": False,
-                    "message": "No overtime locker session found."
+                    "message": "No unpaid overtime locker session found."
                 }), 404
 
-            # Support dictionary or tuple cursor results
+            # Support dictionary or tuple cursor results.
             if isinstance(session, dict):
-                overtime_paid = session["overtime_paid"]
+                session_id = session["id"]
             else:
-                overtime_paid = session[2]
+                session_id = session[0]
 
-            if overtime_paid:
-                return jsonify({
-                    "success": False,
-                    "message": "Locker overtime is already marked as paid."
-                }), 409
-
-            # Mark the overtime session as paid
+            # Mark this exact session as paid and ended.
             cursor.execute("""
                 UPDATE locker_sessions
-                SET overtime_paid = 1
-                WHERE user_id = %s
+                SET overtime_paid = 1,
+                    status = 'ended',
+                    end_time = NOW()
+                WHERE id = %s
+                  AND user_id = %s
                   AND locker_number = %s
                   AND LOWER(status) = 'overtime'
+                  AND end_time IS NULL
                   AND COALESCE(overtime_paid, 0) = 0
-            """, (user_id, locker_number))
+            """, (session_id, user_id, locker_number))
 
             if cursor.rowcount != 1:
                 conn.rollback()
                 return jsonify({
                     "success": False,
-                    "message": "Unable to update locker payment status."
+                    "message": "Unable to finish locker overtime session."
                 }), 409
 
             conn.commit()
 
             return jsonify({
                 "success": True,
-                "message": "Locker overtime marked as paid.",
+                "message": "Locker overtime paid. Session marked as ended.",
                 "user_id": user_id,
                 "locker_number": locker_number,
                 "overtime_fee": overtime_fee,
-                "payment_id": payment_id
+                "payment_id": payment_id,
+                "session_id": session_id,
+                "status": "ended",
+                "overtime_paid": 1
             }), 200
 
         except Exception:
@@ -447,6 +676,7 @@ def api_pay_locker_overtime():
             "success": False,
             "message": "Failed to update locker overtime payment."
         }), 500
+
 
 
 @app.route("/api/turnstile/lockers", methods=["GET"])
@@ -16751,94 +16981,155 @@ def audit_walkin_create():
                 pass
 
 
+
 @app.route("/api/confirm_exit", methods=["POST"])
 @require_api_key
 def confirm_exit():
+    import traceback
+
+    data = request.get_json(silent=True) or {}
+    user_id = str(data.get("user_id") or "").strip()
+
     try:
-        data = request.get_json(silent=True) or {}
+        locker_number = int(data.get("locker_number"))
+    except (TypeError, ValueError):
+        return jsonify({
+            "success": False,
+            "confirmed": False,
+            "message": "Invalid locker_number"
+        }), 400
 
-        user_id = str(data.get("user_id") or "").strip()
+    if not user_id or locker_number <= 0:
+        return jsonify({
+            "success": False,
+            "confirmed": False,
+            "message": "Missing or invalid user_id/locker_number"
+        }), 400
 
-        try:
-            locker_number = int(data.get("locker_number"))
-        except (TypeError, ValueError):
-            locker_number = 0
-
-        if not user_id or locker_number <= 0:
-            return jsonify({
-                "success": False,
-                "confirmed": False,
-                "message": "user_id and locker_number are required"
-            }), 400
-
-        # Confirm only if:
-        # 1. The exact locker session is still active.
-        # 2. The locker was confirmed empty.
-        # 3. A successful Turnstile OUT happened after that confirmation.
-        result = execute_query("""
+    try:
+        # 1. Verify the latest active locker session and its
+        #    empty confirmation.
+        locker_rows = execute_query("""
             SELECT
+                ls.id AS locker_session_id,
                 ls.user_id,
                 ls.locker_number,
                 ls.status,
-                lec.confirmed_at,
-                a.time_out
+                ls.overtime_paid,
+                ls.start_time,
+                lec.confirmed_at
             FROM locker_sessions AS ls
-
             INNER JOIN locker_exit_checks AS lec
                 ON lec.user_id = ls.user_id
-               AND lec.locker_number = ls.locker_number
-
-            INNER JOIN attendance_sessions AS a
-                ON a.user_id = ls.user_id
-               AND a.time_out IS NOT NULL
-               AND a.time_out >= lec.confirmed_at
-               AND a.time_in <= ls.start_time
-
+                AND lec.locker_number = ls.locker_number
             WHERE ls.user_id = %s
               AND ls.locker_number = %s
               AND LOWER(ls.status) IN ('active', 'overtime')
               AND ls.end_time IS NULL
-
-            ORDER BY ls.start_time DESC
+              AND ls.start_time IS NOT NULL
+              AND lec.confirmed_at >= ls.start_time
+              AND (
+                  LOWER(ls.status) <> 'overtime'
+                  OR COALESCE(ls.overtime_paid, 0) = 1
+              )
+            ORDER BY ls.start_time DESC, ls.id DESC
             LIMIT 1
         """, (user_id, locker_number), fetch=True)
 
-        if not result:
+        if locker_rows is None:
+            print(
+                f"[CONFIRM EXIT DB ERROR] "
+                f"Failed checking locker session: {user_id}, "
+                f"locker={locker_number}",
+                flush=True
+            )
+            return jsonify({
+                "success": False,
+                "confirmed": False,
+                "message": "Database query failed"
+            }), 500
+
+        if not locker_rows:
             return jsonify({
                 "success": True,
                 "confirmed": False,
+                "message": "No matching active locker session or empty confirmation",
                 "user_id": user_id,
-                "locker_number": locker_number,
-                "message": "Exit not yet confirmed for this locker"
+                "locker_number": locker_number
             }), 200
 
-        row = result[0]
+        locker = locker_rows[0]
+        confirmed_at = locker["confirmed_at"]
+
+        # 2. Confirm that the same user has actually completed
+        #    a turnstile exit AFTER the locker was confirmed empty.
+        attendance_rows = execute_query("""
+            SELECT session_id, time_in, time_out
+            FROM attendance_sessions
+            WHERE user_id = %s
+              AND time_out IS NOT NULL
+              AND time_out >= %s
+            ORDER BY time_out DESC, session_id DESC
+            LIMIT 1
+        """, (user_id, confirmed_at), fetch=True)
+
+        if attendance_rows is None:
+            print(
+                f"[CONFIRM EXIT DB ERROR] "
+                f"Failed checking attendance: {user_id}",
+                flush=True
+            )
+            return jsonify({
+                "success": False,
+                "confirmed": False,
+                "message": "Attendance query failed"
+            }), 500
+
+        if not attendance_rows:
+            print(
+                f"[EXIT NOT CONFIRMED] user_id={user_id}, "
+                f"locker={locker_number}: waiting for completed turnstile exit",
+                flush=True
+            )
+            return jsonify({
+                "success": True,
+                "confirmed": False,
+                "message": "Waiting for completed turnstile exit",
+                "user_id": user_id,
+                "locker_number": locker_number
+            }), 200
+
+        attendance = attendance_rows[0]
 
         print(
-            f"[LOCKER EXIT CONFIRMED] "
-            f"user_id={row['user_id']}, "
-            f"locker={row['locker_number']}, "
-            f"time_out={row['time_out']}"
+            f"[EXIT CONFIRMED] user_id={user_id}, "
+            f"locker={locker_number}, "
+            f"attendance_session={attendance['session_id']}, "
+            f"time_out={attendance['time_out']}",
+            flush=True
         )
 
         return jsonify({
             "success": True,
             "confirmed": True,
-            "user_id": row["user_id"],
-            "locker_number": row["locker_number"],
-            "time_out": str(row["time_out"]),
-            "message": "Turnstile exit confirmed"
+            "user_id": user_id,
+            "locker_number": locker_number,
+            "time_out": str(attendance["time_out"]),
+            "message": "Completed turnstile exit confirmed"
         }), 200
 
     except Exception as e:
-        print("[EXIT CONFIRMATION ERROR]", e)
+        print(
+            f"[CONFIRM EXIT ERROR] {type(e).__name__}: {e}",
+            flush=True
+        )
+        traceback.print_exc()
 
         return jsonify({
             "success": False,
             "confirmed": False,
-            "message": "Internal server error"
+            "message": "Failed to confirm exit"
         }), 500
-
 
 @app.route("/api/validate_locker", methods=["POST"])
 @require_api_key
@@ -16917,7 +17208,6 @@ def validate_locker():
             "message": "Internal server error"
         }), 500
 
-
 @app.route("/api/check_locker_exit_ready", methods=["GET"])
 @require_api_key
 def check_locker_exit_ready():
@@ -16933,9 +17223,11 @@ def check_locker_exit_ready():
 
         result = execute_query("""
             SELECT
+                ls.id,
                 ls.user_id,
                 ls.locker_number,
                 ls.status,
+                ls.start_time,
                 lec.confirmed_at
             FROM locker_sessions AS ls
             INNER JOIN locker_exit_checks AS lec
@@ -16944,7 +17236,9 @@ def check_locker_exit_ready():
             WHERE ls.user_id = %s
               AND LOWER(ls.status) IN ('active', 'overtime')
               AND ls.end_time IS NULL
-            ORDER BY ls.start_time DESC
+              AND ls.start_time IS NOT NULL
+              AND lec.confirmed_at >= ls.start_time
+            ORDER BY ls.start_time DESC, ls.id DESC
             LIMIT 1
         """, (user_id,), fetch=True)
 
@@ -16957,6 +17251,14 @@ def check_locker_exit_ready():
 
         row = result[0]
 
+        print(
+            f"[LOCKER EXIT READY] user_id={row['user_id']}, "
+            f"locker={row['locker_number']}, "
+            f"session_id={row['id']}, "
+            f"confirmed_at={row['confirmed_at']}",
+            flush=True
+        )
+
         return jsonify({
             "success": True,
             "ready": True,
@@ -16966,12 +17268,19 @@ def check_locker_exit_ready():
         }), 200
 
     except Exception as e:
-        print("[LOCKER EXIT READY ERROR]", e)
+        import traceback
+        print(
+            f"[LOCKER EXIT READY ERROR] {type(e).__name__}: {e}",
+            flush=True
+        )
+        traceback.print_exc()
+
         return jsonify({
             "success": False,
             "ready": False,
             "message": "Internal server error"
         }), 500
+        
 
 
 @app.route('/api/verify_member', methods=['POST'])
@@ -17484,40 +17793,78 @@ def get_fp_templates():
 import mysql.connector
 
 
+
 @app.route('/api/get_available_locker', methods=['GET'])
+@require_api_key
 def get_available_locker():
+    conn = None
+    cursor = None
+
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
 
         cursor.execute("""
-            SELECT locker_number
-            FROM lockers
-            WHERE locker_number NOT IN (
-                SELECT locker_number
-                FROM locker_sessions
-                WHERE status = 'active'
-            )
-            ORDER BY locker_number ASC
+            SELECT l.locker_number
+            FROM lockers AS l
+            WHERE UPPER(TRIM(l.status)) = 'AVAILABLE'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM locker_sessions AS ls
+                  WHERE ls.locker_number = l.locker_number
+                    AND LOWER(TRIM(ls.status))
+                        IN ('active', 'overtime')
+              )
+            ORDER BY l.locker_number ASC
             LIMIT 1
         """)
 
         row = cursor.fetchone()
 
         if row:
+            locker_number = row["locker_number"]
+
+            print(
+                f"[AVAILABLE LOCKER] Locker {locker_number}",
+                flush=True
+            )
+
             return jsonify({
                 "success": True,
-                "locker_number": row[0]
-            })
+                "locker_number": locker_number
+            }), 200
 
-        return jsonify({"success": False})
+        print(
+            "[AVAILABLE LOCKER] No available lockers",
+            flush=True
+        )
 
-    except Exception as e:
         return jsonify({
             "success": False,
-            "error": str(e)
-        })
-    
+            "locker_number": None,
+            "message": "No available lockers"
+        }), 200
+
+    except Exception as e:
+        print(
+            f"[GET AVAILABLE LOCKER ERROR] {e}",
+            flush=True
+        )
+
+        return jsonify({
+            "success": False,
+            "locker_number": None,
+            "message": "Database error"
+        }), 500
+
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+        if conn is not None and conn.is_connected():
+            conn.close()
+
+  
 def sync_lockers():
     execute_query("""
         UPDATE lockers l
