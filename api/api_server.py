@@ -268,6 +268,100 @@ def create_member_program_only():
         if conn:
             conn.close()
 
+
+
+@app.route("/api/available_trainers", methods=["GET"])
+def get_available_trainers():
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT
+                u.user_id AS trainer_id,
+                u.fullname AS trainer_name,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Day'
+                        THEN tp.id
+                    END
+                ) AS plan_id_day,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Week'
+                        THEN tp.id
+                    END
+                ) AS plan_id_week,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Month'
+                        THEN tp.id
+                    END
+                ) AS plan_id_month,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Day'
+                        THEN tp.price
+                    END
+                ) AS price_day,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Week'
+                        THEN tp.price
+                    END
+                ) AS price_week,
+
+                MAX(
+                    CASE
+                        WHEN tp.plan_name = '1 Month'
+                        THEN tp.price
+                    END
+                ) AS price_month
+
+            FROM user_accounts u
+
+            LEFT JOIN trainer_plans tp
+                ON tp.trainer_id COLLATE utf8mb4_general_ci
+                   = u.user_id COLLATE utf8mb4_general_ci
+                AND tp.active = 1
+
+            WHERE u.role = 'trainer'
+
+            GROUP BY
+                u.user_id,
+                u.fullname
+
+            ORDER BY
+                u.fullname ASC
+        """)
+
+        trainers = cursor.fetchall()
+
+        return jsonify(trainers), 200
+
+    except Exception as e:
+        print("AVAILABLE TRAINERS ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 # ============================================================
 # GET USER MODULE ACCESS
 # ============================================================
