@@ -47,6 +47,12 @@ RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 # No trainer assignment
 # No trainer payment
 # =========================================================
+# =========================================================
+# MEMBER PROGRAM ONLY
+# WITH AUTOMATIC WORKOUT SCHEDULE
+# No trainer assignment
+# No trainer payment
+# =========================================================
 
 @app.route(
     "/api/member/program-only",
@@ -58,7 +64,6 @@ def create_member_program_only():
     cursor = None
 
     try:
-
         data = request.get_json() or {}
 
         member_id = data.get("member_id")
@@ -66,9 +71,9 @@ def create_member_program_only():
         program_plan_id = data.get("program_plan_id")
         start_date = data.get("start_date")
 
-        # -------------------------------------------------
-        # VALIDATION
-        # -------------------------------------------------
+        # =================================================
+        # VALIDATE REQUEST
+        # =================================================
 
         if not all([
             member_id,
@@ -93,12 +98,23 @@ def create_member_program_only():
         except (ValueError, TypeError):
             return jsonify({
                 "status": "error",
-                "message": "Invalid start date. Use YYYY-MM-DD."
+                "message": (
+                    "Invalid start date. "
+                    "Use YYYY-MM-DD."
+                )
             }), 400
 
-        # -------------------------------------------------
-        # DATABASE
-        # -------------------------------------------------
+        if start_date_obj < date.today():
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Starting date cannot be in the past."
+                )
+            }), 400
+
+        # =================================================
+        # DATABASE CONNECTION
+        # =================================================
 
         conn = get_connection()
 
@@ -108,9 +124,9 @@ def create_member_program_only():
 
         conn.begin()
 
-        # -------------------------------------------------
+        # =================================================
         # VERIFY MEMBER
-        # -------------------------------------------------
+        # =================================================
 
         cursor.execute("""
             SELECT id
@@ -130,9 +146,9 @@ def create_member_program_only():
                 "message": "Member not found."
             }), 404
 
-        # -------------------------------------------------
+        # =================================================
         # CHECK EXISTING ACTIVE PROGRAM
-        # -------------------------------------------------
+        # =================================================
 
         cursor.execute("""
             SELECT id
@@ -150,12 +166,14 @@ def create_member_program_only():
 
             return jsonify({
                 "status": "error",
-                "message": "You already have an active program."
+                "message": (
+                    "You already have an active program."
+                )
             }), 409
 
-        # -------------------------------------------------
+        # =================================================
         # VERIFY PROGRAM
-        # -------------------------------------------------
+        # =================================================
 
         cursor.execute("""
             SELECT
@@ -175,12 +193,14 @@ def create_member_program_only():
 
             return jsonify({
                 "status": "error",
-                "message": "Program not found or inactive."
+                "message": (
+                    "Program not found or inactive."
+                )
             }), 404
 
-        # -------------------------------------------------
+        # =================================================
         # VERIFY PROGRAM PLAN
-        # -------------------------------------------------
+        # =================================================
 
         cursor.execute("""
             SELECT
@@ -210,9 +230,123 @@ def create_member_program_only():
                 )
             }), 404
 
-        # -------------------------------------------------
-        # SAVE PROGRAM WITHOUT TRAINER
-        # -------------------------------------------------
+        # =================================================
+        # LOAD PLAN DAYS
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id AS plan_day_id,
+                day_number,
+                day_name
+            FROM plan_days
+            WHERE plan_id = %s
+              AND active = 1
+            ORDER BY day_number ASC
+        """, (program_plan_id,))
+
+        plan_days = cursor.fetchall()
+
+        if not plan_days:
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "No active workout days found "
+                    "for this program split."
+                )
+            }), 400
+
+        # =================================================
+        # LOAD BODY PARTS AND BUILD WORKOUT PATTERN
+        # =================================================
+
+        workout_pattern = []
+
+        for plan_day in plan_days:
+
+            day_name = (
+                plan_day.get("day_name") or "Workout"
+            )
+
+            cursor.execute("""
+                SELECT body_part
+                FROM plan_day_body_parts
+                WHERE plan_day_id = %s
+                  AND active = 1
+                ORDER BY id ASC
+            """, (plan_day["plan_day_id"],))
+
+            body_parts = cursor.fetchall()
+
+            body_part_names = [
+                row["body_part"]
+                for row in body_parts
+            ]
+
+            if day_name.strip().lower() == "rest":
+
+                workout_name = "Rest"
+
+            elif body_part_names:
+
+                workout_name = ", ".join(
+                    body_part_names
+                )
+
+            else:
+
+                workout_name = day_name
+
+            workout_pattern.append({
+                "day_number": plan_day["day_number"],
+                "day_name": day_name,
+                "workout_name": workout_name
+            })
+
+        if not workout_pattern:
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Unable to create workout schedule."
+                )
+            }), 400
+
+        # =================================================
+        # CHECK EXISTING NO-TRAINER SCHEDULE
+        #
+        # This query assumes trainer_id accepts NULL.
+        # =================================================
+
+        cursor.execute("""
+            SELECT COUNT(*) AS schedule_count
+            FROM trainer_workout_schedule
+            WHERE member_id = %s
+              AND trainer_id IS NULL
+        """, (member_id,))
+
+        existing_schedule = cursor.fetchone()
+
+        if (
+            existing_schedule
+            and existing_schedule["schedule_count"] > 0
+        ):
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "A no-trainer workout schedule "
+                    "already exists for this member."
+                )
+            }), 409
+
+        # =================================================
+        # SAVE MEMBER PROGRAM
+        # =================================================
 
         cursor.execute("""
             INSERT INTO member_programs (
@@ -232,18 +366,74 @@ def create_member_program_only():
 
         member_program_id = cursor.lastrowid
 
+        # =================================================
+        # GENERATE 365-DAY WORKOUT SCHEDULE
+        #
+        # Starts on the member's selected start date.
+        # Independent of trainer payments and assignments.
+        # =================================================
+
+        generated_count = 0
+
+        for day_offset in range(365):
+
+            workout_date = (
+                start_date_obj
+                + timedelta(days=day_offset)
+            )
+
+            pattern_index = (
+                day_offset % len(workout_pattern)
+            )
+
+            workout = workout_pattern[pattern_index]
+
+            cursor.execute("""
+                INSERT INTO trainer_workout_schedule (
+                    member_id,
+                    trainer_id,
+                    workout_date,
+                    workout_name,
+                    status
+                )
+                VALUES (
+                    %s,
+                    NULL,
+                    %s,
+                    %s,
+                    'scheduled'
+                )
+            """, (
+                member_id,
+                workout_date,
+                workout["workout_name"]
+            ))
+
+            generated_count += 1
+
+        # =================================================
+        # COMMIT PROGRAM AND SCHEDULE TOGETHER
+        # =================================================
+
         conn.commit()
 
         return jsonify({
             "status": "success",
-            "message": "Program started successfully.",
+            "message": (
+                "Program started and workout schedule "
+                "generated successfully."
+            ),
             "member_program_id": member_program_id,
             "member_id": member_id,
             "program_id": program_id,
+            "program_name": program["program_name"],
             "program_plan_id": program_plan_id,
+            "program_plan_name": program_plan["plan_name"],
             "start_date": start_date_obj.isoformat(),
             "program_status": "active",
-            "trainer_assigned": False
+            "trainer_assigned": False,
+            "schedule_generated": True,
+            "schedule_days": generated_count
         }), 201
 
     except Exception as e:
@@ -252,12 +442,14 @@ def create_member_program_only():
             conn.rollback()
 
         app.logger.exception(
-            "Failed to create member-only program"
+            "Failed to create member program and schedule"
         )
 
         return jsonify({
             "status": "error",
-            "message": "Failed to start program."
+            "message": (
+                "Failed to start program and generate schedule."
+            )
         }), 500
 
     finally:
