@@ -18997,6 +18997,7 @@ def get_program_plans(program_id):
         if conn:
             conn.close()
 
+
 @app.route("/api/program_trainers", methods=["GET"])
 def get_program_trainers():
 
@@ -19004,7 +19005,6 @@ def get_program_trainers():
     cursor = None
 
     try:
-
         conn = get_connection()
 
         cursor = conn.cursor(
@@ -19021,10 +19021,7 @@ def get_program_trainers():
                 u.user_id AS trainer_id,
                 u.fullname AS trainer_name,
 
-                /* =========================
-                   TRAINER RATE PLAN IDs
-                   ========================= */
-
+                /* TRAINER RATE PLAN IDs */
                 MAX(
                     CASE
                         WHEN tp.plan_name = '1 Day'
@@ -19046,10 +19043,7 @@ def get_program_trainers():
                     END
                 ) AS plan_id_month,
 
-                /* =========================
-                   TRAINER RATE PRICES
-                   ========================= */
-
+                /* TRAINER RATE PRICES */
                 MAX(
                     CASE
                         WHEN tp.plan_name = '1 Day'
@@ -19071,24 +19065,20 @@ def get_program_trainers():
                     END
                 ) AS price_month
 
-            FROM programs p
+            FROM programs AS p
 
-            INNER JOIN trainer_programs trp
+            LEFT JOIN trainer_programs AS trp
                 ON trp.program_id = p.id
                 AND trp.active = 1
 
-            INNER JOIN user_accounts u
+            LEFT JOIN user_accounts AS u
                 ON u.user_id COLLATE utf8mb4_general_ci
-                   =
-                   trp.trainer_id COLLATE utf8mb4_general_ci
-
+                   = trp.trainer_id COLLATE utf8mb4_general_ci
                 AND u.role = 'trainer'
 
-            LEFT JOIN trainer_plans tp
+            LEFT JOIN trainer_plans AS tp
                 ON tp.trainer_id COLLATE utf8mb4_general_ci
-                   =
-                   u.user_id COLLATE utf8mb4_general_ci
-
+                   = u.user_id COLLATE utf8mb4_general_ci
                 AND tp.active = 1
 
             WHERE p.active = 1
@@ -19102,35 +19092,32 @@ def get_program_trainers():
                 u.fullname
 
             ORDER BY
-                p.id,
-                u.fullname
+                p.id ASC,
+                u.fullname ASC
         """)
 
         data = cursor.fetchall()
 
         return jsonify(data), 200
 
-
     except Exception as e:
-
-        print(
-            "PROGRAM TRAINERS ERROR:",
-            e
+        app.logger.exception(
+            "PROGRAM TRAINERS ERROR"
         )
 
         return jsonify({
             "status": "error",
-            "message": str(e)
+            "message": "Failed to load programs and trainers."
         }), 500
 
-
     finally:
-
         if cursor:
             cursor.close()
 
         if conn:
             conn.close()
+
+
 
 @app.route("/api/staff_accounts")
 def staff_accounts():
