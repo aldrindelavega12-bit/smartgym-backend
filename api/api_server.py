@@ -29,7 +29,30 @@ from services.backup_service import (
     get_railway_connection,
     download_backup_from_supabase
 )
-CORS(app)
+
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                "https://smartgym-frontend.vercel.app"
+            ],
+            "methods": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "OPTIONS"
+            ],
+            "allow_headers": [
+                "Content-Type",
+                "Authorization"
+            ]
+        }
+    },
+    supports_credentials=True
+)
 import re 
 socketio = SocketIO(
     app,
