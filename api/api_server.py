@@ -40,13 +40,363 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
+# =========================================================
+# MEMBER: MARK TODAY'S WORKOUT AS COMPLETED
+# NEW ENDPOINT — DOES NOT MODIFY TRAINER ENDPOINTS
+# =========================================================
+
+@app.route(
+    "/api/member/workout/<int:workout_id>/complete",
+    methods=["POST"]
+)
+def complete_member_workout(workout_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+        member_id = str(data.get("member_id") or "").strip()
+
+        if not member_id:
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT
+                id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+            FROM trainer_workout_schedule
+            WHERE id = %s
+              AND member_id = %s
+            LIMIT 1
+        """, (workout_id, member_id))
+
+        workout = cursor.fetchone()
+
+        if not workout:
+            return jsonify({
+                "status": "error",
+                "message": "Workout not found for this member."
+            }), 404
+
+        workout_date = workout["workout_date"]
+
+        if isinstance(workout_date, datetime):
+            workout_date = workout_date.date()
+        elif isinstance(workout_date, str):
+            workout_date = datetime.strptime(
+                workout_date[:10], "%Y-%m-%d"
+            ).date()
+
+        if workout_date != date.today():
+            return jsonify({
+                "status": "error",
+                "message": "You can only mark today's workout."
+            }), 400
+
+        if str(workout["workout_name"] or "").strip().lower() == "rest":
+            return jsonify({
+                "status": "error",
+                "message": "Rest days cannot be marked as completed."
+            }), 400
+
+        if str(workout["status"] or "").lower() != "scheduled":
+            return jsonify({
+                "status": "error",
+                "message": "Only scheduled workouts can be completed."
+            }), 400
+
+        cursor.execute("""
+            UPDATE trainer_workout_schedule
+            SET status = 'completed',
+                completed_at = NOW()
+            WHERE id = %s
+              AND member_id = %s
+              AND status = 'scheduled'
+        """, (workout_id, member_id))
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Workout status has already changed. Refresh the schedule."
+            }), 409
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Workout marked as completed.",
+            "workout_id": workout_id,
+            "member_id": member_id,
+            "status_value": "completed"
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("COMPLETE MEMBER WORKOUT ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": "Unable to mark workout as completed."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 # =========================================================
-# MEMBER PROGRAM ONLY
-# No trainer assignment
-# No trainer payment
+# MEMBER: MARK TODAY'S WORKOUT AS MISSED
+# choice = "move" or "keep"
+# NEW ENDPOINT — DOES NOT MODIFY TRAINER ENDPOINTS
 # =========================================================
+
+@app.route(
+    "/api/member/workout/<int:workout_id>/missed",
+    methods=["POST"]
+)
+def missed_member_workout(workout_id):
+
+    conn = None
+    cursor = None
+    lock_name = None
+    lock_acquired = False
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        member_id = str(data.get("member_id") or "").strip()
+        choice = str(data.get("choice") or "").strip().lower()
+
+        if not member_id:
+            return jsonify({
+                "status": "error",
+                "message": "Member ID is required."
+            }), 400
+
+        if choice not in ("move", "keep"):
+            return jsonify({
+                "status": "error",
+                "message": "Choice must be 'move' or 'keep'."
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT
+                id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+            FROM trainer_workout_schedule
+            WHERE id = %s
+              AND member_id = %s
+            LIMIT 1
+        """, (workout_id, member_id))
+
+        workout = cursor.fetchone()
+
+        if not workout:
+            return jsonify({
+                "status": "error",
+                "message": "Workout not found for this member."
+            }), 404
+
+        workout_date = workout["workout_date"]
+
+        if isinstance(workout_date, datetime):
+            workout_date = workout_date.date()
+        elif isinstance(workout_date, str):
+            workout_date = datetime.strptime(
+                workout_date[:10], "%Y-%m-%d"
+            ).date()
+
+        if workout_date != date.today():
+            return jsonify({
+                "status": "error",
+                "message": "You can only mark today's workout."
+            }), 400
+
+        if str(workout["workout_name"] or "").strip().lower() == "rest":
+            return jsonify({
+                "status": "error",
+                "message": "Rest days cannot be marked as missed."
+            }), 400
+
+        if str(workout["status"] or "").lower() != "scheduled":
+            return jsonify({
+                "status": "error",
+                "message": "Only scheduled workouts can be marked as missed."
+            }), 400
+
+        trainer_id = workout["trainer_id"]
+        workout_name = (workout["workout_name"] or "").strip()
+
+        # Serialize changes for this member/trainer schedule.
+        # A stable value is used for members without a trainer.
+        lock_trainer_key = str(trainer_id) if trainer_id is not None else "NO_TRAINER"
+        lock_name = f"member_missed:{lock_trainer_key}:{member_id}"
+
+        cursor.execute(
+            "SELECT GET_LOCK(%s, 10) AS lock_result",
+            (lock_name,)
+        )
+        lock_result = cursor.fetchone()
+
+        if not lock_result or lock_result["lock_result"] != 1:
+            return jsonify({
+                "status": "error",
+                "message": "Schedule update is busy. Please try again."
+            }), 409
+
+        lock_acquired = True
+
+        # Re-check the workout after acquiring the lock.
+        cursor.execute("""
+            SELECT
+                id,
+                member_id,
+                trainer_id,
+                workout_date,
+                workout_name,
+                status
+            FROM trainer_workout_schedule
+            WHERE id = %s
+              AND member_id = %s
+            LIMIT 1
+        """, (workout_id, member_id))
+
+        workout = cursor.fetchone()
+
+        if not workout or str(workout["status"] or "").lower() != "scheduled":
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Workout is no longer scheduled. Refresh the schedule."
+            }), 409
+
+        workout_date = workout["workout_date"]
+
+        if isinstance(workout_date, datetime):
+            workout_date = workout_date.date()
+        elif isinstance(workout_date, str):
+            workout_date = datetime.strptime(
+                workout_date[:10], "%Y-%m-%d"
+            ).date()
+
+        # Re-validate today's date after acquiring the lock.
+        if workout_date != date.today():
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "You can only mark today's workout."
+            }), 400
+
+        trainer_id = workout["trainer_id"]
+        workout_name = (workout["workout_name"] or "").strip()
+
+        # Mark the selected workout missed in both choices.
+        cursor.execute("""
+            UPDATE trainer_workout_schedule
+            SET status = 'missed'
+            WHERE id = %s
+              AND member_id = %s
+              AND status = 'scheduled'
+        """, (workout_id, member_id))
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Workout status has already changed."
+            }), 409
+
+        if choice == "move":
+
+            # Same rescheduling behavior as the existing trainer missed flow:
+            # shift all later schedule rows one day forward.
+            # <=> handles trainer_id NULL for members without a trainer.
+            cursor.execute("""
+                UPDATE trainer_workout_schedule
+                SET workout_date = DATE_ADD(workout_date, INTERVAL 1 DAY)
+                WHERE member_id = %s
+                  AND trainer_id <=> %s
+                  AND workout_date > %s
+            """, (member_id, trainer_id, workout_date))
+
+            # Schedule the same missed workout for the next day.
+            next_date = workout_date + timedelta(days=1)
+
+            cursor.execute("""
+                INSERT INTO trainer_workout_schedule (
+                    member_id,
+                    trainer_id,
+                    workout_date,
+                    workout_name,
+                    status
+                )
+                VALUES (%s, %s, %s, %s, 'scheduled')
+            """, (member_id, trainer_id, next_date, workout_name))
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": (
+                "Workout marked as missed and schedule moved."
+                if choice == "move"
+                else "Workout marked as missed. Future schedule unchanged."
+            ),
+            "workout_id": workout_id,
+            "member_id": member_id,
+            "choice": choice
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("MISSED MEMBER WORKOUT ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": "Unable to mark workout as missed."
+        }), 500
+
+    finally:
+        if cursor and lock_acquired and lock_name:
+            try:
+                cursor.execute(
+                    "SELECT RELEASE_LOCK(%s)",
+                    (lock_name,)
+                )
+            except Exception as release_error:
+                print("MEMBER WORKOUT LOCK RELEASE ERROR:", release_error)
+
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
 # =========================================================
 # MEMBER PROGRAM ONLY
 # WITH AUTOMATIC WORKOUT SCHEDULE
