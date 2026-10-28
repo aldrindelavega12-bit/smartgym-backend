@@ -16540,23 +16540,22 @@ def reschedule_trainer_workout(workout_id):
             conn.close()
 
 
-
-
 @app.route("/api/user_accounts", methods=["GET"])
 def get_user_accounts():
-
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
 
     try:
+        conn = get_connection()
+        cursor = conn.cursor()
 
+        # Get user accounts
         cursor.execute("""
             SELECT
                 id,
                 user_id,
                 fullname,
                 username,
-                password,
                 role,
                 created_at
             FROM user_accounts
@@ -16564,39 +16563,66 @@ def get_user_accounts():
         """)
 
         rows = cursor.fetchall()
-
         data = []
 
         for row in rows:
+            account_id = row[0]
+            user_id = row[1]
+
+            # Get modules assigned to this account
+            cursor.execute("""
+                SELECT m.module_key
+                FROM user_module_access AS uma
+                INNER JOIN modules AS m
+                    ON m.id = uma.module_id
+                WHERE uma.user_id = %s
+                  AND uma.has_access = 1
+                  AND m.active = 1
+                ORDER BY m.id ASC
+            """, (user_id,))
+
+            module_rows = cursor.fetchall()
+
+            assigned_modules = [
+                module_row[0]
+                for module_row in module_rows
+            ]
 
             data.append({
-
-                "id": row[0],
-                "user_id": row[1],
+                "id": account_id,
+                "user_id": user_id,
                 "fullname": row[2],
                 "username": row[3],
-                "password": row[4],
-                "role": row[5],
-                "created_at": row[6]
-
+                "role": row[4],
+                "created_at": (
+                    row[5].isoformat()
+                    if row[5] and hasattr(row[5], "isoformat")
+                    else row[5]
+                ),
+                "modules": assigned_modules
             })
 
         return jsonify({
             "status": "success",
             "data": data
-        })
+        }), 200
 
     except Exception as e:
+        print("GET USER ACCOUNTS ERROR:", e)
 
         return jsonify({
             "status": "error",
-            "message": str(e)
+            "message": "Failed to retrieve user accounts."
         }), 500
 
     finally:
+        if cursor:
+            cursor.close()
 
-        cursor.close()
-        conn.close()
+        if conn:
+            conn.close()
+
+   
         
 @app.route("/api/pre_member/profile", methods=["PUT"])
 def update_pre_member_profile():
