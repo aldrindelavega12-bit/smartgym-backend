@@ -18793,10 +18793,12 @@ def create_staff_account():
         price_week = data.get("price_week")
         price_month = data.get("price_month")
 
-        # Audit actor: optional muna habang backend phase
+        # AUDIT ACTOR
         actor_id = data.get("actor_id")
+
         if actor_id is not None:
             actor_id = str(actor_id).strip()
+
             if not actor_id:
                 return jsonify({
                     "status": "error",
@@ -18818,6 +18820,7 @@ def create_staff_account():
 
         # TRAINER VALIDATION
         if role == "trainer":
+
             if (
                 price_day is None
                 or price_week is None
@@ -18832,6 +18835,7 @@ def create_staff_account():
                 price_day = float(price_day)
                 price_week = float(price_week)
                 price_month = float(price_month)
+
             except (ValueError, TypeError):
                 return jsonify({
                     "status": "error",
@@ -18852,7 +18856,7 @@ def create_staff_account():
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # CHECK USERNAME
+        # CHECK DUPLICATE USERNAME
         cursor.execute("""
             SELECT user_id
             FROM user_accounts
@@ -18889,8 +18893,7 @@ def create_staff_account():
 
         # CREATE ACCOUNT
         cursor.execute("""
-            INSERT INTO user_accounts
-            (
+            INSERT INTO user_accounts (
                 user_id,
                 fullname,
                 username,
@@ -18906,11 +18909,83 @@ def create_staff_account():
             role
         ))
 
+        # ==========================================
+        # STAFF / FRONT DESK MODULE ACCESS
+        # ==========================================
+        if role == "staff":
+
+            staff_modules = [
+                "dashboard",
+                "messages",
+                "attendance",
+                "locker"
+            ]
+
+            for module_key in staff_modules:
+
+                cursor.execute("""
+                    SELECT id
+                    FROM modules
+                    WHERE module_key = %s
+                      AND active = 1
+                    LIMIT 1
+                """, (module_key,))
+
+                module = cursor.fetchone()
+
+                if not module:
+                    raise Exception(
+                        f"Active module '{module_key}' was not found."
+                    )
+
+                module_id = module["id"]
+
+                # CHECK EXISTING ACCESS
+                cursor.execute("""
+                    SELECT id
+                    FROM user_module_access
+                    WHERE user_id = %s
+                      AND module_id = %s
+                    LIMIT 1
+                """, (
+                    user_id,
+                    module_id
+                ))
+
+                existing_access = cursor.fetchone()
+
+                if existing_access:
+
+                    cursor.execute("""
+                        UPDATE user_module_access
+                        SET has_access = 1
+                        WHERE id = %s
+                    """, (
+                        existing_access["id"],
+                    ))
+
+                else:
+
+                    cursor.execute("""
+                        INSERT INTO user_module_access (
+                            user_id,
+                            module_id,
+                            has_access
+                        )
+                        VALUES (%s, %s, 1)
+                    """, (
+                        user_id,
+                        module_id
+                    ))
+
+        # ==========================================
         # SAVE TRAINER RATES
+        # EXISTING LOGIC PRESERVED
+        # ==========================================
         if role == "trainer":
+
             cursor.execute("""
-                INSERT INTO trainer_plans
-                (
+                INSERT INTO trainer_plans (
                     trainer_id,
                     plan_name,
                     duration_days,
@@ -18927,7 +19002,9 @@ def create_staff_account():
                 user_id, price_month
             ))
 
+        # ==========================================
         # AUDIT LOG
+        # ==========================================
         insert_audit_log(
             cursor=cursor,
             action="CREATE_STAFF",
@@ -18941,13 +19018,19 @@ def create_staff_account():
             )
         )
 
-        # COMMIT ACCOUNT + RATES + AUDIT LOG
+        # COMMIT ACCOUNT + MODULES + RATES + AUDIT
         conn.commit()
 
         print("================================")
         print("ACCOUNT CREATED")
         print("USER ID :", user_id)
         print("ROLE    :", role)
+
+        if role == "staff":
+            print(
+                "MODULES : dashboard, messages, "
+                "attendance, locker"
+            )
 
         if role == "trainer":
             print("1 DAY   :", price_day)
@@ -18963,10 +19046,22 @@ def create_staff_account():
                 if role == "trainer"
                 else "Staff account created successfully."
             ),
-            "user_id": user_id
+            "user_id": user_id,
+            "role": role,
+            "modules": (
+                [
+                    "dashboard",
+                    "messages",
+                    "attendance",
+                    "locker"
+                ]
+                if role == "staff"
+                else []
+            )
         }), 201
 
     except Exception as e:
+
         if conn:
             conn.rollback()
 
@@ -18978,11 +19073,15 @@ def create_staff_account():
         }), 500
 
     finally:
+
         if cursor:
             cursor.close()
 
         if conn:
             conn.close()
+
+
+
 
 app.route("/api/admin/create_account", methods=["POST"])
 def admin_create_account():
