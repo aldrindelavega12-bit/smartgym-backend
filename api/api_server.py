@@ -18983,6 +18983,125 @@ def create_staff_account():
         if conn:
             conn.close()
 
+
+
+@app.route("/api/admin/delete_account/<string:user_id>", methods=["DELETE"])
+def admin_delete_account(user_id):
+    conn = None
+    cursor = None
+
+    try:
+        user_id = user_id.strip()
+
+        if not user_id:
+            return jsonify({
+                "status": "error",
+                "message": "User ID is required."
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        conn.begin()
+
+        # Find and lock account
+        cursor.execute("""
+            SELECT id, user_id, fullname, username, role
+            FROM user_accounts
+            WHERE user_id = %s
+            LIMIT 1
+            FOR UPDATE
+        """, (user_id,))
+
+        account = cursor.fetchone()
+
+        if not account:
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Account not found."
+            }), 404
+
+        role = (account.get("role") or "").lower()
+
+        # Do not allow deletion of administrator accounts
+        if role == "admin":
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Admin accounts cannot be deleted through this endpoint."
+            }), 403
+
+        # Pre-member accounts can have pending_members records
+        if role == "pre_member":
+            cursor.execute("""
+                DELETE FROM pending_members
+                WHERE account_id = %s
+            """, (account["id"],))
+
+        # Delete module access if records exist
+        cursor.execute("""
+            DELETE FROM user_module_access
+            WHERE user_id = %s
+        """, (user_id,))
+
+        # Trainer relationships must be handled before deleting the account
+        if role == "trainer":
+            cursor.execute("""
+                SELECT COUNT(*) AS total
+                FROM trainer_plans
+                WHERE trainer_id = %s
+            """, (user_id,))
+            trainer_plans = cursor.fetchone()["total"]
+
+            cursor.execute("""
+                SELECT COUNT(*) AS total
+                FROM trainer_trainees
+                WHERE trainer_id = %s
+            """, (user_id,))
+            trainer_trainees = cursor.fetchone()["total"]
+
+            if trainer_plans or trainer_trainees:
+                conn.rollback()
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        "Cannot delete this trainer because trainer plans "
+                        "or trainee relationships still exist."
+                    )
+                }), 409
+
+        cursor.execute("""
+            DELETE FROM user_accounts
+            WHERE id = %s
+        """, (account["id"],))
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Account deleted successfully.",
+            "user_id": user_id
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("ADMIN DELETE ACCOUNT ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": "Failed to delete account."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
 @app.route("/api/admin/create_account", methods=["POST"])
 def admin_create_account():
 
