@@ -14811,15 +14811,17 @@ def delete_member():
 
         cursor.close()
         conn.close()
-#from sync.sync_sender import send_event
+
+
 @app.route("/api/register", methods=["POST"])
 def register():
 
     conn = None
+    cursor = None
 
     try:
 
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
 
         fullname = data.get("fullname")
         phone_number = data.get("phone_number")
@@ -14835,11 +14837,10 @@ def register():
             username,
             password
         ]):
-
             return jsonify({
                 "status": "error",
                 "message": "Please complete all fields."
-            })
+            }), 400
 
         conn = get_connection()
         cursor = conn.cursor()
@@ -14847,102 +14848,106 @@ def register():
         # ===========================
         # CHECK DUPLICATE USERNAME
         # ===========================
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT id
             FROM user_accounts
-            WHERE username=%s
-            """,
-            (username,)
-        )
+            WHERE username = %s
+            LIMIT 1
+        """, (username,))
 
         if cursor.fetchone():
-
             return jsonify({
                 "status": "error",
                 "message": "Username already exists."
-            })
+            }), 409
 
         # ===========================
-        # INSERT ACCOUNT
+        # CREATE PRE-MEMBER ACCOUNT
         # ===========================
-        cursor.execute(
-            """
-            INSERT INTO user_accounts(
-
+        cursor.execute("""
+            INSERT INTO user_accounts (
                 user_id,
                 fullname,
                 username,
                 password,
                 role
-
             )
-
-            VALUES(
-
+            VALUES (
                 NULL,
                 %s,
                 %s,
                 %s,
                 'pre_member'
-
             )
-            """,
-            (
-                fullname,
-                username,
-                password
-            )
-        )
+        """, (
+            fullname,
+            username,
+            password
+        ))
 
         account_id = cursor.lastrowid
 
         # ===========================
-        # INSERT PENDING MEMBER
+        # CREATE PENDING MEMBER RECORD
         # ===========================
-        cursor.execute(
-            """
-            INSERT INTO pending_members(
-
+        cursor.execute("""
+            INSERT INTO pending_members (
                 account_id,
                 full_name,
                 phone_number
+            )
+            VALUES (%s, %s, %s)
+        """, (
+            account_id,
+            fullname,
+            phone_number
+        ))
 
+        # ===========================
+        # PRE-MEMBER MODULE ACCESS
+        # DASHBOARD ONLY
+        # ===========================
+        cursor.execute("""
+            SELECT id
+            FROM modules
+            WHERE module_key = 'dashboard'
+              AND active = 1
+            LIMIT 1
+        """)
+
+        dashboard = cursor.fetchone()
+
+        if not dashboard:
+            raise Exception(
+                "Active dashboard module was not found."
             )
 
-            VALUES(%s,%s,%s)
-            """,
-            (
-                account_id,
-                fullname,
-                phone_number
+        dashboard_module_id = dashboard[0]
+
+        # NOTE:
+        # This assumes user_module_access.user_id can
+        # reference the pre-member's account_id.
+        cursor.execute("""
+            INSERT INTO user_module_access (
+                user_id,
+                module_id,
+                has_access
             )
-        )
+            VALUES (%s, %s, 1)
+        """, (
+            account_id,
+            dashboard_module_id
+        ))
 
         conn.commit()
-#         send_event(
-
-#             "PENDING_MEMBER_CREATED",
-
-#             {
-
-#                 "account_id": account_id,
-
-#                 "full_name": fullname,
-
-#                 "phone_number": phone_number
-
-#             }
-
-#         )
 
         return jsonify({
-
             "status": "success",
-
-            "message": "Registration submitted."
-
-        })
+            "message": "Registration submitted.",
+            "account_id": account_id,
+            "role": "pre_member",
+            "modules": ["dashboard"]
+        }), 201
 
     except Exception as e:
 
@@ -14950,18 +14955,20 @@ def register():
             conn.rollback()
 
         return jsonify({
-
             "status": "error",
-
             "message": str(e)
-
-        })
+        }), 500
 
     finally:
 
+        if cursor:
+            cursor.close()
+
         if conn:
             conn.close()
-            
+
+
+
 
 @app.route("/api/pending_members", methods=["GET"])
 def pending_members():
