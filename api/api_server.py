@@ -5658,703 +5658,398 @@ def get_member_today_workout(member_id):
     cursor = None
 
     try:
-
         # ====================================================
         # DATABASE CONNECTION
         # ====================================================
 
         conn = get_connection()
-
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
 
-
         # ====================================================
-        # GET ACTIVE TRAINER PROGRAM
+        # 1. CHECK ACTIVE TRAINER PROGRAM FIRST
         # ====================================================
 
         cursor.execute("""
             SELECT
-
                 tt.id,
-
                 tt.program_id,
-
                 tt.program_plan_id,
-
                 tt.start_date,
-
                 tt.end_date,
-
                 tt.status,
-
                 pp.plan_name AS program_plan_name
-
             FROM trainer_trainees tt
-
             LEFT JOIN program_plans pp
                 ON tt.program_plan_id = pp.id
-
             WHERE tt.member_id = %s
-
               AND tt.status = 'active'
-
-            ORDER BY
-                tt.id DESC
-
+            ORDER BY tt.id DESC
             LIMIT 1
-
-        """, (
-            member_id,
-        ))
-
+        """, (member_id,))
 
         trainee = cursor.fetchone()
 
+        program_source = "trainer"
 
         # ====================================================
-        # NO ACTIVE PROGRAM
+        # 2. IF NO ACTIVE TRAINER, CHECK MEMBER PROGRAM
         # ====================================================
 
         if not trainee:
 
+            cursor.execute("""
+                SELECT
+                    mp.id,
+                    mp.program_id,
+                    mp.program_plan_id,
+                    mp.start_date,
+                    mp.status,
+                    pp.plan_name AS program_plan_name
+                FROM member_programs mp
+                LEFT JOIN program_plans pp
+                    ON mp.program_plan_id = pp.id
+                WHERE mp.member_id = %s
+                  AND mp.status = 'active'
+                ORDER BY mp.id DESC
+                LIMIT 1
+            """, (member_id,))
+
+            trainee = cursor.fetchone()
+            program_source = "member"
+
+        # ====================================================
+        # 3. NO ACTIVE PROGRAM
+        # ====================================================
+
+        if not trainee:
             return jsonify({
-
-                "status":
-                    "success",
-
-                "has_workout":
-                    False,
-
-                "message":
-                    "No active trainer program was found."
-
+                "status": "success",
+                "has_workout": False,
+                "has_program": False,
+                "message": "No active program was found."
             }), 200
 
-
         # ====================================================
-        # PROGRAM DATA
+        # 4. PROGRAM DATA
         # ====================================================
 
-        program_plan_id = (
-            trainee["program_plan_id"]
+        program_plan_id = trainee.get(
+            "program_plan_id"
         )
 
-        start_date = (
-            trainee["start_date"]
+        start_date = trainee.get(
+            "start_date"
         )
 
         program_plan_name = (
-            trainee["program_plan_name"]
-            or ""
+            trainee.get("program_plan_name") or ""
         ).strip()
 
-
         # ====================================================
-        # NO PROGRAM PLAN
+        # 5. NO PROGRAM PLAN
         # ====================================================
 
         if not program_plan_id:
-
             return jsonify({
-
-                "status":
-                    "success",
-
-                "has_workout":
-                    False,
-
-                "message":
-                    "No program plan is assigned."
-
+                "status": "success",
+                "has_workout": False,
+                "has_program": True,
+                "program_source": program_source,
+                "message": "No program plan is assigned."
             }), 200
 
-
         # ====================================================
-        # PROGRAM PLAN NOT FOUND
+        # 6. PROGRAM PLAN NOT FOUND
         # ====================================================
 
         if not program_plan_name:
-
             return jsonify({
-
-                "status":
-                    "success",
-
-                "has_workout":
-                    False,
-
-                "program_plan_id":
-                    program_plan_id,
-
-                "message":
-                    "Program plan was not found."
-
+                "status": "success",
+                "has_workout": False,
+                "has_program": True,
+                "program_source": program_source,
+                "program_plan_id": program_plan_id,
+                "message": "Program plan was not found."
             }), 200
 
-
         # ====================================================
-        # NO START DATE
+        # 7. NO START DATE
         # ====================================================
 
         if not start_date:
-
             return jsonify({
-
-                "status":
-                    "success",
-
-                "has_workout":
-                    False,
-
-                "message":
-                    "Program has no start date."
-
+                "status": "success",
+                "has_workout": False,
+                "has_program": True,
+                "program_source": program_source,
+                "program_plan": program_plan_name,
+                "program_plan_name": program_plan_name,
+                "message": "Program has no start date."
             }), 200
 
+        # ====================================================
+        # 8. NORMALIZE START DATE
+        # ====================================================
+
+        if hasattr(start_date, "date"):
+            start_date = start_date.date()
 
         # ====================================================
-        # NORMALIZE START DATE
-        # ====================================================
-
-        if hasattr(
-            start_date,
-            "date"
-        ):
-
-            start_date = (
-                start_date.date()
-            )
-
-
-        # ====================================================
-        # TODAY
+        # 9. TODAY
         # ====================================================
 
         today = date.today()
 
-
         # ====================================================
-        # PROGRAM NOT STARTED
+        # 10. PROGRAM NOT STARTED
         # ====================================================
 
         if today < start_date:
-
             return jsonify({
-
-                "status":
-                    "success",
-
-                "has_workout":
-                    False,
-
-                "today":
-                    str(today),
-
-                "program_plan_id":
-                    program_plan_id,
-
-                "program_plan":
-                    program_plan_name,
-
-                "message":
-                    "Program has not started yet."
-
+                "status": "success",
+                "has_workout": False,
+                "has_program": True,
+                "program_source": program_source,
+                "today": str(today),
+                "program_plan_id": program_plan_id,
+                "program_plan": program_plan_name,
+                "program_plan_name": program_plan_name,
+                "message": "Program has not started yet."
             }), 200
 
-
         # ====================================================
-        # GET PLAN DAYS
+        # 11. GET ACTIVE PLAN DAYS
         # ====================================================
 
         cursor.execute("""
             SELECT
-
                 id AS plan_day_id,
-
                 day_number,
-
                 day_name
-
             FROM plan_days
-
             WHERE plan_id = %s
-
               AND active = 1
-
-            ORDER BY
-                day_number ASC
-
-        """, (
-            program_plan_id,
-        ))
-
+            ORDER BY day_number ASC
+        """, (program_plan_id,))
 
         plan_days = cursor.fetchall()
 
-
         # ====================================================
-        # NO PLAN DAYS
+        # 12. NO PLAN DAYS
         # ====================================================
 
         if not plan_days:
-
             return jsonify({
-
-                "status":
-                    "success",
-
-                "has_workout":
-                    False,
-
-                "today":
-                    str(today),
-
-                "program_plan_id":
-                    program_plan_id,
-
-                "program_plan":
-                    program_plan_name,
-
-                "program_plan_name":
-                    program_plan_name,
-
-                "message":
-                    "No active plan days were found."
-
+                "status": "success",
+                "has_workout": False,
+                "has_program": True,
+                "program_source": program_source,
+                "today": str(today),
+                "program_plan_id": program_plan_id,
+                "program_plan": program_plan_name,
+                "program_plan_name": program_plan_name,
+                "message": "No active plan days were found."
             }), 200
 
-
         # ====================================================
-        # GET BODY PARTS FOR EVERY PLAN DAY
+        # 13. GET BODY PARTS FOR EVERY PLAN DAY
         # ====================================================
 
         for day in plan_days:
 
             cursor.execute("""
-                SELECT
-
-                    body_part
-
+                SELECT body_part
                 FROM plan_day_body_parts
-
                 WHERE plan_day_id = %s
-
                   AND active = 1
+                ORDER BY id ASC
+            """, (day["plan_day_id"],))
 
-                ORDER BY
-                    id ASC
-
-            """, (
-                day["plan_day_id"],
-            ))
-
-
-            body_parts_rows = (
-                cursor.fetchall()
-            )
-
+            body_parts_rows = cursor.fetchall()
 
             day["body_parts"] = [
-
                 row["body_part"]
-
                 for row in body_parts_rows
-
-                if row["body_part"]
-
+                if row.get("body_part")
             ]
 
-
-            # =================================================
-            # CLEAN DAY NAME
-            # =================================================
-
             day_name = (
-                day["day_name"]
-                or ""
+                day.get("day_name") or ""
             ).strip()
 
-
-            # =================================================
-            # BUILD WORKOUT NAME
-            # =================================================
-
-            if (
-                day_name.lower()
-                == "rest"
-            ):
-
-                day["workout_name"] = (
-                    "Rest"
-                )
-
+            if day_name.lower() == "rest":
+                day["workout_name"] = "Rest"
 
             elif day["body_parts"]:
-
-                day["workout_name"] = (
-                    ", ".join(
-                        day["body_parts"]
-                    )
+                day["workout_name"] = ", ".join(
+                    day["body_parts"]
                 )
-
 
             else:
-
                 day["workout_name"] = (
-                    day_name
-                    or
-                    "Workout"
+                    day_name or "Workout"
                 )
 
-
         # ====================================================
-        # CALCULATE TODAY'S PLAN DAY
+        # 14. CALCULATE TODAY'S PLAN DAY
         # ====================================================
 
         days_since_start = (
             today - start_date
         ).days
 
-
         pattern_index = (
-            days_since_start
-            %
-            len(plan_days)
+            days_since_start % len(plan_days)
         )
 
-
-        today_plan_day = (
-            plan_days[
-                pattern_index
-            ]
-        )
-
+        today_plan_day = plan_days[pattern_index]
 
         # ====================================================
-        # TODAY'S PLAN DATA
+        # 15. TODAY'S PLAN DATA
         # ====================================================
 
-        day_number = (
-            today_plan_day["day_number"]
-        )
+        day_number = today_plan_day["day_number"]
 
-        plan_day_id = (
-            today_plan_day["plan_day_id"]
-        )
+        plan_day_id = today_plan_day["plan_day_id"]
 
         day_name = (
-            today_plan_day["day_name"]
-            or ""
+            today_plan_day.get("day_name") or ""
         ).strip()
 
-        body_parts = (
-            today_plan_day["body_parts"]
-        )
+        body_parts = today_plan_day["body_parts"]
 
-        workout_name = (
-            today_plan_day["workout_name"]
-        )
-
+        workout_name = today_plan_day["workout_name"]
 
         # ====================================================
-        # TRAINING FOCUS
+        # 16. TRAINING FOCUS
         # ====================================================
 
         if body_parts:
-
-            training_focus = (
-                ", ".join(
-                    body_parts
-                )
-            )
-
+            training_focus = ", ".join(body_parts)
+        elif day_name.lower() == "rest":
+            training_focus = "Recovery"
         else:
-
-            training_focus = (
-                day_name
-            )
-
+            training_focus = day_name
 
         # ====================================================
-        # GET ACTUAL TODAY WORKOUT STATUS
-        #
-        # IMPORTANT:
-        # This comes from trainer_workout_schedule
-        # instead of hardcoding "scheduled".
+        # 17. GET ACTUAL TODAY WORKOUT STATUS
         # ====================================================
 
         cursor.execute("""
             SELECT
-
                 id,
-
                 status,
-
                 workout_name,
-
                 workout_date
-
             FROM trainer_workout_schedule
-
             WHERE member_id = %s
-
               AND workout_date = %s
-
-            ORDER BY
-                id DESC
-
+            ORDER BY id DESC
             LIMIT 1
+        """, (member_id, today))
 
-        """, (
-            member_id,
-            today
-        ))
-
-
-        today_schedule = (
-            cursor.fetchone()
-        )
-
+        today_schedule = cursor.fetchone()
 
         # ====================================================
-        # DEFAULT STATUS
+        # 18. DEFAULT STATUS
         # ====================================================
 
-        actual_status = (
-            "scheduled"
-        )
-
-
-        # ====================================================
-        # GET DATABASE STATUS
-        # ====================================================
+        actual_status = "scheduled"
 
         if today_schedule:
-
             db_status = (
-                today_schedule.get(
-                    "status"
-                )
-                or
-                "scheduled"
+                today_schedule.get("status")
+                or "scheduled"
             )
 
-
-            actual_status = (
-                str(db_status)
-                .strip()
-                .lower()
-            )
-
+            actual_status = str(
+                db_status
+            ).strip().lower()
 
         # ====================================================
-        # NORMALIZE STATUS
+        # 19. NORMALIZE STATUS
         # ====================================================
 
-        if actual_status in (
-            "complete",
-            "completed"
-        ):
-
-            actual_status = (
-                "completed"
-            )
-
+        if actual_status in ("complete", "completed"):
+            actual_status = "completed"
 
         elif actual_status == "missed":
+            actual_status = "missed"
 
-            actual_status = (
-                "missed"
-            )
+        elif actual_status in ("cancel", "cancelled"):
+            actual_status = "cancelled"
 
-
-        elif actual_status in (
-            "cancel",
-            "cancelled"
-        ):
-
-            actual_status = (
-                "cancelled"
-            )
-
-
-        elif actual_status in (
-            "pending"
-        ):
-
-            actual_status = (
-                "pending"
-            )
-
+        elif actual_status == "pending":
+            actual_status = "pending"
 
         else:
-
-            actual_status = (
-                "scheduled"
-            )
-
+            actual_status = "scheduled"
 
         # ====================================================
-        # REST DAY
+        # 20. REST DAY RESPONSE
         # ====================================================
 
-        if (
-            day_name.lower()
-            == "rest"
-        ):
-
+        if day_name.lower() == "rest":
             return jsonify({
+                "status": "success",
+                "has_workout": True,
+                "has_program": True,
+                "program_source": program_source,
+                "today": str(today),
+                "day_number": day_number,
+                "plan_day_id": plan_day_id,
 
-                "status":
-                    "success",
+                "program_plan_id": program_plan_id,
+                "program_plan": program_plan_name,
+                "program_plan_name": program_plan_name,
+                "plan_name": program_plan_name,
 
-                "has_workout":
-                    True,
+                "split": "Rest",
+                "workout_name": "Rest",
+                "body_parts": [],
 
-                "today":
-                    str(today),
+                "training_focus": "Recovery",
+                "focus": "Recovery",
 
-                "day_number":
-                    day_number,
-
-                "plan_day_id":
-                    plan_day_id,
-
-                # --------------------------------------------
-                # PROGRAM PLAN
-                # --------------------------------------------
-
-                "program_plan_id":
-                    program_plan_id,
-
-                "program_plan":
-                    program_plan_name,
-
-                "program_plan_name":
-                    program_plan_name,
-
-                "plan_name":
-                    program_plan_name,
-
-                # --------------------------------------------
-                # WORKOUT
-                # --------------------------------------------
-
-                "split":
-                    "Rest",
-
-                "workout_name":
-                    "Rest",
-
-                "body_parts":
-                    [],
-
-                # --------------------------------------------
-                # FOCUS
-                # --------------------------------------------
-
-                "training_focus":
-                    "Recovery",
-
-                "focus":
-                    "Recovery",
-
-                # --------------------------------------------
-                # STATUS
-                # --------------------------------------------
-
-                "status_type":
-                    "rest",
-
-                "workout_status":
-                    "rest",
-
-                "status":
-                    "rest"
-
+                "status_type": "rest",
+                "workout_status": "rest",
+                "status": "rest"
             }), 200
 
-
         # ====================================================
-        # NORMAL WORKOUT DAY
+        # 21. NORMAL WORKOUT RESPONSE
         # ====================================================
 
         return jsonify({
+            "status": "success",
+            "has_workout": True,
+            "has_program": True,
+            "program_source": program_source,
+            "today": str(today),
+            "day_number": day_number,
+            "plan_day_id": plan_day_id,
 
-            "status":
-                "success",
+            "program_plan_id": program_plan_id,
+            "program_plan": program_plan_name,
+            "program_plan_name": program_plan_name,
+            "plan_name": program_plan_name,
 
-            "has_workout":
-                True,
+            "split": day_name,
+            "workout_name": workout_name,
+            "body_parts": body_parts,
 
-            "today":
-                str(today),
+            "training_focus": training_focus,
+            "focus": training_focus,
 
-            "day_number":
-                day_number,
-
-            "plan_day_id":
-                plan_day_id,
-
-            # =================================================
-            # PROGRAM PLAN
-            # =================================================
-
-            "program_plan_id":
-                program_plan_id,
-
-            "program_plan":
-                program_plan_name,
-
-            "program_plan_name":
-                program_plan_name,
-
-            "plan_name":
-                program_plan_name,
-
-            # =================================================
-            # WORKOUT
-            # =================================================
-
-            "split":
-                day_name,
-
-            "workout_name":
-                workout_name,
-
-            "body_parts":
-                body_parts,
-
-            # =================================================
-            # TRAINING FOCUS
-            # =================================================
-
-            "training_focus":
-                training_focus,
-
-            "focus":
-                training_focus,
-
-            # =================================================
-            # ACTUAL STATUS
-            # =================================================
-
-            "status_type":
-                "workout",
-
-            "workout_status":
-                actual_status,
-
-            "status":
-                actual_status
-
+            "status_type": "workout",
+            "workout_status": actual_status,
+            "status": actual_status
         }), 200
 
-
     # ========================================================
-    # ERROR
+    # ERROR HANDLING
     # ========================================================
 
     except Exception as e:
@@ -6364,28 +6059,15 @@ def get_member_today_workout(member_id):
             str(e)
         )
 
-
         if conn:
-
             conn.rollback()
 
-
         return jsonify({
-
-            "status":
-                "error",
-
-            "has_workout":
-                False,
-
-            "message":
-                "Failed to load today's workout.",
-
-            "error":
-                str(e)
-
+            "status": "error",
+            "has_workout": False,
+            "message": "Failed to load today's workout.",
+            "error": str(e)
         }), 500
-
 
     # ========================================================
     # CLOSE DATABASE
@@ -6394,13 +6076,11 @@ def get_member_today_workout(member_id):
     finally:
 
         if cursor:
-
             cursor.close()
 
-
         if conn:
-
             conn.close()
+
 
 
 @app.route("/api/staff_member_messages")
