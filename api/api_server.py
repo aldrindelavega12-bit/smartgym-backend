@@ -19079,18 +19079,13 @@ def create_staff_account():
 
         if conn:
             conn.close()
-
-
-
-
-app.route("/api/admin/create_account", methods=["POST"])
+@app.route("/api/admin/create_account", methods=["POST"])
 def admin_create_account():
 
     conn = None
     cursor = None
 
     try:
-
         data = request.get_json() or {}
 
         print("ADMIN CREATE ACCOUNT DATA:", data)
@@ -19104,132 +19099,98 @@ def admin_create_account():
         price_week = data.get("price_week")
         price_month = data.get("price_month")
 
-
         # ==========================================
         # BASIC VALIDATION
         # ==========================================
-
         if not fullname or not username or not password or not role:
-
             return jsonify({
                 "status": "error",
                 "message": "Please complete all required fields."
             }), 400
 
-
         if role not in ["manager", "staff", "trainer"]:
-
             return jsonify({
                 "status": "error",
                 "message": "Invalid role."
             }), 400
 
-
         # ==========================================
         # DATABASE CONNECTION
         # ==========================================
-
         conn = get_connection()
-
-        cursor = conn.cursor(
-            pymysql.cursors.DictCursor
-        )
-
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         # ==========================================
         # CHECK DUPLICATE USERNAME
         # ==========================================
-
         cursor.execute("""
             SELECT id
             FROM user_accounts
             WHERE username = %s
             LIMIT 1
-        """, (
-            username,
-        ))
+        """, (username,))
 
-        existing = cursor.fetchone()
-
-
-        if existing:
-
+        if cursor.fetchone():
             return jsonify({
                 "status": "error",
                 "message": "Username already exists."
             }), 409
 
-
         # ==========================================
         # TRAINER RATE VALIDATION
         # ==========================================
-
         if role == "trainer":
 
             if (
-                price_day is None or
-                price_week is None or
-                price_month is None
+                price_day is None
+                or price_week is None
+                or price_month is None
             ):
-
                 return jsonify({
                     "status": "error",
                     "message": "All trainer rates are required."
                 }), 400
 
-
             try:
-
                 price_day = float(price_day)
                 price_week = float(price_week)
                 price_month = float(price_month)
 
             except (ValueError, TypeError):
-
                 return jsonify({
                     "status": "error",
                     "message": "Invalid trainer rate."
                 }), 400
 
-
             if (
-                price_day < 0 or
-                price_week < 0 or
-                price_month < 0
+                price_day < 0
+                or price_week < 0
+                or price_month < 0
             ):
-
                 return jsonify({
                     "status": "error",
                     "message": "Trainer rates cannot be negative."
                 }), 400
 
-
         else:
-
             price_day = None
             price_week = None
             price_month = None
 
-
         # ==========================================
         # GENERATE USER ID
         # ==========================================
-
         if role == "staff":
-
             prefix = "S"
             id_format = "S%04d"
 
         elif role == "trainer":
-
             prefix = "T"
             id_format = "T%04d"
 
         else:
-
             prefix = "MGR"
             id_format = "MGR%03d"
-
 
         cursor.execute("""
             SELECT user_id
@@ -19237,88 +19198,60 @@ def admin_create_account():
             WHERE user_id LIKE %s
             ORDER BY id DESC
             LIMIT 1
-        """, (
-            f"{prefix}%",
-        ))
+        """, (f"{prefix}%",))
 
         row = cursor.fetchone()
 
-
         if row and row["user_id"]:
-
             last_user_id = row["user_id"]
 
             try:
-
                 if prefix == "MGR":
-
                     last_number = int(
                         last_user_id[len(prefix):]
                     )
-
                 else:
-
-                    last_number = int(
-                        last_user_id[1:]
-                    )
+                    last_number = int(last_user_id[1:])
 
             except (ValueError, TypeError):
-
                 last_number = 0
 
         else:
-
             last_number = 0
 
-
-        user_id = id_format % (
-            last_number + 1
-        )
-
+        user_id = id_format % (last_number + 1)
 
         # ==========================================
         # CHECK GENERATED USER ID
         # ==========================================
-
         cursor.execute("""
             SELECT id
             FROM user_accounts
             WHERE user_id = %s
             LIMIT 1
-        """, (
-            user_id,
-        ))
+        """, (user_id,))
 
         if cursor.fetchone():
-
             return jsonify({
                 "status": "error",
-                "message":
-                    "Generated user ID already exists. Please try again."
+                "message": (
+                    "Generated user ID already exists. "
+                    "Please try again."
+                )
             }), 409
-
 
         # ==========================================
         # CREATE USER ACCOUNT
         # ==========================================
-
         cursor.execute("""
-            INSERT INTO user_accounts
-            (
+            INSERT INTO user_accounts (
                 user_id,
                 fullname,
                 username,
                 password,
                 role
             )
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                %s
-            )
+            VALUES (%s, %s, %s, %s, %s)
         """, (
             user_id,
             fullname,
@@ -19327,16 +19260,72 @@ def admin_create_account():
             role
         ))
 
+        # ==========================================
+        # STAFF / FRONT DESK MODULE ACCESS
+        # ==========================================
+        if role == "staff":
+
+            staff_modules = [
+                "dashboard",
+                "messages",
+                "attendance",
+                "locker"
+            ]
+
+            for module_key in staff_modules:
+
+                cursor.execute("""
+                    SELECT id
+                    FROM modules
+                    WHERE module_key = %s
+                      AND active = 1
+                    LIMIT 1
+                """, (module_key,))
+
+                module = cursor.fetchone()
+
+                if not module:
+                    raise Exception(
+                        f"Active module '{module_key}' was not found."
+                    )
+
+                module_id = module["id"]
+
+                cursor.execute("""
+                    SELECT id
+                    FROM user_module_access
+                    WHERE user_id = %s
+                      AND module_id = %s
+                    LIMIT 1
+                """, (user_id, module_id))
+
+                existing_access = cursor.fetchone()
+
+                if existing_access:
+                    cursor.execute("""
+                        UPDATE user_module_access
+                        SET has_access = 1
+                        WHERE id = %s
+                    """, (existing_access["id"],))
+
+                else:
+                    cursor.execute("""
+                        INSERT INTO user_module_access (
+                            user_id,
+                            module_id,
+                            has_access
+                        )
+                        VALUES (%s, %s, 1)
+                    """, (user_id, module_id))
 
         # ==========================================
         # TRAINER RATES
+        # EXISTING LOGIC PRESERVED
         # ==========================================
-
         if role == "trainer":
 
             cursor.execute("""
-                INSERT INTO trainer_plans
-                (
+                INSERT INTO trainer_plans (
                     trainer_id,
                     plan_name,
                     duration_days,
@@ -19344,122 +19333,93 @@ def admin_create_account():
                     active
                 )
                 VALUES
-
-                (
-                    %s,
-                    '1 Day',
-                    1,
-                    %s,
-                    1
-                ),
-
-                (
-                    %s,
-                    '1 Week',
-                    7,
-                    %s,
-                    1
-                ),
-
-                (
-                    %s,
-                    '1 Month',
-                    30,
-                    %s,
-                    1
-                )
+                    (%s, '1 Day', 1, %s, 1),
+                    (%s, '1 Week', 7, %s, 1),
+                    (%s, '1 Month', 30, %s, 1)
             """, (
-                user_id,
-                price_day,
-
-                user_id,
-                price_week,
-
-                user_id,
-                price_month
+                user_id, price_day,
+                user_id, price_week,
+                user_id, price_month
             ))
-
 
         # ==========================================
         # COMMIT
         # ==========================================
-
         conn.commit()
-
 
         print("================================")
         print("ADMIN ACCOUNT CREATED")
         print("USER ID :", user_id)
         print("ROLE    :", role)
 
-        if role == "trainer":
+        if role == "staff":
+            print(
+                "MODULES : dashboard, messages, "
+                "attendance, locker"
+            )
 
+        if role == "trainer":
             print("1 DAY   :", price_day)
             print("1 WEEK  :", price_week)
             print("1 MONTH :", price_month)
 
         print("================================")
 
-
         # ==========================================
         # RESPONSE MESSAGE
         # ==========================================
-
         if role == "manager":
-
-            message = (
-                "Manager account created successfully."
-            )
+            message = "Manager account created successfully."
 
         elif role == "trainer":
-
             message = (
                 "Trainer account and rates created successfully."
             )
 
         else:
-
-            message = (
-                "Staff account created successfully."
-            )
-
+            message = "Staff account created successfully."
 
         return jsonify({
             "status": "success",
             "message": message,
             "user_id": user_id,
-            "role": role
+            "role": role,
+            "modules": (
+                [
+                    "dashboard",
+                    "messages",
+                    "attendance",
+                    "locker"
+                ]
+                if role == "staff"
+                else []
+            )
         }), 201
-
 
     except Exception as e:
 
         if conn:
-
             conn.rollback()
 
-
-        print(
-            "ADMIN CREATE ACCOUNT ERROR:",
-            e
-        )
-
+        print("ADMIN CREATE ACCOUNT ERROR:", e)
 
         return jsonify({
             "status": "error",
             "message": str(e)
         }), 500
 
-
     finally:
 
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
+
+
+
+
+
 @app.route("/api/programs", methods=["GET"])
 def get_programs():
 
