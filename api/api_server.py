@@ -18983,8 +18983,6 @@ def create_staff_account():
         if conn:
             conn.close()
 
-
-
 @app.route("/api/admin/create_account", methods=["POST"])
 def admin_create_account():
 
@@ -19109,7 +19107,6 @@ def admin_create_account():
         row = cursor.fetchone()
 
         if row and row["user_id"]:
-
             last_user_id = row["user_id"]
 
             try:
@@ -19118,9 +19115,7 @@ def admin_create_account():
                         last_user_id[len(prefix):]
                     )
                 else:
-                    last_number = int(
-                        last_user_id[1:]
-                    )
+                    last_number = int(last_user_id[1:])
 
             except (ValueError, TypeError):
                 last_number = 0
@@ -19174,6 +19169,7 @@ def admin_create_account():
         # ==========================================
         if role == "staff":
 
+            # STAFF / FRONT DESK
             default_modules = [
                 "dashboard",
                 "messages",
@@ -19183,6 +19179,7 @@ def admin_create_account():
 
         elif role == "trainer":
 
+            # TRAINER
             default_modules = [
                 "dashboard",
                 "messages",
@@ -19191,8 +19188,19 @@ def admin_create_account():
                 "client_requests"
             ]
 
+        elif role == "manager":
+
+            # MANAGER
+            default_modules = [
+                "dashboard",
+                "reports",
+                "members",
+                "walkins",
+                "staff",
+                "archive"
+            ]
+
         else:
-            # Manager modules will be configured separately.
             default_modules = []
 
         # ==========================================
@@ -19265,9 +19273,7 @@ def admin_create_account():
         print("ADMIN ACCOUNT CREATED")
         print("USER ID :", user_id)
         print("ROLE    :", role)
-
-        if default_modules:
-            print("MODULES :", ", ".join(default_modules))
+        print("MODULES :", ", ".join(default_modules))
 
         if role == "trainer":
             print("1 DAY   :", price_day)
@@ -19280,17 +19286,14 @@ def admin_create_account():
         # RESPONSE MESSAGE
         # ==========================================
         if role == "manager":
-
             message = "Manager account created successfully."
 
         elif role == "trainer":
-
             message = (
                 "Trainer account and rates created successfully."
             )
 
         else:
-
             message = "Staff account created successfully."
 
         return jsonify({
@@ -19320,6 +19323,8 @@ def admin_create_account():
 
         if conn:
             conn.close()
+
+
 
 
 
