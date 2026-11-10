@@ -16229,13 +16229,13 @@ def get_user_accounts():
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Get user accounts
         cursor.execute("""
             SELECT
                 id,
                 user_id,
                 fullname,
                 username,
+                password,
                 role,
                 created_at
             FROM user_accounts
@@ -16249,7 +16249,6 @@ def get_user_accounts():
             account_id = row[0]
             user_id = row[1]
 
-            # Get modules assigned to this account
             cursor.execute("""
                 SELECT m.module_key
                 FROM user_module_access AS uma
@@ -16273,11 +16272,12 @@ def get_user_accounts():
                 "user_id": user_id,
                 "fullname": row[2],
                 "username": row[3],
-                "role": row[4],
+                "password": row[4],
+                "role": row[5],
                 "created_at": (
-                    row[5].isoformat()
-                    if row[5] and hasattr(row[5], "isoformat")
-                    else row[5]
+                    row[6].isoformat()
+                    if row[6] and hasattr(row[6], "isoformat")
+                    else row[6]
                 ),
                 "modules": assigned_modules
             })
@@ -16301,7 +16301,6 @@ def get_user_accounts():
 
         if conn:
             conn.close()
-
    
         
 @app.route("/api/pre_member/profile", methods=["PUT"])
