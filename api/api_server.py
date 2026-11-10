@@ -16219,7 +16219,6 @@ def reschedule_trainer_workout(workout_id):
         if conn:
             conn.close()
 
-
 @app.route("/api/user_accounts", methods=["GET"])
 def get_user_accounts():
     conn = None
@@ -17634,6 +17633,75 @@ def check_locker_exit_ready():
             "message": "Internal server error"
         }), 500
         
+@app.route("/api/cancel_locker_empty", methods=["POST"])
+@require_api_key
+def cancel_locker_empty():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        user_id = str(data.get("user_id") or "").strip()
+
+        try:
+            locker_number = int(data.get("locker_number"))
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid locker_number"
+            }), 400
+
+        if not user_id or locker_number <= 0:
+            return jsonify({
+                "success": False,
+                "message": "Missing or invalid user_id/locker_number"
+            }), 400
+
+        session = execute_query("""
+            SELECT id
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND LOWER(status) IN ('active', 'overtime')
+              AND end_time IS NULL
+            ORDER BY start_time DESC, id DESC
+            LIMIT 1
+        """, (user_id, locker_number), fetch=True)
+
+        if not session:
+            return jsonify({
+                "success": True,
+                "cancelled": False,
+                "message": "No matching active locker session"
+            }), 200
+
+        execute_query("""
+            DELETE FROM locker_exit_checks
+            WHERE user_id = %s
+              AND locker_number = %s
+        """, (user_id, locker_number))
+
+        print(
+            f"[LOCKER EMPTY CANCELLED] "
+            f"user_id={user_id}, locker={locker_number}",
+            flush=True
+        )
+
+        return jsonify({
+            "success": True,
+            "cancelled": True,
+            "user_id": user_id,
+            "locker_number": locker_number,
+            "message": "Pending empty validation cancelled"
+        }), 200
+
+    except Exception as e:
+        print(f"[CANCEL LOCKER EMPTY ERROR] {type(e).__name__}: {e}", flush=True)
+
+        return jsonify({
+            "success": False,
+            "cancelled": False,
+            "message": "Failed to cancel empty validation"
+        }), 500
+
 
 
 @app.route('/api/verify_member', methods=['POST'])
