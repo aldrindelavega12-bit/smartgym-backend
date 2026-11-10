@@ -17850,8 +17850,12 @@ def get_face_images():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @app.route('/api/start_locker', methods=['POST'])
 def start_locker():
+    conn = None
+    cursor = None
+
     try:
         data = request.get_json(force=True)
 
@@ -17867,10 +17871,14 @@ def start_locker():
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
 
-        # ================= CHECK ACTIVE SESSION =================
+        # CHECK ACTIVE SESSION
         cursor.execute("""
-            SELECT * FROM locker_sessions
-            WHERE user_id = %s AND status = 'active'
+            SELECT *
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND LOWER(status) = 'active'
+              AND end_time IS NULL
+            ORDER BY id DESC
             LIMIT 1
         """, (user_id,))
 
@@ -17879,14 +17887,28 @@ def start_locker():
         if existing:
             print(f"⚠️ {user_id} already has active session")
 
+            if existing["start_time"] is None:
+                cursor.execute("""
+                    UPDATE locker_sessions
+                    SET start_time = NOW()
+                    WHERE id = %s
+                      AND start_time IS NULL
+                      AND end_time IS NULL
+                """, (existing["id"],))
+
+                conn.commit()
+
+                print(f"✅ START TIME SAVED: {user_id}")
+
             return jsonify({
                 "status": "exists",
                 "locker": existing["locker_number"]
             }), 200
 
-        # ================= CHECK LOCKER AVAILABILITY =================
+        # CHECK LOCKER AVAILABILITY
         cursor.execute("""
-            SELECT status FROM lockers
+            SELECT status
+            FROM lockers
             WHERE locker_number = %s
         """, (locker_id,))
 
@@ -17898,7 +17920,7 @@ def start_locker():
                 "message": "Locker not found"
             }), 404
 
-        if locker["status"] == "OCCUPIED":
+        if str(locker["status"]).upper() == "OCCUPIED":
             print(f"❌ Locker {locker_id} already occupied")
 
             return jsonify({
@@ -17906,14 +17928,21 @@ def start_locker():
                 "message": "Locker already occupied"
             }), 400
 
-        # ================= INSERT SESSION =================
+        # INSERT NEW SESSION
         cursor.execute("""
-            INSERT INTO locker_sessions 
-            (user_id, locker_number, start_time, end_time, overtime_paid, status)
+            INSERT INTO locker_sessions
+            (
+                user_id,
+                locker_number,
+                start_time,
+                end_time,
+                overtime_paid,
+                status
+            )
             VALUES (%s, %s, NOW(), NULL, 0, 'active')
         """, (user_id, locker_id))
 
-        # ================= UPDATE LOCKER =================
+        # UPDATE LOCKER STATUS
         cursor.execute("""
             UPDATE lockers
             SET status = 'OCCUPIED'
@@ -17924,23 +17953,30 @@ def start_locker():
 
         print(f"✅ START: {user_id} → Locker {locker_id}")
 
-        cursor.close()
-        conn.close()
-
         return jsonify({
             "status": "success",
             "locker": locker_id
         }), 201
 
     except Exception as e:
+        if conn and conn.is_connected():
+            conn.rollback()
+
         print("🔥 START LOCKER ERROR:", e)
 
         return jsonify({
             "status": "error",
             "message": str(e)
         }), 500
-    
-    
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn and conn.is_connected():
+            conn.close()
+
+
 @app.route('/api/check_locker', methods=['GET'])
 @require_api_key
 def check_locker():
@@ -18214,7 +18250,6 @@ def get_fp_templates():
 import mysql.connector
 
 
-
 @app.route('/api/get_available_locker', methods=['GET'])
 @require_api_key
 def get_available_locker():
@@ -18222,8 +18257,8 @@ def get_available_locker():
     cursor = None
 
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute("""
             SELECT l.locker_number
@@ -18282,10 +18317,11 @@ def get_available_locker():
         if cursor is not None:
             cursor.close()
 
-        if conn is not None and conn.is_connected():
+        if conn is not None:
             conn.close()
 
-  
+
+ 
 def sync_lockers():
     execute_query("""
         UPDATE lockers l
@@ -21017,95 +21053,89 @@ def account_status():
     finally:
 
         conn.close()
+
+
 @app.route("/api/login", methods=["POST"])
 def login():
-
-    data = request.get_json()
-
-    username = data.get("username", "").strip()
-    password = data.get("password", "").strip()
-
-    conn = get_connection()
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    conn = None
+    cursor = None
 
     try:
+        data = request.get_json(silent=True) or {}
+
+        if not isinstance(data, dict):
+            return jsonify({
+                "status": "error",
+                "message": "Invalid request data"
+            }), 400
+
+        username = str(data.get("username") or "").strip()
+        password = data.get("password")
+
+        if not username or password is None or password == "":
+            return jsonify({
+                "status": "error",
+                "message": "Username and password are required"
+            }), 400
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute("""
-			SELECT
-				ua.id,
-				ua.user_id,
-				COALESCE(m.full_name, ua.fullname) AS fullname,
-				ua.username,
-				ua.password,
-				ua.role,
-				pm.phone_number
-			FROM user_accounts ua
-			LEFT JOIN members m
-				ON m.id COLLATE utf8mb4_general_ci
-				= ua.user_id COLLATE utf8mb4_general_ci
-			LEFT JOIN pending_members pm
-				ON ua.id = pm.account_id
-			WHERE ua.username=%s
-		""", (username,))
+            SELECT
+                ua.id,
+                ua.user_id,
+                COALESCE(m.full_name, ua.fullname) AS fullname,
+                ua.username,
+                ua.password,
+                ua.role,
+                pm.phone_number
+            FROM user_accounts ua
+            LEFT JOIN members m
+                ON m.id COLLATE utf8mb4_general_ci
+                = ua.user_id COLLATE utf8mb4_general_ci
+            LEFT JOIN pending_members pm
+                ON ua.id = pm.account_id
+            WHERE ua.username = %s
+            LIMIT 1
+        """, (username,))
 
         user = cursor.fetchone()
 
-        if not user:
-
+        if not user or user["password"] != password:
             return jsonify({
                 "status": "error",
                 "message": "Invalid username or password"
-            })
-
-        # Plain text password comparison
-        if user["password"] != password:
-
-            return jsonify({
-                "status": "error",
-                "message": "Invalid username or password"
-            })
+            }), 401
 
         return jsonify({
-
             "status": "success",
-
             "user": {
-
-                # IMPORTANT:
-                # user_accounts.id
-                # This is the account_id used by pre_member
                 "id": user["id"],
-
-                # This can be NULL while still pre_member
                 "user_id": user["user_id"],
-
                 "fullname": user["fullname"],
-
                 "username": user["username"],
-
                 "phone_number": user["phone_number"],
-
                 "role": user["role"]
-
             }
-
-        })
+        }), 200
 
     except Exception as e:
-
-        print("LOGIN ERROR:", e)
+        print(f"[LOGIN ERROR] {e}", flush=True)
 
         return jsonify({
-
             "status": "error",
-            "message": str(e)
-
+            "message": "Login failed. Please try again."
         }), 500
 
     finally:
+        if cursor is not None:
+            cursor.close()
 
-        cursor.close()
-        conn.close()       
+        if conn is not None:
+            conn.close()
+
+
 
 @app.route("/api/change_password", methods=["POST"])
 def change_password():
