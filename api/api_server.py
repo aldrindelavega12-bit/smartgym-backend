@@ -5392,7 +5392,6 @@ def trainer_assignment_created():
         if conn:
             conn.close()
 
-
 @app.route("/api/local/user_accounts", methods=["GET"])
 def get_local_user_accounts():
 
@@ -5407,6 +5406,8 @@ def get_local_user_accounts():
             SELECT
                 user_id,
                 fullname,
+                username,
+                password,
                 role
             FROM user_accounts
             WHERE LOWER(TRIM(role)) IN ('trainer', 'staff')
@@ -5421,7 +5422,9 @@ def get_local_user_accounts():
             data.append({
                 "user_id": row[0],
                 "fullname": row[1],
-                "role": row[2]
+                "username": row[2],
+                "password": row[3],
+                "role": row[4]
             })
 
         return jsonify({
@@ -5443,8 +5446,6 @@ def get_local_user_accounts():
 
         if conn:
             conn.close()
-
-
 
 
 @app.route("/api/local/trainer_plans", methods=["GET"])
@@ -6886,10 +6887,12 @@ def send_password_reset_otp():
 
         cursor.close()
         conn.close()
+
+
 @app.route("/api/activate_account", methods=["POST"])
 def activate_account():
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     token = data.get("token")
     username = data.get("username")
@@ -6899,14 +6902,20 @@ def activate_account():
         return jsonify({
             "success": False,
             "message": "Missing required fields."
-        })
+        }), 400
 
-    conn = get_connection()
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    conn = None
+    cursor = None
 
     try:
 
-        # CHECK TOKEN
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        # ==========================================
+        # CHECK ACTIVATION TOKEN
+        # ==========================================
+
         cursor.execute("""
             SELECT
                 a.member_id,
@@ -6914,8 +6923,8 @@ def activate_account():
             FROM member_activation a
             JOIN members m
                 ON a.member_id = m.id
-            WHERE a.activation_token=%s
-            AND a.status='PENDING'
+            WHERE a.activation_token = %s
+              AND a.status = 'PENDING'
             LIMIT 1
         """, (token,))
 
@@ -6925,25 +6934,32 @@ def activate_account():
             return jsonify({
                 "success": False,
                 "message": "Invalid activation link."
-            })
+            }), 400
 
         member_id = activation["member_id"]
         fullname = activation["full_name"]
 
+        # ==========================================
         # CHECK DUPLICATE USERNAME
+        # ==========================================
+
         cursor.execute("""
             SELECT id
             FROM user_accounts
-            WHERE username=%s
+            WHERE username = %s
+            LIMIT 1
         """, (username,))
 
         if cursor.fetchone():
             return jsonify({
                 "success": False,
                 "message": "Username already exists."
-            })
+            }), 409
 
-        # INSERT ACCOUNT
+        # ==========================================
+        # CREATE MEMBER ACCOUNT
+        # ==========================================
+
         cursor.execute("""
             INSERT INTO user_accounts
             (
@@ -6968,33 +6984,117 @@ def activate_account():
             password
         ))
 
-        # MARK TOKEN USED
+        # ==========================================
+        # DEFAULT MODULES FOR MEMBER
+        # ==========================================
+
+        default_modules = [
+            "dashboard",
+            "messages",
+            "program",
+            "get_program",
+            "book_locker",
+            "membership"
+        ]
+
+        for module_key in default_modules:
+
+            # GET ACTIVE MODULE
+            cursor.execute("""
+                SELECT id
+                FROM modules
+                WHERE module_key = %s
+                  AND active = 1
+                LIMIT 1
+            """, (module_key,))
+
+            module = cursor.fetchone()
+
+            if not module:
+                raise Exception(
+                    f"Active module '{module_key}' was not found."
+                )
+
+            module_id = module["id"]
+
+            # CHECK EXISTING ACCESS
+            cursor.execute("""
+                SELECT id
+                FROM user_module_access
+                WHERE user_id = %s
+                  AND module_id = %s
+                LIMIT 1
+            """, (member_id, module_id))
+
+            existing = cursor.fetchone()
+
+            if existing:
+
+                cursor.execute("""
+                    UPDATE user_module_access
+                    SET has_access = 1
+                    WHERE id = %s
+                """, (existing["id"],))
+
+            else:
+
+                cursor.execute("""
+                    INSERT INTO user_module_access
+                    (
+                        user_id,
+                        module_id,
+                        has_access
+                    )
+                    VALUES (%s, %s, 1)
+                """, (
+                    member_id,
+                    module_id
+                ))
+
+        # ==========================================
+        # MARK ACTIVATION TOKEN AS USED
+        # ==========================================
+
         cursor.execute("""
             UPDATE member_activation
-            SET status='USED'
-            WHERE activation_token=%s
+            SET status = 'USED'
+            WHERE activation_token = %s
         """, (token,))
+
+        # ==========================================
+        # COMMIT
+        # ==========================================
 
         conn.commit()
 
         return jsonify({
             "success": True,
-            "message": "Account activated successfully."
-        })
+            "message": "Account activated successfully.",
+            "user_id": member_id,
+            "role": "member",
+            "modules": default_modules
+        }), 200
 
     except Exception as e:
 
-        conn.rollback()
+        if conn:
+            conn.rollback()
+
+        print("ACTIVATE ACCOUNT ERROR:", e)
 
         return jsonify({
             "success": False,
             "message": str(e)
-        })
+        }), 500
 
     finally:
 
-        cursor.close()
-        conn.close()
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
 
 @app.route("/api/activation_created", methods=["POST"])
 def activation_created():
