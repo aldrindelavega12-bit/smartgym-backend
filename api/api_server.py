@@ -6919,7 +6919,8 @@ def activate_account():
         cursor.execute("""
             SELECT
                 a.member_id,
-                m.full_name
+                m.full_name,
+                m.phone_number
             FROM member_activation a
             JOIN members m
                 ON a.member_id = m.id
@@ -6938,6 +6939,7 @@ def activate_account():
 
         member_id = activation["member_id"]
         fullname = activation["full_name"]
+        phone_number = activation["phone_number"]
 
         # ==========================================
         # CHECK DUPLICATE USERNAME
@@ -6969,14 +6971,7 @@ def activate_account():
                 password,
                 role
             )
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                'member'
-            )
+            VALUES (%s, %s, %s, %s, 'member')
         """, (
             member_id,
             fullname,
@@ -6999,7 +6994,6 @@ def activate_account():
 
         for module_key in default_modules:
 
-            # GET ACTIVE MODULE
             cursor.execute("""
                 SELECT id
                 FROM modules
@@ -7017,7 +7011,6 @@ def activate_account():
 
             module_id = module["id"]
 
-            # CHECK EXISTING ACCESS
             cursor.execute("""
                 SELECT id
                 FROM user_module_access
@@ -7059,20 +7052,86 @@ def activate_account():
             UPDATE member_activation
             SET status = 'USED'
             WHERE activation_token = %s
+              AND status = 'PENDING'
         """, (token,))
 
+        if cursor.rowcount != 1:
+            raise Exception("Activation token has already been used.")
+
         # ==========================================
-        # COMMIT
+        # COMMIT ACTIVATION FIRST
         # ==========================================
 
         conn.commit()
+
+        # ==========================================
+        # SEND ACTIVATION SUCCESS SMS
+        # ==========================================
+
+        sms_sent = False
+
+        try:
+
+            if phone_number:
+
+                message = (
+                    f"SMART GYM: Congratulations {fullname}! "
+                    "Your account has been successfully activated. "
+                    "You can now log in to your Smart Gym member account. "
+                    "Welcome!"
+                )
+
+                sms_sent = send_sms(
+                    phone_number,
+                    message
+                )
+
+                if sms_sent:
+
+                    cursor.execute("""
+                        INSERT INTO sms_logs
+                        (
+                            user_id,
+                            sms_type
+                        )
+                        VALUES (%s, %s)
+                    """, (
+                        member_id,
+                        "ACCOUNT_ACTIVATED"
+                    ))
+
+                    conn.commit()
+
+                else:
+                    print(
+                        f"[ACTIVATION SMS] Failed to send to {member_id}"
+                    )
+
+            else:
+                print(
+                    f"[ACTIVATION SMS] No phone number for {member_id}"
+                )
+
+        except Exception as sms_error:
+
+            print(
+                "[ACTIVATION SMS ERROR]:",
+                sms_error
+            )
+
+            sms_sent = False
+
+        # ==========================================
+        # SUCCESS RESPONSE
+        # ==========================================
 
         return jsonify({
             "success": True,
             "message": "Account activated successfully.",
             "user_id": member_id,
             "role": "member",
-            "modules": default_modules
+            "modules": default_modules,
+            "sms_sent": bool(sms_sent)
         }), 200
 
     except Exception as e:
@@ -7094,6 +7153,7 @@ def activate_account():
 
         if conn:
             conn.close()
+
 
 
 @app.route("/api/activation_created", methods=["POST"])
