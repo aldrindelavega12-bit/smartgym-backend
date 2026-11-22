@@ -18321,36 +18321,46 @@ def get_members():
     except Exception as e:
         return {"error": str(e)}, 500
     
+
 @app.route('/api/get_locker/<user_id>', methods=['GET'])
 def get_locker(user_id):
 
     result = execute_query("""
-        SELECT locker_number
+        SELECT locker_number, status
         FROM locker_sessions
-        WHERE user_id=%s
-        AND status IN ('reserved','active','overtime')
-        AND end_time IS NULL
+        WHERE user_id = %s
+          AND LOWER(TRIM(status))
+              IN ('reserved', 'active', 'overtime')
+          AND end_time IS NULL
+        ORDER BY id DESC
         LIMIT 1
     """, (user_id,), fetch=True)
 
     if result:
-        locker_no = result[0]["locker_number"]
 
-        # 🔥 IMPORTANT FIX
-        execute_query("""
-            UPDATE lockers
-            SET status = 'RESERVED'
-            WHERE locker_number = %s
-        """, (locker_no,))
+        locker_no = result[0]["locker_number"]
+        session_status = result[0]["status"].strip().lower()
+
+        mode = (
+            "reopen"
+            if session_status in ("active", "overtime")
+            else "allow"
+        )
 
         return jsonify({
             "success": True,
-            "locker_number": locker_no
-        })
+            "locker_number": locker_no,
+            "session_status": session_status,
+            "mode": mode
+        }), 200
 
     return jsonify({
-        "success": False
-    })
+        "success": False,
+        "locker_number": None
+    }), 200
+
+
+
 
 @app.route("/api/verify_fingerprint", methods=["POST"])
 def verify_fingerprint():
