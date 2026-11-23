@@ -944,9 +944,9 @@ def get_user_module_access(user_id):
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Check if user exists
+        # CHECK NORMAL USER FIRST
         cursor.execute("""
-            SELECT user_id
+            SELECT id, user_id, role
             FROM user_accounts
             WHERE user_id = %s
             LIMIT 1
@@ -954,13 +954,36 @@ def get_user_module_access(user_id):
 
         user = cursor.fetchone()
 
+        # CHECK PRE-MEMBER USING ACCOUNT ID
+        if not user:
+            cursor.execute("""
+                SELECT id, user_id, role
+                FROM user_accounts
+                WHERE id = %s
+                  AND role = 'pre_member'
+                LIMIT 1
+            """, (user_id,))
+
+            user = cursor.fetchone()
+
         if not user:
             return jsonify({
                 "status": "error",
                 "message": "User account not found."
             }), 404
 
-        # Get modules assigned to this user
+        account_id = user[0]
+        actual_user_id = user[1]
+        role = user[2]
+
+        # PRE-MEMBER USES ACCOUNT ID
+        # MEMBER AND OTHER ROLES USE USER ID
+        access_id = (
+            account_id
+            if role == "pre_member"
+            else actual_user_id
+        )
+
         cursor.execute("""
             SELECT m.module_key
             FROM user_module_access AS uma
@@ -970,16 +993,15 @@ def get_user_module_access(user_id):
               AND uma.has_access = 1
               AND m.active = 1
             ORDER BY m.id ASC
-        """, (user_id,))
+        """, (access_id,))
 
         rows = cursor.fetchall()
 
-        modules = [
-            row[0] for row in rows
-        ]
+        modules = [row[0] for row in rows]
 
         return jsonify({
-            "user_id": user_id,
+            "user_id": str(access_id),
+            "role": role,
             "modules": modules
         }), 200
 
@@ -997,6 +1019,8 @@ def get_user_module_access(user_id):
 
         if conn:
             conn.close()
+
+
 
 @app.route("/api/modules", methods=["GET"])
 def get_active_modules():
@@ -18031,22 +18055,23 @@ def start_locker():
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
 
-        # CHECK ACTIVE SESSION
+        # =====================================
+        # CHECK EXISTING ACTIVE / OVERTIME
+        # =====================================
         cursor.execute("""
             SELECT *
             FROM locker_sessions
             WHERE user_id = %s
-              AND LOWER(status) = 'active'
+              AND locker_number = %s
+              AND LOWER(TRIM(status)) IN ('active', 'overtime')
               AND end_time IS NULL
             ORDER BY id DESC
             LIMIT 1
-        """, (user_id,))
+        """, (user_id, locker_id))
 
         existing = cursor.fetchone()
 
         if existing:
-            print(f"⚠️ {user_id} already has active session")
-
             if existing["start_time"] is None:
                 cursor.execute("""
                     UPDATE locker_sessions
@@ -18058,14 +18083,32 @@ def start_locker():
 
                 conn.commit()
 
-                print(f"✅ START TIME SAVED: {user_id}")
-
             return jsonify({
                 "status": "exists",
-                "locker": existing["locker_number"]
+                "locker": existing["locker_number"],
+                "session_status": existing["status"],
+                "message": "Existing locker session found"
             }), 200
 
+        # =====================================
+        # CHECK RESERVED SESSION
+        # =====================================
+        cursor.execute("""
+            SELECT *
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND LOWER(TRIM(status)) = 'reserved'
+              AND end_time IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+        """, (user_id, locker_id))
+
+        reserved = cursor.fetchone()
+
+        # =====================================
         # CHECK LOCKER AVAILABILITY
+        # =====================================
         cursor.execute("""
             SELECT status
             FROM lockers
@@ -18080,29 +18123,51 @@ def start_locker():
                 "message": "Locker not found"
             }), 404
 
-        if str(locker["status"]).upper() == "OCCUPIED":
-            print(f"❌ Locker {locker_id} already occupied")
-
+        if str(locker["status"]).strip().upper() == "OCCUPIED":
             return jsonify({
                 "status": "error",
                 "message": "Locker already occupied"
             }), 400
 
-        # INSERT NEW SESSION
-        cursor.execute("""
-            INSERT INTO locker_sessions
-            (
-                user_id,
-                locker_number,
-                start_time,
-                end_time,
-                overtime_paid,
-                status
-            )
-            VALUES (%s, %s, NOW(), NULL, 0, 'active')
-        """, (user_id, locker_id))
+        # =====================================
+        # CONVERT RESERVED TO ACTIVE
+        # =====================================
+        if reserved:
+            cursor.execute("""
+                UPDATE locker_sessions
+                SET
+                    status = 'active',
+                    start_time = NOW()
+                WHERE id = %s
+                  AND LOWER(TRIM(status)) = 'reserved'
+                  AND end_time IS NULL
+            """, (reserved["id"],))
 
+            print(
+                f"✅ RESERVED → ACTIVE: "
+                f"{user_id} → Locker {locker_id}"
+            )
+
+        else:
+            # =====================================
+            # INSERT NEW ACTIVE SESSION
+            # =====================================
+            cursor.execute("""
+                INSERT INTO locker_sessions
+                (
+                    user_id,
+                    locker_number,
+                    start_time,
+                    end_time,
+                    overtime_paid,
+                    status
+                )
+                VALUES (%s, %s, NOW(), NULL, 0, 'active')
+            """, (user_id, locker_id))
+
+        # =====================================
         # UPDATE LOCKER STATUS
+        # =====================================
         cursor.execute("""
             UPDATE lockers
             SET status = 'OCCUPIED'
@@ -18115,7 +18180,8 @@ def start_locker():
 
         return jsonify({
             "status": "success",
-            "locker": locker_id
+            "locker": locker_id,
+            "message": "Locker session started"
         }), 201
 
     except Exception as e:
@@ -18135,6 +18201,8 @@ def start_locker():
 
         if conn and conn.is_connected():
             conn.close()
+
+
 
 
 @app.route('/api/check_locker', methods=['GET'])
@@ -18339,7 +18407,8 @@ def get_locker(user_id):
     if result:
 
         locker_no = result[0]["locker_number"]
-        session_status = result[0]["status"].strip().lower()
+        session_status = str(result[0]["status"] or "").strip().lower()
+        
 
         mode = (
             "reopen"
@@ -21611,6 +21680,7 @@ def sync_timeout():
         }), 500
 
 
+
 @app.route("/api/sync_locker_start", methods=["POST"])
 def sync_locker_start():
 
@@ -21621,39 +21691,87 @@ def sync_locker_start():
         user_id = data.get("user_id")
         locker_id = data.get("locker_id")
 
-        # CLOSE OLD
-        execute_query(
+        if not user_id or not locker_id:
+            return jsonify({
+                "success": False,
+                "message": "Missing user_id or locker_id"
+            }), 400
+
+        # CHECK EXISTING ACTIVE / OVERTIME
+        existing = execute_query(
             """
-            UPDATE locker_sessions
-            SET end_time = NOW(),
-                status='ended'
-            WHERE user_id=%s
-            AND end_time IS NULL
+            SELECT id
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND LOWER(TRIM(status)) IN ('active', 'overtime')
+              AND end_time IS NULL
+            ORDER BY id DESC
+            LIMIT 1
             """,
-            (user_id,)
+            (user_id, locker_id),
+            fetchone=True
         )
 
-        # INSERT NEW
-        execute_query(
+        if existing:
+            return jsonify({
+                "success": True,
+                "message": "Locker session already active"
+            })
+
+        # CHECK RESERVED SESSION
+        reserved = execute_query(
             """
-            INSERT INTO locker_sessions
-            (
-                user_id,
-                locker_number,
-                start_time,
-                status
+            SELECT id
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND LOWER(TRIM(status)) = 'reserved'
+              AND end_time IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id, locker_id),
+            fetchone=True
+        )
+
+        # CONVERT RESERVED TO ACTIVE
+        if reserved:
+
+            execute_query(
+                """
+                UPDATE locker_sessions
+                SET status = 'active',
+                    start_time = NOW()
+                WHERE id = %s
+                  AND LOWER(TRIM(status)) = 'reserved'
+                  AND end_time IS NULL
+                """,
+                (reserved["id"],)
             )
-            VALUES (%s,%s,NOW(),'active')
-            """,
-            (user_id, locker_id)
-        )
 
-        # 🔥 IMPORTANT
+        else:
+
+            # INSERT ONLY IF NO RESERVED SESSION EXISTS
+            execute_query(
+                """
+                INSERT INTO locker_sessions
+                (
+                    user_id,
+                    locker_number,
+                    start_time,
+                    status
+                )
+                VALUES (%s, %s, NOW(), 'active')
+                """,
+                (user_id, locker_id)
+            )
+
         execute_query(
             """
             UPDATE lockers
-            SET status='OCCUPIED'
-            WHERE locker_number=%s
+            SET status = 'OCCUPIED'
+            WHERE locker_number = %s
             """,
             (locker_id,)
         )
@@ -21661,7 +21779,8 @@ def sync_locker_start():
         socketio.emit("locker_update")
 
         return jsonify({
-            "success": True
+            "success": True,
+            "message": "Locker session started"
         })
 
     except Exception as e:
@@ -21669,9 +21788,10 @@ def sync_locker_start():
         print("SYNC LOCKER ERROR:", e)
 
         return jsonify({
-            "success": False
+            "success": False,
+            "message": str(e)
         }), 500
-    
+
 @app.route("/api/sync_locker_end", methods=["POST"])
 def sync_locker_end():
 

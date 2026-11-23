@@ -287,6 +287,7 @@ def handle_walkin_deleted(payload, fp_manager):
 from db.connection import get_connection
 
 
+
 def handle_walkin_locker_assigned(payload):
 
     connection = get_connection()
@@ -297,32 +298,40 @@ def handle_walkin_locker_assigned(payload):
         walkin_id = payload["walkin_id"]
         locker_number = payload["locker_number"]
 
+        # Check if this walk-in already has a RESERVED session
         cursor.execute(
             """
-            INSERT INTO locker_sessions(
-
-                user_id,
-                locker_number,
-                status
-
-            )
-
-            VALUES(%s,%s,'ACTIVE')
+            SELECT id
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND status = 'RESERVED'
+            LIMIT 1
             """,
-            (
-                walkin_id,
-                locker_number
-            )
+            (walkin_id, locker_number)
         )
+
+        existing = cursor.fetchone()
+
+        if not existing:
+
+            cursor.execute(
+                """
+                INSERT INTO locker_sessions (
+                    user_id,
+                    locker_number,
+                    status
+                )
+                VALUES (%s, %s, 'RESERVED')
+                """,
+                (walkin_id, locker_number)
+            )
 
         connection.commit()
 
         return {
-
             "success": True,
-
-            "message": "Locker assigned."
-
+            "message": "Walk-in locker reserved."
         }
 
     except Exception as e:
@@ -330,14 +339,12 @@ def handle_walkin_locker_assigned(payload):
         connection.rollback()
 
         return {
-
             "success": False,
-
             "message": str(e)
-
         }
 
     finally:
 
         cursor.close()
         connection.close()
+
