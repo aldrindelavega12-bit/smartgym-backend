@@ -16716,6 +16716,7 @@ def pending_completed():
         "success": True
     })
 
+
 @app.route("/api/local/activate_member", methods=["POST"])
 def activate_member():
 
@@ -16731,59 +16732,155 @@ def activate_member():
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Database information
-    cursor.execute("""
-        SELECT
-            @@hostname,
-            @@port,
-            DATABASE(),
-            @@socket
-    """)
-    print("CONNECTED TO:", cursor.fetchone())
+    try:
 
-    # Before update
-    cursor.execute("""
-        SELECT
-            id,
-            user_id,
-            role
-        FROM user_accounts
-        WHERE id=%s
-    """, (account_id,))
-    print("BEFORE UPDATE:", cursor.fetchone())
+        # Database information
+        cursor.execute("""
+            SELECT
+                @@hostname,
+                @@port,
+                DATABASE(),
+                @@socket
+        """)
+        print("CONNECTED TO:", cursor.fetchone())
 
-    # Update
-    cursor.execute("""
-        UPDATE user_accounts
-        SET
-            user_id=%s,
-            role='member'
-        WHERE id=%s
-    """, (member_id, account_id))
+        # Before update
+        cursor.execute("""
+            SELECT
+                id,
+                user_id,
+                role
+            FROM user_accounts
+            WHERE id=%s
+        """, (account_id,))
 
-    print("ROWS UPDATED:", cursor.rowcount)
+        print("BEFORE UPDATE:", cursor.fetchone())
 
-    conn.commit()
+        # ==========================================
+        # UPDATE PRE-MEMBER ACCOUNT TO MEMBER
+        # ==========================================
 
-    # After update
-    cursor.execute("""
-        SELECT
-            id,
-            user_id,
-            role
-        FROM user_accounts
-        WHERE id=%s
-    """, (account_id,))
-    print("AFTER UPDATE:", cursor.fetchone())
+        cursor.execute("""
+            UPDATE user_accounts
+            SET
+                user_id=%s,
+                role='member'
+            WHERE id=%s
+        """, (member_id, account_id))
 
-    cursor.close()
-    conn.close()
+        print("ROWS UPDATED:", cursor.rowcount)
 
-    return jsonify({
-        "success": True
-    })
+        # ==========================================
+        # DEFAULT MODULES FOR MEMBER
+        # ==========================================
+
+        default_modules = [
+            "dashboard",
+            "messages",
+            "program",
+            "get_program",
+            "book_locker",
+            "membership"
+        ]
+
+        for module_key in default_modules:
+
+            cursor.execute("""
+                SELECT id
+                FROM modules
+                WHERE module_key = %s
+                  AND active = 1
+                LIMIT 1
+            """, (module_key,))
+
+            module = cursor.fetchone()
+
+            if not module:
+                raise Exception(
+                    f"Active module '{module_key}' was not found."
+                )
+
+            module_id = module["id"]
+
+            # Check existing module access using MEMBER ID
+            cursor.execute("""
+                SELECT id
+                FROM user_module_access
+                WHERE user_id = %s
+                  AND module_id = %s
+                LIMIT 1
+            """, (member_id, module_id))
+
+            existing = cursor.fetchone()
+
+            if existing:
+
+                cursor.execute("""
+                    UPDATE user_module_access
+                    SET has_access = 1
+                    WHERE id = %s
+                """, (existing["id"],))
+
+            else:
+
+                cursor.execute("""
+                    INSERT INTO user_module_access
+                    (
+                        user_id,
+                        module_id,
+                        has_access
+                    )
+                    VALUES (%s, %s, 1)
+                """, (
+                    member_id,
+                    module_id
+                ))
+
+        # ==========================================
+        # AFTER UPDATE
+        # ==========================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                user_id,
+                role
+            FROM user_accounts
+            WHERE id=%s
+        """, (account_id,))
+
+        print("AFTER UPDATE:", cursor.fetchone())
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Pre-Member successfully activated as Member.",
+            "modules": default_modules
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        print("ACTIVATION ERROR:", str(e))
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
+
+
+
 @app.route("/api/activate_member", methods=["POST"])
 def activate_member_cloud():
+
     data = request.get_json()
 
     account_id = data["account_id"]
@@ -16794,6 +16891,10 @@ def activate_member_cloud():
 
     try:
 
+        # ==========================================
+        # UPDATE PRE-MEMBER ACCOUNT TO MEMBER
+        # ==========================================
+
         cursor.execute("""
             UPDATE user_accounts
             SET
@@ -16802,11 +16903,78 @@ def activate_member_cloud():
             WHERE id=%s
         """, (member_id, account_id))
 
+        # ==========================================
+        # DEFAULT MODULES FOR MEMBER
+        # ==========================================
+
+        default_modules = [
+            "dashboard",
+            "messages",
+            "program",
+            "get_program",
+            "book_locker",
+            "membership"
+        ]
+
+        for module_key in default_modules:
+
+            cursor.execute("""
+                SELECT id
+                FROM modules
+                WHERE module_key = %s
+                  AND active = 1
+                LIMIT 1
+            """, (module_key,))
+
+            module = cursor.fetchone()
+
+            if not module:
+                raise Exception(
+                    f"Active module '{module_key}' was not found."
+                )
+
+            module_id = module["id"]
+
+            # Check existing module access using MEMBER ID
+            cursor.execute("""
+                SELECT id
+                FROM user_module_access
+                WHERE user_id = %s
+                  AND module_id = %s
+                LIMIT 1
+            """, (member_id, module_id))
+
+            existing = cursor.fetchone()
+
+            if existing:
+
+                cursor.execute("""
+                    UPDATE user_module_access
+                    SET has_access = 1
+                    WHERE id = %s
+                """, (existing["id"],))
+
+            else:
+
+                cursor.execute("""
+                    INSERT INTO user_module_access
+                    (
+                        user_id,
+                        module_id,
+                        has_access
+                    )
+                    VALUES (%s, %s, 1)
+                """, (
+                    member_id,
+                    module_id
+                ))
+
         conn.commit()
 
         return jsonify({
             "success": True,
-            "message": "Account activated."
+            "message": "Account activated.",
+            "modules": default_modules
         })
 
     except Exception as e:
@@ -16822,7 +16990,9 @@ def activate_member_cloud():
 
         cursor.close()
         conn.close()
-        
+
+
+       
 @app.route("/api/pending_completed", methods=["POST"])
 def pending_completed_cloud():
 
