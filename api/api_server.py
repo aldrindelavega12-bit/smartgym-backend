@@ -18777,23 +18777,37 @@ def get_active_locker():
 @app.route("/api/check_overtime/<user_id>", methods=["GET"])
 def check_overtime(user_id):
 
-    result = execute_query("""
+    result = execute_query(
+        """
         SELECT status, overtime_paid
         FROM locker_sessions
         WHERE user_id = %s
         ORDER BY start_time DESC
         LIMIT 1
-    """, (user_id,), fetch_one=True)
+        """,
+        (user_id,),
+        fetch=True
+    )
 
     if not result:
-        return jsonify({"overtime": False})
+        return jsonify({
+            "overtime": False
+        })
 
-    status, paid = result
+    row = result[0]
+
+    status = row["status"]
+    paid = row["overtime_paid"]
 
     if status == "overtime" and paid == 0:
-        return jsonify({"overtime": True})
+        return jsonify({
+            "overtime": True
+        })
 
-    return jsonify({"overtime": False})
+    return jsonify({
+        "overtime": False
+    })
+
 
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -21849,8 +21863,6 @@ def sync_timeout():
             "message": str(e)
         }), 500
 
-
-
 @app.route("/api/sync_locker_start", methods=["POST"])
 def sync_locker_start():
 
@@ -21880,8 +21892,10 @@ def sync_locker_start():
             LIMIT 1
             """,
             (user_id, locker_id),
-            fetchone=True
+            fetch=True
         )
+
+        existing = existing[0] if existing else None
 
         if existing:
             return jsonify({
@@ -21902,8 +21916,10 @@ def sync_locker_start():
             LIMIT 1
             """,
             (user_id, locker_id),
-            fetchone=True
+            fetch=True
         )
+
+        reserved = reserved[0] if reserved else None
 
         # CONVERT RESERVED TO ACTIVE
         if reserved:
@@ -21961,6 +21977,9 @@ def sync_locker_start():
             "success": False,
             "message": str(e)
         }), 500
+
+
+
 
 @app.route("/api/sync_locker_end", methods=["POST"])
 def sync_locker_end():
@@ -22597,19 +22616,23 @@ def send_message():
 
 @app.route("/api/member_active_locker/<user_id>", methods=["GET"])
 def member_active_locker(user_id):
+
     try:
+
         row = execute_query(
             """
             SELECT locker_number
             FROM locker_sessions
-            WHERE user_id=%s
-            AND end_time IS NULL
+            WHERE user_id = %s
+              AND end_time IS NULL
             ORDER BY start_time DESC
             LIMIT 1
             """,
             (user_id,),
-            fetchone=True
+            fetch=True
         )
+
+        row = row[0] if row else None
 
         if row:
             return jsonify({
@@ -22623,10 +22646,12 @@ def member_active_locker(user_id):
         })
 
     except Exception as e:
+
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+ 
     
 @app.route("/api/messages_count/<user_id>")
 def messages_count(user_id):
