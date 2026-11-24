@@ -946,7 +946,1306 @@ def maintenance_delete(resource, record_id):
 
         if conn:
             conn.close()
-            
+ # ============================================================
+# SMART GYM - MAINTENANCE BACKEND
+# PROGRAMS
+# GYM ACCESS TYPES
+# MEMBERSHIP TYPES
+# TRAINER PLANS
+# MODULES
+# ============================================================
+
+from decimal import Decimal, InvalidOperation
+import re
+
+
+# ============================================================
+# RESOURCE CONFIGURATION
+# ============================================================
+
+MAINTENANCE_TABLES = {
+
+    "programs": {
+        "table": "programs",
+        "name": "program_name",
+        "status": "active",
+        "label": "Program",
+        "fields": [
+            "program_name",
+            "description",
+            "duration_days",
+            "active"
+        ]
+    },
+
+    "gym-access-types": {
+        "table": "gym_access_types",
+        "name": "access_name",
+        "status": "status",
+        "label": "Gym Access Type",
+        "fields": [
+            "access_name",
+            "price",
+            "duration_days",
+            "status"
+        ]
+    },
+
+    "membership-types": {
+        "table": "membership_types",
+        "name": "membership_name",
+        "status": "status",
+        "label": "Membership Type",
+        "fields": [
+            "membership_name",
+            "fee",
+            "validity_days",
+            "status"
+        ]
+    },
+
+    "trainer-plans": {
+        "table": "trainer_plans",
+        "name": "plan_name",
+        "status": "active",
+        "label": "Trainer Plan",
+        "fields": [
+            "trainer_id",
+            "plan_name",
+            "duration_days",
+            "price",
+            "active"
+        ]
+    },
+
+    "modules": {
+        "table": "modules",
+        "name": "module_name",
+        "status": "active",
+        "label": "Module",
+        "fields": [
+            "module_name",
+            "module_key",
+            "page_url",
+            "active"
+        ]
+    }
+
+}
+
+
+# ============================================================
+# ADMIN VALIDATION
+# ============================================================
+
+def maintenance_get_actor_id(data=None):
+
+    data = data or {}
+
+    return (
+        data.get("actor_id")
+        or request.args.get("actor_id")
+        or request.headers.get("X-User-ID")
+    )
+
+
+def maintenance_require_admin(cursor, actor_id):
+
+    if not actor_id:
+        return False
+
+    cursor.execute(
+        """
+        SELECT user_id, role
+        FROM user_accounts
+        WHERE user_id = %s
+        LIMIT 1
+        """,
+        (str(actor_id),)
+    )
+
+    actor = cursor.fetchone()
+
+    if not actor:
+        return False
+
+    return (
+        str(actor.get("role", "")).lower() == "admin"
+    )
+
+
+# ============================================================
+# VALIDATION HELPERS
+# ============================================================
+
+def maintenance_validate_name(value, field_name):
+
+    value = str(value or "").strip()
+
+    if not value:
+        raise ValueError(
+            f"{field_name} is required."
+        )
+
+    return value
+
+
+def maintenance_validate_duration(value):
+
+    try:
+        duration = int(value)
+
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Duration must be a whole number."
+        )
+
+    if duration <= 0:
+        raise ValueError(
+            "Duration must be greater than zero."
+        )
+
+    return duration
+
+
+def maintenance_validate_price(value):
+
+    try:
+        price = Decimal(str(value))
+
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError(
+            "Invalid price."
+        )
+
+    if not price.is_finite() or price < 0:
+        raise ValueError(
+            "Price cannot be negative."
+        )
+
+    return str(
+        price.quantize(Decimal("0.01"))
+    )
+
+
+def maintenance_validate_status(value, field):
+
+    if field == "active":
+
+        if isinstance(value, str):
+
+            value = value.strip().lower()
+
+            if value in (
+                "1",
+                "true",
+                "active",
+                "yes"
+            ):
+                return 1
+
+            if value in (
+                "0",
+                "false",
+                "inactive",
+                "no"
+            ):
+                return 0
+
+            raise ValueError(
+                "Invalid active status."
+            )
+
+        return 1 if bool(value) else 0
+
+    value = str(value).strip().lower()
+
+    if value not in ("active", "inactive"):
+        raise ValueError(
+            "Status must be active or inactive."
+        )
+
+    return value
+
+
+def maintenance_validate_payload(resource, data, partial=False):
+
+    config = MAINTENANCE_TABLES[resource]
+
+    clean = {}
+
+    name_field = config["name"]
+
+    # --------------------------------------------------------
+    # NAME
+    # --------------------------------------------------------
+
+    if name_field in data:
+
+        clean[name_field] = maintenance_validate_name(
+            data.get(name_field),
+            name_field
+        )
+
+    elif not partial:
+
+        raise ValueError(
+            f"{name_field} is required."
+        )
+
+    # --------------------------------------------------------
+    # PROGRAM DESCRIPTION
+    # --------------------------------------------------------
+
+    if resource == "programs":
+
+        if "description" in data:
+
+            description = data.get("description")
+
+            clean["description"] = (
+                str(description).strip()
+                if description is not None
+                else None
+            )
+
+        elif not partial:
+
+            clean["description"] = None
+
+    # --------------------------------------------------------
+    # TRAINER ID
+    # --------------------------------------------------------
+
+    if resource == "trainer-plans":
+
+        if "trainer_id" in data:
+
+            trainer_id = str(
+                data.get("trainer_id") or ""
+            ).strip()
+
+            if not trainer_id:
+                raise ValueError(
+                    "Trainer ID is required."
+                )
+
+            clean["trainer_id"] = trainer_id
+
+        elif not partial:
+
+            raise ValueError(
+                "Trainer ID is required."
+            )
+
+    # --------------------------------------------------------
+    # DURATION
+    # --------------------------------------------------------
+
+    duration_field = (
+        "validity_days"
+        if resource == "membership-types"
+        else "duration_days"
+    )
+
+    if duration_field in data:
+
+        clean[duration_field] = (
+            maintenance_validate_duration(
+                data[duration_field]
+            )
+        )
+
+    elif not partial:
+
+        raise ValueError(
+            "Duration is required."
+        )
+
+    # --------------------------------------------------------
+    # PRICE / FEE
+    # --------------------------------------------------------
+
+    if resource == "gym-access-types":
+        price_field = "price"
+
+    elif resource == "membership-types":
+        price_field = "fee"
+
+    elif resource == "trainer-plans":
+        price_field = "price"
+
+    else:
+        price_field = None
+
+    if price_field:
+
+        if price_field in data:
+
+            clean[price_field] = (
+                maintenance_validate_price(
+                    data[price_field]
+                )
+            )
+
+        elif not partial:
+
+            raise ValueError(
+                "Price is required."
+            )
+
+    # --------------------------------------------------------
+    # MODULE KEY AND PAGE URL
+    # --------------------------------------------------------
+
+    if resource == "modules":
+
+        if "module_key" in data:
+
+            module_key = str(
+                data.get("module_key") or ""
+            ).strip().lower()
+
+            if not module_key:
+                raise ValueError(
+                    "Module key is required."
+                )
+
+            if not re.fullmatch(
+                r"[a-z0-9_]+",
+                module_key
+            ):
+                raise ValueError(
+                    "Module key must contain only lowercase "
+                    "letters, numbers, and underscores."
+                )
+
+            clean["module_key"] = module_key
+
+        elif not partial:
+
+            raise ValueError(
+                "Module key is required."
+            )
+
+        if "page_url" in data:
+
+            page_url = str(
+                data.get("page_url") or ""
+            ).strip()
+
+            clean["page_url"] = page_url or None
+
+        elif not partial:
+
+            clean["page_url"] = None
+
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
+
+    status_field = config["status"]
+
+    if status_field in data:
+
+        clean[status_field] = (
+            maintenance_validate_status(
+                data[status_field],
+                status_field
+            )
+        )
+
+    elif not partial:
+
+        clean[status_field] = (
+            1 if status_field == "active"
+            else "active"
+        )
+
+    return clean
+
+
+# ============================================================
+# VALIDATE TRAINER ACCOUNT
+# ============================================================
+
+def maintenance_validate_trainer(cursor, trainer_id):
+
+    cursor.execute(
+        """
+        SELECT user_id
+        FROM user_accounts
+        WHERE user_id = %s
+          AND role = 'trainer'
+        LIMIT 1
+        """,
+        (trainer_id,)
+    )
+
+    return cursor.fetchone() is not None
+
+
+# ============================================================
+# DUPLICATE VALIDATION
+# ============================================================
+
+def maintenance_check_duplicate(
+    cursor,
+    resource,
+    clean,
+    record_id=None,
+    old_record=None
+):
+
+    config = MAINTENANCE_TABLES[resource]
+
+    table = config["table"]
+    name_field = config["name"]
+
+    name_value = clean.get(
+        name_field,
+        old_record.get(name_field) if old_record else None
+    )
+
+    if not name_value:
+        return False
+
+    if resource == "trainer-plans":
+
+        trainer_id = clean.get(
+            "trainer_id",
+            old_record.get("trainer_id") if old_record else None
+        )
+
+        sql = """
+            SELECT id
+            FROM trainer_plans
+            WHERE trainer_id = %s
+              AND LOWER(plan_name) = LOWER(%s)
+        """
+
+        params = [
+            trainer_id,
+            name_value
+        ]
+
+    else:
+
+        sql = f"""
+            SELECT id
+            FROM `{table}`
+            WHERE LOWER(`{name_field}`) = LOWER(%s)
+        """
+
+        params = [name_value]
+
+    if record_id is not None:
+
+        sql += " AND id <> %s"
+        params.append(record_id)
+
+    sql += " LIMIT 1"
+
+    cursor.execute(sql, tuple(params))
+
+    return cursor.fetchone() is not None
+
+
+# ============================================================
+# CHECK FOREIGN KEY REFERENCES
+# ============================================================
+
+def maintenance_check_references(
+    cursor,
+    table,
+    record_id
+):
+
+    cursor.execute(
+        """
+        SELECT
+            TABLE_NAME AS child_table,
+            COLUMN_NAME AS child_column
+
+        FROM information_schema.KEY_COLUMN_USAGE
+
+        WHERE REFERENCED_TABLE_SCHEMA = DATABASE()
+          AND REFERENCED_TABLE_NAME = %s
+          AND REFERENCED_COLUMN_NAME = 'id'
+        """,
+        (table,)
+    )
+
+    references = cursor.fetchall()
+
+    for reference in references:
+
+        child_table = reference["child_table"]
+        child_column = reference["child_column"]
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM `{child_table}`
+            WHERE `{child_column}` = %s
+            """,
+            (record_id,)
+        )
+
+        result = cursor.fetchone()
+
+        if int(result["total"]) > 0:
+
+            return True, child_table
+
+    return False, None
+
+
+# ============================================================
+# GET RECORDS
+# ============================================================
+
+@app.route(
+    "/api/maintenance/<string:resource>",
+    methods=["GET"]
+)
+def maintenance_get_records(resource):
+
+    if resource not in MAINTENANCE_TABLES:
+
+        return jsonify({
+            "status": "error",
+            "message": "Invalid maintenance resource."
+        }), 404
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        actor_id = maintenance_get_actor_id()
+
+        if not maintenance_require_admin(
+            cursor,
+            actor_id
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": "Admin access required."
+            }), 403
+
+        config = MAINTENANCE_TABLES[resource]
+
+        table = config["table"]
+
+        if resource == "trainer-plans":
+
+            cursor.execute(
+                """
+                SELECT
+                    tp.id,
+                    tp.trainer_id,
+                    ua.fullname AS trainer_name,
+                    tp.plan_name,
+                    tp.duration_days,
+                    tp.price,
+                    tp.active
+
+                FROM trainer_plans tp
+
+                LEFT JOIN user_accounts ua
+                    ON ua.user_id = tp.trainer_id
+
+                ORDER BY tp.id DESC
+                """
+            )
+
+        else:
+
+            cursor.execute(
+                f"""
+                SELECT *
+                FROM `{table}`
+                ORDER BY id DESC
+                """
+            )
+
+        records = cursor.fetchall()
+
+        return jsonify({
+            "status": "success",
+            "data": records,
+            "total": len(records)
+        }), 200
+
+    except Exception as e:
+
+        print(
+            "MAINTENANCE GET ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": "Unable to load maintenance records.",
+            "details": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# ADD RECORD
+# ============================================================
+
+@app.route(
+    "/api/maintenance/<string:resource>",
+    methods=["POST"]
+)
+def maintenance_add_record(resource):
+
+    if resource not in MAINTENANCE_TABLES:
+
+        return jsonify({
+            "status": "error",
+            "message": "Invalid maintenance resource."
+        }), 404
+
+    data = request.get_json(silent=True) or {}
+
+    try:
+
+        clean = maintenance_validate_payload(
+            resource,
+            data
+        )
+
+    except ValueError as e:
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        actor_id = maintenance_get_actor_id(data)
+
+        if not maintenance_require_admin(
+            cursor,
+            actor_id
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": "Admin access required."
+            }), 403
+
+        config = MAINTENANCE_TABLES[resource]
+
+        table = config["table"]
+
+        # Validate trainer
+        if resource == "trainer-plans":
+
+            if not maintenance_validate_trainer(
+                cursor,
+                clean["trainer_id"]
+            ):
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Selected trainer does not exist."
+                }), 400
+
+        # Check duplicate
+        if maintenance_check_duplicate(
+            cursor,
+            resource,
+            clean
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": "Record already exists."
+            }), 409
+
+        columns = list(clean.keys())
+
+        column_sql = ", ".join(
+            f"`{column}`"
+            for column in columns
+        )
+
+        placeholders = ", ".join(
+            ["%s"] * len(columns)
+        )
+
+        values = [
+            clean[column]
+            for column in columns
+        ]
+
+        cursor.execute(
+            f"""
+            INSERT INTO `{table}`
+            ({column_sql})
+            VALUES ({placeholders})
+            """,
+            values
+        )
+
+        record_id = cursor.lastrowid
+
+        insert_audit_log(
+            cursor=cursor,
+            action="CREATE",
+            record_type=config["label"],
+            record_id=record_id,
+            record_name=clean.get(config["name"]),
+            actor_id=actor_id,
+            details="Created through Maintenance."
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Record added successfully.",
+            "id": record_id
+        }), 201
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "MAINTENANCE ADD ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": "Unable to add record.",
+            "details": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# UPDATE RECORD
+# ============================================================
+
+@app.route(
+    "/api/maintenance/<string:resource>/<int:record_id>",
+    methods=["PUT"]
+)
+def maintenance_update_record(
+    resource,
+    record_id
+):
+
+    if resource not in MAINTENANCE_TABLES:
+
+        return jsonify({
+            "status": "error",
+            "message": "Invalid maintenance resource."
+        }), 404
+
+    data = request.get_json(silent=True) or {}
+
+    try:
+
+        clean = maintenance_validate_payload(
+            resource,
+            data,
+            partial=True
+        )
+
+    except ValueError as e:
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+    if not clean:
+
+        return jsonify({
+            "status": "error",
+            "message": "No fields to update."
+        }), 400
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        actor_id = maintenance_get_actor_id(data)
+
+        if not maintenance_require_admin(
+            cursor,
+            actor_id
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": "Admin access required."
+            }), 403
+
+        config = MAINTENANCE_TABLES[resource]
+
+        table = config["table"]
+
+        cursor.execute(
+            f"""
+            SELECT *
+            FROM `{table}`
+            WHERE id = %s
+            LIMIT 1
+            """,
+            (record_id,)
+        )
+
+        old_record = cursor.fetchone()
+
+        if not old_record:
+
+            return jsonify({
+                "status": "error",
+                "message": "Record not found."
+            }), 404
+
+        # Validate trainer
+        if resource == "trainer-plans":
+
+            trainer_id = clean.get(
+                "trainer_id",
+                old_record["trainer_id"]
+            )
+
+            if not maintenance_validate_trainer(
+                cursor,
+                trainer_id
+            ):
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Selected trainer does not exist."
+                }), 400
+
+        # Duplicate check
+        if maintenance_check_duplicate(
+            cursor,
+            resource,
+            clean,
+            record_id,
+            old_record
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": "Record name already exists."
+            }), 409
+
+        assignments = ", ".join(
+            f"`{column}` = %s"
+            for column in clean.keys()
+        )
+
+        values = list(clean.values())
+        values.append(record_id)
+
+        cursor.execute(
+            f"""
+            UPDATE `{table}`
+            SET {assignments}
+            WHERE id = %s
+            """,
+            values
+        )
+
+        insert_audit_log(
+            cursor=cursor,
+            action="UPDATE",
+            record_type=config["label"],
+            record_id=record_id,
+            record_name=clean.get(
+                config["name"],
+                old_record.get(config["name"])
+            ),
+            actor_id=actor_id,
+            details="Updated through Maintenance."
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Record updated successfully."
+        }), 200
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "MAINTENANCE UPDATE ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": "Unable to update record.",
+            "details": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# ACTIVATE / DEACTIVATE
+# Matches existing frontend:
+# PATCH /api/maintenance/<resource>/<id>/status
+# ============================================================
+
+@app.route(
+    "/api/maintenance/<string:resource>/<int:record_id>/status",
+    methods=["PATCH"]
+)
+def maintenance_update_status(
+    resource,
+    record_id
+):
+
+    if resource not in MAINTENANCE_TABLES:
+
+        return jsonify({
+            "status": "error",
+            "message": "Invalid maintenance resource."
+        }), 404
+
+    data = request.get_json(silent=True) or {}
+
+    config = MAINTENANCE_TABLES[resource]
+
+    status_field = config["status"]
+
+    if status_field not in data:
+
+        return jsonify({
+            "status": "error",
+            "message": "Status value is required."
+        }), 400
+
+    try:
+
+        status_value = maintenance_validate_status(
+            data[status_field],
+            status_field
+        )
+
+    except ValueError as e:
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        actor_id = maintenance_get_actor_id(data)
+
+        if not maintenance_require_admin(
+            cursor,
+            actor_id
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": "Admin access required."
+            }), 403
+
+        table = config["table"]
+
+        cursor.execute(
+            f"""
+            SELECT *
+            FROM `{table}`
+            WHERE id = %s
+            LIMIT 1
+            """,
+            (record_id,)
+        )
+
+        record = cursor.fetchone()
+
+        if not record:
+
+            return jsonify({
+                "status": "error",
+                "message": "Record not found."
+            }), 404
+
+        cursor.execute(
+            f"""
+            UPDATE `{table}`
+            SET `{status_field}` = %s
+            WHERE id = %s
+            """,
+            (
+                status_value,
+                record_id
+            )
+        )
+
+        action = (
+            "ACTIVATE"
+            if status_value in (1, "active")
+            else "DEACTIVATE"
+        )
+
+        insert_audit_log(
+            cursor=cursor,
+            action=action,
+            record_type=config["label"],
+            record_id=record_id,
+            record_name=record.get(config["name"]),
+            actor_id=actor_id,
+            details="Status changed through Maintenance."
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Status updated successfully.",
+            "new_status": status_value
+        }), 200
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "MAINTENANCE STATUS ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": "Unable to update status.",
+            "details": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# DELETE RECORD
+# ============================================================
+
+@app.route(
+    "/api/maintenance/<string:resource>/<int:record_id>",
+    methods=["DELETE"]
+)
+def maintenance_delete_record(
+    resource,
+    record_id
+):
+
+    if resource not in MAINTENANCE_TABLES:
+
+        return jsonify({
+            "status": "error",
+            "message": "Invalid maintenance resource."
+        }), 404
+
+    data = request.get_json(silent=True) or {}
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        actor_id = maintenance_get_actor_id(data)
+
+        if not maintenance_require_admin(
+            cursor,
+            actor_id
+        ):
+
+            return jsonify({
+                "status": "error",
+                "message": "Admin access required."
+            }), 403
+
+        config = MAINTENANCE_TABLES[resource]
+
+        table = config["table"]
+
+        cursor.execute(
+            f"""
+            SELECT *
+            FROM `{table}`
+            WHERE id = %s
+            LIMIT 1
+            """,
+            (record_id,)
+        )
+
+        record = cursor.fetchone()
+
+        if not record:
+
+            return jsonify({
+                "status": "error",
+                "message": "Record not found."
+            }), 404
+
+        # Check declared foreign key references
+        in_use, child_table = maintenance_check_references(
+            cursor,
+            table,
+            record_id
+        )
+
+        if in_use:
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    f"This record is being used by {child_table}. "
+                    "Deactivate it instead."
+                )
+            }), 409
+
+        cursor.execute(
+            f"""
+            DELETE FROM `{table}`
+            WHERE id = %s
+            """,
+            (record_id,)
+        )
+
+        insert_audit_log(
+            cursor=cursor,
+            action="DELETE",
+            record_type=config["label"],
+            record_id=record_id,
+            record_name=record.get(config["name"]),
+            actor_id=actor_id,
+            details="Deleted through Maintenance."
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Record deleted successfully."
+        }), 200
+
+    except pymysql.err.IntegrityError:
+
+        if conn:
+            conn.rollback()
+
+        return jsonify({
+            "status": "error",
+            "message": (
+                "This record is referenced by another database record. "
+                "Deactivate it instead."
+            )
+        }), 409
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print(
+            "MAINTENANCE DELETE ERROR:",
+            e
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": "Unable to delete record.",
+            "details": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()           
 @app.route(
     "/api/member/workout/<int:workout_id>/complete",
     methods=["POST"]
