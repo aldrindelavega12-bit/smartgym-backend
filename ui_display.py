@@ -62,6 +62,36 @@ class UIDisplay:
         cv2.line(frame, (x2,y2), (x2-l,y2), color, t)
         cv2.line(frame, (x2,y2), (x2,y2-l), color, t)
 
+    
+    # =========================
+    # RESIZE - SAME AS LOCKER
+    # =========================
+    def resize_keep_aspect(self, frame, target_w=480, target_h=800):
+
+        h, w = frame.shape[:2]
+
+        target_ratio = target_w / target_h
+        frame_ratio = w / h
+
+        if frame_ratio > target_ratio:
+            # Crop left and right
+            new_w = int(h * target_ratio * 1.15)
+            x1 = (w - new_w) // 2
+            frame = frame[:, x1:x1 + new_w]
+
+        else:
+            # Crop top and bottom
+            new_h = int(w / target_ratio * 1.15)
+            y1 = (h - new_h) // 2
+            frame = frame[y1:y1 + new_h, :]
+
+        return cv2.resize(
+            frame,
+            (target_w, target_h),
+            interpolation=cv2.INTER_AREA
+        )
+
+
     def run(self):
 
         cv2.namedWindow("Turnstile", cv2.WINDOW_NORMAL)
@@ -109,11 +139,8 @@ class UIDisplay:
                 with self.frame_lock:
                     self.frame = frame.copy()
 
-            # =========================
-            # RESIZE (PORTRAIT)
-            # =========================
-            frame = cv2.resize(frame, (480, 800))
-
+           
+            frame = self.resize_keep_aspect(frame, 480, 800)
             # =========================
             # DARK OVERLAY
             # =========================

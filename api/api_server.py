@@ -20676,52 +20676,61 @@ def get_members_list():
 
     return jsonify(result)
 
+
 @app.route("/api/book_locker", methods=["POST"])
 def book_locker():
 
+    conn = None
+    cursor = None
+
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
 
         print("BOOK DATA:", data)
 
         user_id = data.get("user_id")
         locker = data.get("locker")
-        date = data.get("date")
-
-        # 🔥 NEW FORMAT
+        booking_date = data.get("date")
         start_time = data.get("start_time")
         end_time = data.get("end_time")
-        
-        
 
-        # =========================
-        # VALIDATE
-        # =========================
-        if not start_time or not end_time:
+        # =====================================
+        # VALIDATE REQUIRED DATA
+        # =====================================
 
+        if not all([
+            user_id,
+            locker,
+            booking_date,
+            start_time,
+            end_time
+        ]):
             return jsonify({
                 "status": "error",
-                "message": "Missing time"
-            })
+                "message": "Missing booking information."
+            }), 400
 
         conn = get_connection()
         cursor = conn.cursor()
 
-        # =========================
-        # CHECK OVERLAP
-        # =========================
+        # =====================================
+        # CHECK OVERLAPPING BOOKINGS
+        # =====================================
+
         cursor.execute("""
-            SELECT *
+            SELECT id
             FROM locker_bookings
-            WHERE locker_number=%s
-            AND date=%s
-            AND status IN ('PENDING','APPROVED')
-            AND (
-                (%s < end_time AND %s > start_time)
-            )
+            WHERE locker_number = %s
+              AND date = %s
+              AND status IN ('PENDING', 'APPROVED')
+              AND (
+                    %s < end_time
+                    AND %s > start_time
+              )
+            LIMIT 1
         """, (
             locker,
-            date,
+            booking_date,
             start_time,
             end_time
         ))
@@ -20729,15 +20738,17 @@ def book_locker():
         existing = cursor.fetchone()
 
         if existing:
+            conn.rollback()
 
             return jsonify({
                 "status": "error",
-                "message": "Time overlaps with existing booking"
-            })
+                "message": "This locker is already booked for the selected time."
+            }), 409
 
-        # =========================
-        # INSERT
-        # =========================
+        # =====================================
+        # INSERT BOOKING - AUTO APPROVED
+        # =====================================
+
         cursor.execute("""
             INSERT INTO locker_bookings
             (
@@ -20748,22 +20759,22 @@ def book_locker():
                 end_time,
                 status
             )
-            VALUES (%s,%s,%s,%s,%s,'PENDING')
+            VALUES (%s, %s, %s, %s, %s, 'APPROVED')
         """, (
             user_id,
             locker,
-            date,
+            booking_date,
             start_time,
             end_time
         ))
 
-        conn.commit()
-        
-        # =========================
-        # ADMIN MESSAGE
-        # =========================
-        cursor.execute("""
+        booking_id = cursor.lastrowid
 
+        # =====================================
+        # SEND ADMIN NOTIFICATION
+        # =====================================
+
+        cursor.execute("""
             INSERT INTO messages
             (
                 user_id,
@@ -20771,42 +20782,64 @@ def book_locker():
                 message,
                 reason
             )
-
-            VALUES (%s,%s,%s,%s)
-
+            VALUES (%s, %s, %s, %s)
         """, (
-
             "ADMIN",
-
             "NEW BOOKING",
-
-            f"{user_id} booked Locker {locker} ({format_time(start_time)} - {format_time(end_time)})",
-
+            (
+                f"{user_id} booked Locker {locker} "
+                f"({format_time(start_time)} - "
+                f"{format_time(end_time)})"
+            ),
             "-"
-
         ))
+
+        # =====================================
+        # COMMIT BOTH OPERATIONS
+        # =====================================
+
         conn.commit()
-        
+
+        # =====================================
+        # NOTIFY CONNECTED CLIENTS
+        # =====================================
+
         socketio.emit(
             "new_booking",
             {
-                "message": "New booking received"
+                "message": "New confirmed booking received",
+                "booking_id": booking_id
             }
         )
 
         return jsonify({
             "status": "success",
-            "message": "Booking submitted"
-        })
+            "message": "Locker booking confirmed!",
+            "booking_id": booking_id,
+            "booking_status": "APPROVED"
+        }), 200
 
     except Exception as e:
 
-        print("BOOK ERROR:", e)
+        if conn:
+            conn.rollback()
+
+        print("BOOK ERROR:", repr(e))
 
         return jsonify({
             "status": "error",
-            "message": str(e)
-        })
+            "message": "Unable to process locker booking.",
+            "error": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
     
 @app.route("/api/admin_messages")
 def admin_messages():
