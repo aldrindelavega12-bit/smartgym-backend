@@ -220,3 +220,62 @@ def handle_member_deleted(payload, fp_manager):
 
         cursor.close()
         connection.close()
+def handle_member_locker_assigned(payload):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+
+        member_id = payload["member_id"]
+        locker_number = payload["locker_number"]
+
+        # Check if this member already has a RESERVED session
+        cursor.execute(
+            """
+            SELECT id
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND status = 'RESERVED'
+            LIMIT 1
+            """,
+            (member_id, locker_number)
+        )
+
+        existing = cursor.fetchone()
+
+        if not existing:
+
+            cursor.execute(
+                """
+                INSERT INTO locker_sessions (
+                    user_id,
+                    locker_number,
+                    status
+                )
+                VALUES (%s, %s, 'RESERVED')
+                """,
+                (member_id, locker_number)
+            )
+
+        connection.commit()
+
+        return {
+            "success": True,
+            "message": "Member locker reserved."
+        }
+
+    except Exception as e:
+
+        connection.rollback()
+
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+    finally:
+
+        cursor.close()
+        connection.close()
