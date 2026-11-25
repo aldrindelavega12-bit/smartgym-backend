@@ -1825,6 +1825,14 @@ def missed_member_workout(workout_id):
 # No trainer payment
 # =========================================================
 
+# =========================================================
+# MEMBER PROGRAM ONLY
+# MULTIPLE ACTIVE PROGRAMS
+# WITH AUTOMATIC WORKOUT SCHEDULE
+# No trainer assignment
+# No trainer payment
+# =========================================================
+
 @app.route(
     "/api/member/program-only",
     methods=["POST"]
@@ -1916,31 +1924,6 @@ def create_member_program_only():
                 "status": "error",
                 "message": "Member not found."
             }), 404
-
-        # =================================================
-        # CHECK EXISTING ACTIVE PROGRAM
-        # =================================================
-
-        cursor.execute("""
-            SELECT id
-            FROM member_programs
-            WHERE member_id = %s
-              AND status = 'active'
-            LIMIT 1
-            FOR UPDATE
-        """, (member_id,))
-
-        existing_program = cursor.fetchone()
-
-        if existing_program:
-            conn.rollback()
-
-            return jsonify({
-                "status": "error",
-                "message": (
-                    "You already have an active program."
-                )
-            }), 409
 
         # =================================================
         # VERIFY PROGRAM
@@ -2087,36 +2070,10 @@ def create_member_program_only():
             }), 400
 
         # =================================================
-        # CHECK EXISTING NO-TRAINER SCHEDULE
-        #
-        # This query assumes trainer_id accepts NULL.
-        # =================================================
-
-        cursor.execute("""
-            SELECT COUNT(*) AS schedule_count
-            FROM trainer_workout_schedule
-            WHERE member_id = %s
-              AND trainer_id IS NULL
-        """, (member_id,))
-
-        existing_schedule = cursor.fetchone()
-
-        if (
-            existing_schedule
-            and existing_schedule["schedule_count"] > 0
-        ):
-            conn.rollback()
-
-            return jsonify({
-                "status": "error",
-                "message": (
-                    "A no-trainer workout schedule "
-                    "already exists for this member."
-                )
-            }), 409
-
-        # =================================================
         # SAVE MEMBER PROGRAM
+        #
+        # MULTIPLE ACTIVE PROGRAMS ARE ALLOWED.
+        # Each program gets its own member_program_id.
         # =================================================
 
         cursor.execute("""
@@ -2140,8 +2097,11 @@ def create_member_program_only():
         # =================================================
         # GENERATE 365-DAY WORKOUT SCHEDULE
         #
-        # Starts on the member's selected start date.
-        # Independent of trainer payments and assignments.
+        # Every schedule row is linked to its own
+        # member_program_id.
+        #
+        # Independent of trainer payments
+        # and trainer assignments.
         # =================================================
 
         generated_count = 0
@@ -2162,12 +2122,14 @@ def create_member_program_only():
             cursor.execute("""
                 INSERT INTO trainer_workout_schedule (
                     member_id,
+                    member_program_id,
                     trainer_id,
                     workout_date,
                     workout_name,
                     status
                 )
                 VALUES (
+                    %s,
                     %s,
                     NULL,
                     %s,
@@ -2176,6 +2138,7 @@ def create_member_program_only():
                 )
             """, (
                 member_id,
+                member_program_id,
                 workout_date,
                 workout["workout_name"]
             ))
