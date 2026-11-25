@@ -266,4 +266,4 @@ def handle_member_locker_assigned(payload):
 
     finally:
         cursor.close()
-        connection.close()s 
+        connection.close()

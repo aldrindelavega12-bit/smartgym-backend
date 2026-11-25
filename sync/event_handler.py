@@ -1,8 +1,9 @@
+
 from sync.member_handler import (
     handle_member_created,
-    handle_member_deleted
+    handle_member_deleted,
+    handle_member_locker_assigned
 )
-
 from sync.payment_handler import (
     handle_payment_updated
 )
@@ -52,7 +53,7 @@ HANDLERS = {
     "LOCKER_OVERTIME_PAID": handle_locker_overtime_paid,
 
     "FP_SYNC": handle_fp_sync,
-
+	"MEMBER_LOCKER_ASSIGNED": handle_member_locker_assigned,
     "ACTIVATION_CREATED": handle_activation_created,
     
      "TRAINER_ASSIGNMENT_CREATED":
