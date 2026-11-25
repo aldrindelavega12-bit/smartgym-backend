@@ -63,7 +63,109 @@ socketio = SocketIO(
 API_KEY = "GYM_MASTER_2026"
 RENDER_API = "https://smartgym-api-ia2e.onrender.com"
 
-#
+
+
+@app.route("/api/locker/current-usage", methods=["GET"])
+def get_current_locker_usage():
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        cursor.execute("""
+            SELECT
+                ls.id,
+                ls.user_id,
+                ls.locker_number,
+                ls.start_time,
+                ls.end_time,
+                ls.overtime_paid,
+                ls.status,
+
+                COALESCE(
+                    m.full_name,
+                    w.full_name,
+                    ls.user_id
+                ) AS member_name
+
+            FROM locker_sessions ls
+
+            LEFT JOIN members m
+                ON CONVERT(ls.user_id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
+                   =
+                   CONVERT(m.id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
+
+            LEFT JOIN walkins w
+                ON CONVERT(ls.user_id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
+                   =
+                   CONVERT(w.id USING utf8mb4)
+                   COLLATE utf8mb4_general_ci
+
+            WHERE LOWER(ls.status) IN ('active', 'overtime')
+              AND ls.end_time IS NULL
+
+            ORDER BY ls.start_time DESC
+        """)
+
+        rows = cursor.fetchall()
+
+        sessions = []
+
+        for row in rows:
+
+            start_time = row["start_time"]
+            end_time = row["end_time"]
+
+            sessions.append({
+                "session_id": row["id"],
+                "member_id": str(row["user_id"]),
+                "member_name": row["member_name"] or "Unknown Member",
+                "locker_number": row["locker_number"],
+                "start_time": (
+                    start_time.strftime("%Y-%m-%d %H:%M:%S")
+                    if start_time else None
+                ),
+                "end_time": (
+                    end_time.strftime("%Y-%m-%d %H:%M:%S")
+                    if end_time else None
+                ),
+                "overtime_paid": row["overtime_paid"],
+                "status": str(row["status"]).upper()
+            })
+
+        return jsonify({
+            "success": True,
+            "total": len(sessions),
+            "sessions": sessions
+        }), 200
+
+    except Exception as e:
+
+        print("CURRENT LOCKER USAGE API ERROR:", repr(e))
+
+        return jsonify({
+            "success": False,
+            "message": str(e),
+            "sessions": []
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+
+
  # ============================================================
 # SMART GYM - MAINTENANCE BACKEND
 # PROGRAMS
@@ -18013,6 +18115,7 @@ def pending_completed():
     })
 
 
+
 @app.route("/api/local/activate_member", methods=["POST"])
 def activate_member():
 
@@ -18021,7 +18124,7 @@ def activate_member():
     account_id = data["account_id"]
     member_id = data["member_id"]
 
-    print("\n========== ACTIVATE MEMBER ==========")
+    print("\n========== LOCAL ACTIVATE MEMBER ==========")
     print("ACCOUNT_ID:", account_id)
     print("MEMBER_ID :", member_id)
 
@@ -18030,7 +18133,10 @@ def activate_member():
 
     try:
 
-        # Database information
+        # ==========================================
+        # CHECK DATABASE CONNECTION
+        # ==========================================
+
         cursor.execute("""
             SELECT
                 @@hostname,
@@ -18038,102 +18144,47 @@ def activate_member():
                 DATABASE(),
                 @@socket
         """)
+
         print("CONNECTED TO:", cursor.fetchone())
 
-        # Before update
+        # ==========================================
+        # CHECK EXISTING ACCOUNT
+        # ==========================================
+
         cursor.execute("""
             SELECT
                 id,
                 user_id,
                 role
             FROM user_accounts
-            WHERE id=%s
+            WHERE id = %s
         """, (account_id,))
 
-        print("BEFORE UPDATE:", cursor.fetchone())
+        account = cursor.fetchone()
+
+        print("BEFORE UPDATE:", account)
+
+        if not account:
+            raise Exception(
+                f"Account ID {account_id} was not found."
+            )
 
         # ==========================================
-        # UPDATE PRE-MEMBER ACCOUNT TO MEMBER
+        # ACTIVATE PRE-MEMBER ACCOUNT
         # ==========================================
 
         cursor.execute("""
             UPDATE user_accounts
             SET
-                user_id=%s,
-                role='member'
-            WHERE id=%s
+                user_id = %s,
+                role = 'member'
+            WHERE id = %s
         """, (member_id, account_id))
 
         print("ROWS UPDATED:", cursor.rowcount)
 
         # ==========================================
-        # DEFAULT MODULES FOR MEMBER
-        # ==========================================
-
-        default_modules = [
-            "dashboard",
-            "messages",
-            "program",
-            "get_program",
-            "book_locker",
-            "membership"
-        ]
-
-        for module_key in default_modules:
-
-            cursor.execute("""
-                SELECT id
-                FROM modules
-                WHERE module_key = %s
-                  AND active = 1
-                LIMIT 1
-            """, (module_key,))
-
-            module = cursor.fetchone()
-
-            if not module:
-                raise Exception(
-                    f"Active module '{module_key}' was not found."
-                )
-
-            module_id = module["id"]
-
-            # Check existing module access using MEMBER ID
-            cursor.execute("""
-                SELECT id
-                FROM user_module_access
-                WHERE user_id = %s
-                  AND module_id = %s
-                LIMIT 1
-            """, (member_id, module_id))
-
-            existing = cursor.fetchone()
-
-            if existing:
-
-                cursor.execute("""
-                    UPDATE user_module_access
-                    SET has_access = 1
-                    WHERE id = %s
-                """, (existing["id"],))
-
-            else:
-
-                cursor.execute("""
-                    INSERT INTO user_module_access
-                    (
-                        user_id,
-                        module_id,
-                        has_access
-                    )
-                    VALUES (%s, %s, 1)
-                """, (
-                    member_id,
-                    module_id
-                ))
-
-        # ==========================================
-        # AFTER UPDATE
+        # VERIFY ACCOUNT UPDATE
         # ==========================================
 
         cursor.execute("""
@@ -18142,24 +18193,30 @@ def activate_member():
                 user_id,
                 role
             FROM user_accounts
-            WHERE id=%s
+            WHERE id = %s
         """, (account_id,))
 
-        print("AFTER UPDATE:", cursor.fetchone())
+        updated_account = cursor.fetchone()
+
+        print("AFTER UPDATE:", updated_account)
 
         conn.commit()
+
+        print("LOCAL ACTIVATION SUCCESSFUL")
 
         return jsonify({
             "success": True,
             "message": "Pre-Member successfully activated as Member.",
-            "modules": default_modules
+            "account_id": account_id,
+            "member_id": member_id,
+            "role": "member"
         })
 
     except Exception as e:
 
         conn.rollback()
 
-        print("ACTIVATION ERROR:", str(e))
+        print("LOCAL ACTIVATION ERROR:", str(e))
 
         return jsonify({
             "success": False,
@@ -18170,7 +18227,6 @@ def activate_member():
 
         cursor.close()
         conn.close()
-
 
 
 
