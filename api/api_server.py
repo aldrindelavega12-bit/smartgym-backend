@@ -165,6 +165,744 @@ def get_current_locker_usage():
 
 
 
+# ============================================================
+# PROGRAM SPLIT / PLAN DAY / BODY PART MAINTENANCE API
+# Uses existing tables:
+# program_plans
+# plan_days
+# plan_day_body_parts
+# ============================================================
+
+def program_maintenance_admin(cursor, data=None):
+    actor_id = maintenance_get_actor_id(data)
+
+    if not maintenance_require_admin(cursor, actor_id):
+        return False
+
+    return True
+
+
+def program_maintenance_error(message, status=400):
+    return jsonify({
+        "status": "error",
+        "message": message
+    }), status
+
+
+# ============================================================
+# SPLITS - GET / ADD
+# ============================================================
+
+@app.route(
+    "/api/maintenance/programs/<int:program_id>/splits",
+    methods=["GET", "POST"]
+)
+def maintenance_program_splits(program_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if not program_maintenance_admin(cursor, data):
+            return program_maintenance_error(
+                "Admin access required.", 403
+            )
+
+        cursor.execute("""
+            SELECT id, program_name
+            FROM programs
+            WHERE id = %s
+            LIMIT 1
+        """, (program_id,))
+
+        program = cursor.fetchone()
+
+        if not program:
+            return program_maintenance_error(
+                "Program not found.", 404
+            )
+
+        if request.method == "GET":
+
+            cursor.execute("""
+                SELECT
+                    id,
+                    program_id,
+                    plan_name,
+                    description,
+                    active,
+                    created_at
+                FROM program_plans
+                WHERE program_id = %s
+                ORDER BY id ASC
+            """, (program_id,))
+
+            return jsonify({
+                "status": "success",
+                "data": cursor.fetchall()
+            }), 200
+
+        plan_name = str(
+            data.get("plan_name") or ""
+        ).strip()
+
+        description = data.get("description")
+
+        if not plan_name:
+            return program_maintenance_error(
+                "Split name is required."
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM program_plans
+            WHERE program_id = %s
+              AND LOWER(plan_name) = LOWER(%s)
+            LIMIT 1
+        """, (program_id, plan_name))
+
+        if cursor.fetchone():
+            return program_maintenance_error(
+                "Split already exists in this program.", 409
+            )
+
+        cursor.execute("""
+            INSERT INTO program_plans
+                (program_id, plan_name, description, active)
+            VALUES (%s, %s, %s, 1)
+        """, (
+            program_id,
+            plan_name,
+            description
+        ))
+
+        split_id = cursor.lastrowid
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Split added successfully.",
+            "id": split_id
+        }), 201
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("MAINTENANCE SPLIT ERROR:", repr(e))
+
+        return program_maintenance_error(
+            "Unable to process split.", 500
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# SPLITS - EDIT / DELETE (DELETE = SOFT DEACTIVATE)
+# ============================================================
+
+@app.route(
+    "/api/maintenance/splits/<int:split_id>",
+    methods=["PUT", "DELETE"]
+)
+def maintenance_edit_split(split_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if not program_maintenance_admin(cursor, data):
+            return program_maintenance_error(
+                "Admin access required.", 403
+            )
+
+        cursor.execute("""
+            SELECT id, program_id, plan_name
+            FROM program_plans
+            WHERE id = %s
+            LIMIT 1
+        """, (split_id,))
+
+        split = cursor.fetchone()
+
+        if not split:
+            return program_maintenance_error(
+                "Split not found.", 404
+            )
+
+        if request.method == "DELETE":
+
+            cursor.execute("""
+                UPDATE program_plans
+                SET active = 0
+                WHERE id = %s
+            """, (split_id,))
+
+            conn.commit()
+
+            return jsonify({
+                "status": "success",
+                "message": "Split deactivated."
+            }), 200
+
+        plan_name = str(
+            data.get("plan_name", split["plan_name"]) or ""
+        ).strip()
+
+        description = data.get(
+            "description",
+            None
+        )
+
+        if not plan_name:
+            return program_maintenance_error(
+                "Split name is required."
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM program_plans
+            WHERE program_id = %s
+              AND LOWER(plan_name) = LOWER(%s)
+              AND id <> %s
+            LIMIT 1
+        """, (
+            split["program_id"],
+            plan_name,
+            split_id
+        ))
+
+        if cursor.fetchone():
+            return program_maintenance_error(
+                "Split name already exists.", 409
+            )
+
+        if "description" not in data:
+            cursor.execute("""
+                UPDATE program_plans
+                SET plan_name = %s
+                WHERE id = %s
+            """, (plan_name, split_id))
+        else:
+            cursor.execute("""
+                UPDATE program_plans
+                SET plan_name = %s,
+                    description = %s
+                WHERE id = %s
+            """, (
+                plan_name,
+                description,
+                split_id
+            ))
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Split updated successfully."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("EDIT SPLIT ERROR:", repr(e))
+
+        return program_maintenance_error(
+            "Unable to update split.", 500
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# PLAN DAYS - GET / ADD
+# ============================================================
+
+@app.route(
+    "/api/maintenance/splits/<int:split_id>/days",
+    methods=["GET", "POST"]
+)
+def maintenance_split_days(split_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if not program_maintenance_admin(cursor, data):
+            return program_maintenance_error(
+                "Admin access required.", 403
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM program_plans
+            WHERE id = %s
+            LIMIT 1
+        """, (split_id,))
+
+        if not cursor.fetchone():
+            return program_maintenance_error(
+                "Split not found.", 404
+            )
+
+        if request.method == "GET":
+
+            cursor.execute("""
+                SELECT
+                    id,
+                    plan_id,
+                    day_number,
+                    day_name,
+                    active
+                FROM plan_days
+                WHERE plan_id = %s
+                ORDER BY day_number ASC
+            """, (split_id,))
+
+            return jsonify({
+                "status": "success",
+                "data": cursor.fetchall()
+            }), 200
+
+        try:
+            day_number = int(data.get("day_number"))
+        except (TypeError, ValueError):
+            return program_maintenance_error(
+                "Valid day number is required."
+            )
+
+        day_name = str(
+            data.get("day_name") or ""
+        ).strip()
+
+        if day_number <= 0 or not day_name:
+            return program_maintenance_error(
+                "Day number and day name are required."
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM plan_days
+            WHERE plan_id = %s
+              AND day_number = %s
+            LIMIT 1
+        """, (split_id, day_number))
+
+        if cursor.fetchone():
+            return program_maintenance_error(
+                "Day number already exists in this split.", 409
+            )
+
+        cursor.execute("""
+            INSERT INTO plan_days
+                (plan_id, day_number, day_name, active)
+            VALUES (%s, %s, %s, 1)
+        """, (
+            split_id,
+            day_number,
+            day_name
+        ))
+
+        day_id = cursor.lastrowid
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Plan day added successfully.",
+            "id": day_id
+        }), 201
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("PLAN DAY ERROR:", repr(e))
+
+        return program_maintenance_error(
+            "Unable to process plan day.", 500
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# PLAN DAYS - EDIT / DELETE (DELETE = SOFT DEACTIVATE)
+# ============================================================
+
+@app.route(
+    "/api/maintenance/plan-days/<int:day_id>",
+    methods=["PUT", "DELETE"]
+)
+def maintenance_edit_plan_day(day_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if not program_maintenance_admin(cursor, data):
+            return program_maintenance_error(
+                "Admin access required.", 403
+            )
+
+        cursor.execute("""
+            SELECT id, plan_id, day_number, day_name
+            FROM plan_days
+            WHERE id = %s
+            LIMIT 1
+        """, (day_id,))
+
+        day = cursor.fetchone()
+
+        if not day:
+            return program_maintenance_error(
+                "Plan day not found.", 404
+            )
+
+        if request.method == "DELETE":
+
+            cursor.execute("""
+                UPDATE plan_days
+                SET active = 0
+                WHERE id = %s
+            """, (day_id,))
+
+            conn.commit()
+
+            return jsonify({
+                "status": "success",
+                "message": "Plan day deactivated."
+            }), 200
+
+        try:
+            day_number = int(
+                data.get("day_number", day["day_number"])
+            )
+        except (TypeError, ValueError):
+            return program_maintenance_error(
+                "Invalid day number."
+            )
+
+        day_name = str(
+            data.get("day_name", day["day_name"]) or ""
+        ).strip()
+
+        if day_number <= 0 or not day_name:
+            return program_maintenance_error(
+                "Day number and day name are required."
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM plan_days
+            WHERE plan_id = %s
+              AND day_number = %s
+              AND id <> %s
+            LIMIT 1
+        """, (
+            day["plan_id"],
+            day_number,
+            day_id
+        ))
+
+        if cursor.fetchone():
+            return program_maintenance_error(
+                "Day number already exists.", 409
+            )
+
+        cursor.execute("""
+            UPDATE plan_days
+            SET day_number = %s,
+                day_name = %s
+            WHERE id = %s
+        """, (
+            day_number,
+            day_name,
+            day_id
+        ))
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Plan day updated successfully."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("EDIT PLAN DAY ERROR:", repr(e))
+
+        return program_maintenance_error(
+            "Unable to update plan day.", 500
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# BODY PARTS - GET / ADD
+# ============================================================
+
+@app.route(
+    "/api/maintenance/plan-days/<int:day_id>/body-parts",
+    methods=["GET", "POST"]
+)
+def maintenance_plan_day_body_parts(day_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if not program_maintenance_admin(cursor, data):
+            return program_maintenance_error(
+                "Admin access required.", 403
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM plan_days
+            WHERE id = %s
+            LIMIT 1
+        """, (day_id,))
+
+        if not cursor.fetchone():
+            return program_maintenance_error(
+                "Plan day not found.", 404
+            )
+
+        if request.method == "GET":
+
+            cursor.execute("""
+                SELECT
+                    id,
+                    plan_day_id,
+                    body_part,
+                    active
+                FROM plan_day_body_parts
+                WHERE plan_day_id = %s
+                ORDER BY id ASC
+            """, (day_id,))
+
+            return jsonify({
+                "status": "success",
+                "data": cursor.fetchall()
+            }), 200
+
+        body_part = str(
+            data.get("body_part") or ""
+        ).strip()
+
+        if not body_part:
+            return program_maintenance_error(
+                "Body part is required."
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM plan_day_body_parts
+            WHERE plan_day_id = %s
+              AND LOWER(body_part) = LOWER(%s)
+              AND active = 1
+            LIMIT 1
+        """, (day_id, body_part))
+
+        if cursor.fetchone():
+            return program_maintenance_error(
+                "Body part already exists for this day.", 409
+            )
+
+        cursor.execute("""
+            INSERT INTO plan_day_body_parts
+                (plan_day_id, body_part, active)
+            VALUES (%s, %s, 1)
+        """, (
+            day_id,
+            body_part
+        ))
+
+        body_part_id = cursor.lastrowid
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Body part added successfully.",
+            "id": body_part_id
+        }), 201
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("BODY PART ERROR:", repr(e))
+
+        return program_maintenance_error(
+            "Unable to process body part.", 500
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# BODY PARTS - EDIT / DELETE (DELETE = SOFT DEACTIVATE)
+# ============================================================
+
+@app.route(
+    "/api/maintenance/body-parts/<int:body_part_id>",
+    methods=["PUT", "DELETE"]
+)
+def maintenance_edit_body_part(body_part_id):
+
+    conn = None
+    cursor = None
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if not program_maintenance_admin(cursor, data):
+            return program_maintenance_error(
+                "Admin access required.", 403
+            )
+
+        cursor.execute("""
+            SELECT id, plan_day_id, body_part
+            FROM plan_day_body_parts
+            WHERE id = %s
+            LIMIT 1
+        """, (body_part_id,))
+
+        record = cursor.fetchone()
+
+        if not record:
+            return program_maintenance_error(
+                "Body part not found.", 404
+            )
+
+        if request.method == "DELETE":
+
+            cursor.execute("""
+                UPDATE plan_day_body_parts
+                SET active = 0
+                WHERE id = %s
+            """, (body_part_id,))
+
+            conn.commit()
+
+            return jsonify({
+                "status": "success",
+                "message": "Body part removed."
+            }), 200
+
+        body_part = str(
+            data.get("body_part", record["body_part"]) or ""
+        ).strip()
+
+        if not body_part:
+            return program_maintenance_error(
+                "Body part is required."
+            )
+
+        cursor.execute("""
+            SELECT id
+            FROM plan_day_body_parts
+            WHERE plan_day_id = %s
+              AND LOWER(body_part) = LOWER(%s)
+              AND id <> %s
+              AND active = 1
+            LIMIT 1
+        """, (
+            record["plan_day_id"],
+            body_part,
+            body_part_id
+        ))
+
+        if cursor.fetchone():
+            return program_maintenance_error(
+                "Body part already exists for this day.", 409
+            )
+
+        cursor.execute("""
+            UPDATE plan_day_body_parts
+            SET body_part = %s
+            WHERE id = %s
+        """, (
+            body_part,
+            body_part_id
+        ))
+
+        conn.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Body part updated successfully."
+        }), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print("EDIT BODY PART ERROR:", repr(e))
+
+        return program_maintenance_error(
+            "Unable to update body part.", 500
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 
  # ============================================================
 # SMART GYM - MAINTENANCE BACKEND
