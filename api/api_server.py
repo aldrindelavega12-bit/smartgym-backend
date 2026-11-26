@@ -2575,6 +2575,7 @@ def missed_member_workout(workout_id):
     "/api/member/program-only",
     methods=["POST"]
 )
+
 def create_member_program_only():
 
     conn = None
@@ -2589,7 +2590,7 @@ def create_member_program_only():
         start_date = data.get("start_date")
 
         # =================================================
-        # VALIDATE REQUEST
+        # 1. VALIDATE REQUEST
         # =================================================
 
         if not all([
@@ -2630,7 +2631,7 @@ def create_member_program_only():
             }), 400
 
         # =================================================
-        # DATABASE CONNECTION
+        # 2. DATABASE CONNECTION
         # =================================================
 
         conn = get_connection()
@@ -2642,7 +2643,7 @@ def create_member_program_only():
         conn.begin()
 
         # =================================================
-        # VERIFY MEMBER
+        # 3. VERIFY MEMBER
         # =================================================
 
         cursor.execute("""
@@ -2664,7 +2665,7 @@ def create_member_program_only():
             }), 404
 
         # =================================================
-        # VERIFY PROGRAM
+        # 4. VERIFY PROGRAM
         # =================================================
 
         cursor.execute("""
@@ -2691,7 +2692,7 @@ def create_member_program_only():
             }), 404
 
         # =================================================
-        # VERIFY PROGRAM PLAN
+        # 5. VERIFY PROGRAM PLAN
         # =================================================
 
         cursor.execute("""
@@ -2723,23 +2724,20 @@ def create_member_program_only():
             }), 404
 
         # =================================================
-        # LOAD PLAN DAYS
+        # 6. VALIDATE SELECTED PLAN DAYS
         # =================================================
 
         cursor.execute("""
-            SELECT
-                id AS plan_day_id,
-                day_number,
-                day_name
+            SELECT id, day_name
             FROM plan_days
             WHERE plan_id = %s
               AND active = 1
             ORDER BY day_number ASC
         """, (program_plan_id,))
 
-        plan_days = cursor.fetchall()
+        selected_plan_days = cursor.fetchall()
 
-        if not plan_days:
+        if not selected_plan_days:
             conn.rollback()
 
             return jsonify({
@@ -2751,67 +2749,7 @@ def create_member_program_only():
             }), 400
 
         # =================================================
-        # LOAD BODY PARTS AND BUILD WORKOUT PATTERN
-        # =================================================
-
-        workout_pattern = []
-
-        for plan_day in plan_days:
-
-            day_name = (
-                plan_day.get("day_name") or "Workout"
-            )
-
-            cursor.execute("""
-                SELECT body_part
-                FROM plan_day_body_parts
-                WHERE plan_day_id = %s
-                  AND active = 1
-                ORDER BY id ASC
-            """, (plan_day["plan_day_id"],))
-
-            body_parts = cursor.fetchall()
-
-            body_part_names = [
-                row["body_part"]
-                for row in body_parts
-            ]
-
-            if day_name.strip().lower() == "rest":
-
-                workout_name = "Rest"
-
-            elif body_part_names:
-
-                workout_name = ", ".join(
-                    body_part_names
-                )
-
-            else:
-
-                workout_name = day_name
-
-            workout_pattern.append({
-                "day_number": plan_day["day_number"],
-                "day_name": day_name,
-                "workout_name": workout_name
-            })
-
-        if not workout_pattern:
-            conn.rollback()
-
-            return jsonify({
-                "status": "error",
-                "message": (
-                    "Unable to create workout schedule."
-                )
-            }), 400
-
-        # =================================================
-        # SAVE MEMBER PROGRAM
-        #
-        # MULTIPLE ACTIVE PROGRAMS ARE ALLOWED.
-        # Each program gets its own member_program_id.
+        # 7. SAVE MEMBER PROGRAM
         # =================================================
 
         cursor.execute("""
@@ -2833,16 +2771,194 @@ def create_member_program_only():
         member_program_id = cursor.lastrowid
 
         # =================================================
-        # GENERATE 365-DAY WORKOUT SCHEDULE
+        # 8. GET ALL ACTIVE PROGRAMS OF THIS MEMBER
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                mp.id AS member_program_id,
+                mp.program_id,
+                mp.program_plan_id,
+                mp.start_date,
+                p.program_name,
+                pp.plan_name
+
+            FROM member_programs mp
+
+            JOIN programs p
+                ON p.id = mp.program_id
+
+            JOIN program_plans pp
+                ON pp.id = mp.program_plan_id
+
+            WHERE mp.member_id = %s
+              AND mp.status = 'active'
+
+            ORDER BY mp.id ASC
+        """, (member_id,))
+
+        active_programs = cursor.fetchall()
+
+        if not active_programs:
+            conn.rollback()
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "No active member programs found."
+                )
+            }), 400
+
+        # =================================================
+        # 9. BUILD WORKOUT PATTERN FOR EACH ACTIVE PROGRAM
         #
-        # Every schedule row is linked to its own
-        # member_program_id.
+        # Original body-part sequence is preserved.
+        # Individual Rest entries are skipped because
+        # the combined schedule uses a common Rest Day.
+        # =================================================
+
+        for active_program in active_programs:
+
+            cursor.execute("""
+                SELECT
+                    id AS plan_day_id,
+                    day_number,
+                    day_name
+
+                FROM plan_days
+
+                WHERE plan_id = %s
+                  AND active = 1
+
+                ORDER BY day_number ASC
+            """, (
+                active_program["program_plan_id"],
+            ))
+
+            plan_days = cursor.fetchall()
+
+            program_workouts = []
+
+            for plan_day in plan_days:
+
+                day_name = str(
+                    plan_day.get("day_name") or ""
+                ).strip()
+
+                # Skip the plan's individual Rest Day.
+                if day_name.lower() in (
+                    "rest",
+                    "rest day"
+                ):
+                    continue
+
+                cursor.execute("""
+                    SELECT body_part
+                    FROM plan_day_body_parts
+                    WHERE plan_day_id = %s
+                      AND active = 1
+                    ORDER BY id ASC
+                """, (
+                    plan_day["plan_day_id"],
+                ))
+
+                body_parts = cursor.fetchall()
+
+                body_part_names = [
+                    row["body_part"]
+                    for row in body_parts
+                    if row.get("body_part")
+                ]
+
+                workout_name = (
+                    ", ".join(body_part_names)
+                    if body_part_names
+                    else day_name or "Workout"
+                )
+
+                program_workouts.append({
+                    "day_number": plan_day["day_number"],
+                    "day_name": day_name,
+                    "workout_name": workout_name
+                })
+
+            if not program_workouts:
+                conn.rollback()
+
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        "An active program has no "
+                        "workout days available."
+                    ),
+                    "program_plan_id": (
+                        active_program["program_plan_id"]
+                    ),
+                    "program_plan_name": (
+                        active_program["plan_name"]
+                    )
+                }), 400
+
+            active_program["workouts"] = program_workouts
+            active_program["workout_index"] = 0
+
+            program_start = active_program.get("start_date")
+
+            if isinstance(program_start, str):
+                program_start = datetime.strptime(
+                    program_start[:10],
+                    "%Y-%m-%d"
+                ).date()
+
+            elif hasattr(program_start, "date"):
+                program_start = program_start.date()
+
+            active_program["start_date"] = program_start
+
+        # =================================================
+        # 10. REMOVE ONLY FUTURE AUTO-GENERATED SCHEDULES
         #
-        # Independent of trainer payments
-        # and trainer assignments.
+        # Trainer schedules are untouched.
+        # Completed and missed records are preserved.
+        # =================================================
+
+        cursor.execute("""
+            DELETE FROM trainer_workout_schedule
+
+            WHERE member_id = %s
+              AND trainer_id IS NULL
+              AND status = 'scheduled'
+              AND workout_date >= %s
+        """, (
+            member_id,
+            start_date_obj
+        ))
+
+        # =================================================
+        # 11. GENERATE COMBINED 3 + 1 CYCLE
+        #
+        # Example with two programs:
+        #
+        # Day 1 - Program A Day 1
+        # Day 2 - Program B Day 1
+        # Day 3 - Program A Day 2
+        # Day 4 - REST
+        # Day 5 - Program B Day 2
+        # Day 6 - Program A Day 3
+        # Day 7 - Program B Day 3
+        # Day 8 - REST
+        # Day 9 - Back to Program A Day 1
+        #
         # =================================================
 
         generated_count = 0
+        workout_count = 0
+        rest_count = 0
+
+        program_pointer = 0
+        workouts_since_rest = 0
+
+        total_programs = len(active_programs)
 
         for day_offset in range(365):
 
@@ -2851,11 +2967,90 @@ def create_member_program_only():
                 + timedelta(days=day_offset)
             )
 
-            pattern_index = (
-                day_offset % len(workout_pattern)
+            # ---------------------------------------------
+            # COMMON REST DAY AFTER THREE WORKOUTS
+            # ---------------------------------------------
+
+            if workouts_since_rest == 3:
+
+                rest_program = active_programs[
+                    (program_pointer - 1) % total_programs
+                ]
+
+                cursor.execute("""
+                    INSERT INTO trainer_workout_schedule (
+                        member_id,
+                        member_program_id,
+                        trainer_id,
+                        workout_date,
+                        workout_name,
+                        status
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        NULL,
+                        %s,
+                        'Rest',
+                        'scheduled'
+                    )
+                """, (
+                    member_id,
+                    rest_program["member_program_id"],
+                    workout_date
+                ))
+
+                generated_count += 1
+                rest_count += 1
+
+                workouts_since_rest = 0
+
+                # Do not advance program pointer.
+                continue
+
+            # ---------------------------------------------
+            # FIND NEXT ELIGIBLE ACTIVE PROGRAM
+            # ---------------------------------------------
+
+            selected_program = None
+
+            for attempt in range(total_programs):
+
+                candidate_index = (
+                    program_pointer + attempt
+                ) % total_programs
+
+                candidate = active_programs[
+                    candidate_index
+                ]
+
+                if candidate["start_date"] > workout_date:
+                    continue
+
+                selected_program = candidate
+                program_pointer = candidate_index
+
+                break
+
+            if selected_program is None:
+                continue
+
+            # ---------------------------------------------
+            # GET NEXT WORKOUT FROM SELECTED PROGRAM
+            # ---------------------------------------------
+
+            workouts = selected_program["workouts"]
+
+            workout_index = (
+                selected_program["workout_index"]
+                % len(workouts)
             )
 
-            workout = workout_pattern[pattern_index]
+            workout = workouts[workout_index]
+
+            # ---------------------------------------------
+            # INSERT WORKOUT
+            # ---------------------------------------------
 
             cursor.execute("""
                 INSERT INTO trainer_workout_schedule (
@@ -2876,15 +3071,33 @@ def create_member_program_only():
                 )
             """, (
                 member_id,
-                member_program_id,
+                selected_program["member_program_id"],
                 workout_date,
                 workout["workout_name"]
             ))
 
             generated_count += 1
+            workout_count += 1
+            workouts_since_rest += 1
+
+            # ---------------------------------------------
+            # ADVANCE THIS PROGRAM'S WORKOUT SEQUENCE
+            # ---------------------------------------------
+
+            selected_program["workout_index"] = (
+                workout_index + 1
+            )
+
+            # ---------------------------------------------
+            # MOVE TO NEXT ACTIVE PROGRAM
+            # ---------------------------------------------
+
+            program_pointer = (
+                program_pointer + 1
+            ) % total_programs
 
         # =================================================
-        # COMMIT PROGRAM AND SCHEDULE TOGETHER
+        # 12. COMMIT
         # =================================================
 
         conn.commit()
@@ -2892,8 +3105,8 @@ def create_member_program_only():
         return jsonify({
             "status": "success",
             "message": (
-                "Program started and workout schedule "
-                "generated successfully."
+                "Program started and combined "
+                "workout schedule generated successfully."
             ),
             "member_program_id": member_program_id,
             "member_id": member_id,
@@ -2905,7 +3118,11 @@ def create_member_program_only():
             "program_status": "active",
             "trainer_assigned": False,
             "schedule_generated": True,
-            "schedule_days": generated_count
+            "schedule_days": generated_count,
+            "workout_days": workout_count,
+            "rest_days": rest_count,
+            "active_program_count": total_programs,
+            "cycle": "3 workout days + 1 rest day"
         }), 201
 
     except Exception as e:
