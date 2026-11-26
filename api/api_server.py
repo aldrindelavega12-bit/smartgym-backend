@@ -5349,6 +5349,7 @@ def admin_get_user_accounts():
     "/api/trainer/trainee/program/schedule",
     methods=["POST"]
 )
+
 def generate_trainer_trainee_program_schedule():
 
     conn = None
@@ -5436,6 +5437,7 @@ def generate_trainer_trainee_program_schedule():
         # =====================================================
 
         program_patterns = []
+        program_start_dates = []
         seen_programs = set()
         schedule_start_date = None
 
@@ -5454,6 +5456,7 @@ def generate_trainer_trainee_program_schedule():
 
             seen_programs.add(program_key)
 
+            # GET THIS PROGRAM'S OWN START DATE
             program_start = (
                 assignment.get("program_start_date")
                 or assignment.get("start_date")
@@ -5467,11 +5470,9 @@ def generate_trainer_trainee_program_schedule():
                     program_start[:10],
                     "%Y-%m-%d"
                 ).date()
+
             elif isinstance(program_start, datetime):
                 program_start = program_start.date()
-
-            if schedule_start_date is None:
-                schedule_start_date = program_start
 
             # GET PROGRAM
             cursor.execute("""
@@ -5524,6 +5525,7 @@ def generate_trainer_trainee_program_schedule():
                     day.get("day_name") or ""
                 ).strip()
 
+                # SKIP REST DAYS INSIDE THE PROGRAM PLAN
                 if day_name.lower() in ("rest", "rest day"):
                     continue
 
@@ -5560,12 +5562,27 @@ def generate_trainer_trainee_program_schedule():
                 })
 
             if workout_pattern:
+
                 program_patterns.append(workout_pattern)
+                program_start_dates.append(program_start)
+
+                # USE THE EARLIEST VALID PROGRAM START DATE
+                if (
+                    schedule_start_date is None
+                    or program_start < schedule_start_date
+                ):
+                    schedule_start_date = program_start
 
         if not program_patterns:
             return jsonify({
                 "status": "error",
                 "message": "No valid workout days found in the active trainer programs."
+            }), 400
+
+        if schedule_start_date is None:
+            return jsonify({
+                "status": "error",
+                "message": "Program starting date is missing."
             }), 400
 
         # =====================================================
@@ -5581,7 +5598,10 @@ def generate_trainer_trainee_program_schedule():
 
         existing_schedule = cursor.fetchone()
 
-        if existing_schedule and existing_schedule["schedule_count"] > 0:
+        if (
+            existing_schedule
+            and existing_schedule["schedule_count"] > 0
+        ):
             conn.rollback()
 
             return jsonify({
@@ -5592,23 +5612,20 @@ def generate_trainer_trainee_program_schedule():
                 "trainer_id": trainer_id
             }), 409
 
-        if schedule_start_date is None:
-            return jsonify({
-                "status": "error",
-                "message": "Program starting date is missing."
-            }), 400
-
         # =====================================================
         # 5. GENERATE ALTERNATING PROGRAMS
         #
+        # Each program follows its OWN start date.
+        # Each program keeps its OWN workout sequence.
+        #
         # Example:
-        # Program A
-        # Program B
-        # Program A
+        # Program A - Day 1
+        # Program B - Day 1
+        # Program A - Day 2
         # REST
-        # Program B
-        # Program A
-        # Program B
+        # Program B - Day 2
+        # Program A - Day 3
+        # Program B - Day 3
         # REST
         # =====================================================
 
@@ -5618,6 +5635,8 @@ def generate_trainer_trainee_program_schedule():
 
         workouts_since_rest = 0
         program_index = 0
+
+        # INDEPENDENT WORKOUT INDEX FOR EACH PROGRAM
         pattern_indexes = [0] * len(program_patterns)
 
         for day_offset in range(365):
@@ -5627,7 +5646,10 @@ def generate_trainer_trainee_program_schedule():
                 + timedelta(days=day_offset)
             )
 
+            # -------------------------------------------------
             # REST AFTER 3 WORKOUT DAYS
+            # -------------------------------------------------
+
             if workouts_since_rest == 3:
 
                 cursor.execute("""
@@ -5651,7 +5673,10 @@ def generate_trainer_trainee_program_schedule():
 
                 continue
 
-            # FIND NEXT PROGRAM WITH AVAILABLE WORKOUTS
+            # -------------------------------------------------
+            # FIND NEXT PROGRAM THAT HAS ALREADY STARTED
+            # -------------------------------------------------
+
             selected_program_index = None
 
             for attempt in range(len(program_patterns)):
@@ -5664,12 +5689,25 @@ def generate_trainer_trainee_program_schedule():
                     candidate_index
                 ]
 
-                if candidate_pattern:
+                candidate_start_date = program_start_dates[
+                    candidate_index
+                ]
+
+                # DO NOT USE A PROGRAM BEFORE ITS START DATE
+                if (
+                    candidate_pattern
+                    and candidate_start_date <= workout_date
+                ):
                     selected_program_index = candidate_index
                     break
 
+            # NO ELIGIBLE PROGRAM TODAY
             if selected_program_index is None:
-                break
+                continue
+
+            # -------------------------------------------------
+            # GET SELECTED PROGRAM'S NEXT WORKOUT
+            # -------------------------------------------------
 
             selected_pattern = program_patterns[
                 selected_program_index
@@ -5683,11 +5721,15 @@ def generate_trainer_trainee_program_schedule():
                 pattern_index % len(selected_pattern)
             ]
 
-            # PREFIX PROGRAM NAME SO THE FRONTEND CAN IDENTIFY IT
+            # PREFIX PROGRAM NAME
             workout_name = (
                 f"{workout['program_name']} — "
                 f"{workout['workout_name']}"
             )
+
+            # -------------------------------------------------
+            # INSERT WORKOUT SCHEDULE
+            # -------------------------------------------------
 
             cursor.execute("""
                 INSERT INTO trainer_workout_schedule (
@@ -5709,9 +5751,10 @@ def generate_trainer_trainee_program_schedule():
             workout_count += 1
             workouts_since_rest += 1
 
+            # ADVANCE ONLY THE SELECTED PROGRAM'S SEQUENCE
             pattern_indexes[selected_program_index] += 1
 
-            # NEXT PROGRAM
+            # NEXT ROTATION STARTS AFTER THE SELECTED PROGRAM
             program_index = (
                 selected_program_index + 1
             ) % len(program_patterns)
@@ -5731,9 +5774,13 @@ def generate_trainer_trainee_program_schedule():
             "programs": [
                 {
                     "program_name": pattern[0]["program_name"],
-                    "program_plan_id": pattern[0]["program_plan_id"]
+                    "program_plan_id": pattern[0]["program_plan_id"],
+                    "program_start_date": start_date.isoformat()
                 }
-                for pattern in program_patterns
+                for pattern, start_date in zip(
+                    program_patterns,
+                    program_start_dates
+                )
             ],
             "program_start_date": schedule_start_date.isoformat(),
             "schedule_end_date": (
