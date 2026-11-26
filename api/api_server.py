@@ -2062,17 +2062,14 @@ def maintenance_update_status(
 # DELETE RECORD
 # ============================================================
 
+
 @app.route(
     "/api/maintenance/<string:resource>/<int:record_id>",
     methods=["DELETE"]
 )
-def maintenance_delete_record(
-    resource,
-    record_id
-):
+def maintenance_delete_record(resource, record_id):
 
     if resource not in MAINTENANCE_TABLES:
-
         return jsonify({
             "status": "error",
             "message": "Invalid maintenance resource."
@@ -2084,29 +2081,23 @@ def maintenance_delete_record(
     cursor = None
 
     try:
-
         conn = get_connection()
-
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
 
         actor_id = maintenance_get_actor_id(data)
 
-        if not maintenance_require_admin(
-            cursor,
-            actor_id
-        ):
-
+        if not maintenance_require_admin(cursor, actor_id):
             return jsonify({
                 "status": "error",
                 "message": "Admin access required."
             }), 403
 
         config = MAINTENANCE_TABLES[resource]
-
         table = config["table"]
 
+        # Check if main record exists
         cursor.execute(
             f"""
             SELECT *
@@ -2120,13 +2111,259 @@ def maintenance_delete_record(
         record = cursor.fetchone()
 
         if not record:
-
             return jsonify({
                 "status": "error",
                 "message": "Record not found."
             }), 404
 
-        # Check declared foreign key references
+        # ==================================================
+        # PERMANENT DELETE: PROGRAM + COMPLETE HIERARCHY
+        # ==================================================
+        if resource == "programs":
+
+            # Expected hierarchy relationships.
+            # Any other referencing table will block deletion.
+            hierarchy = [
+                {
+                    "parent": "programs",
+                    "child": "program_plans",
+                    "parent_column": "id",
+                    "child_column": "program_id"
+                },
+                {
+                    "parent": "program_plans",
+                    "child": "plan_days",
+                    "parent_column": "id",
+                    "child_column": "plan_id"
+                },
+                {
+                    "parent": "plan_days",
+                    "child": "plan_day_body_parts",
+                    "parent_column": "id",
+                    "child_column": "plan_day_id"
+                }
+            ]
+
+            allowed_children = {
+                item["parent"]: item["child"]
+                for item in hierarchy
+            }
+
+            # Get all program splits
+            cursor.execute(
+                """
+                SELECT id
+                FROM program_plans
+                WHERE program_id = %s
+                """,
+                (record_id,)
+            )
+
+            split_rows = cursor.fetchall()
+            split_ids = [row["id"] for row in split_rows]
+
+            # Get all plan days
+            day_ids = []
+
+            if split_ids:
+                placeholders = ", ".join(
+                    ["%s"] * len(split_ids)
+                )
+
+                cursor.execute(
+                    f"""
+                    SELECT id
+                    FROM plan_days
+                    WHERE plan_id IN ({placeholders})
+                    """,
+                    tuple(split_ids)
+                )
+
+                day_rows = cursor.fetchall()
+                day_ids = [row["id"] for row in day_rows]
+
+            # Get all body parts
+            body_part_ids = []
+
+            if day_ids:
+                placeholders = ", ".join(
+                    ["%s"] * len(day_ids)
+                )
+
+                cursor.execute(
+                    f"""
+                    SELECT id
+                    FROM plan_day_body_parts
+                    WHERE plan_day_id IN ({placeholders})
+                    """,
+                    tuple(day_ids)
+                )
+
+                body_rows = cursor.fetchall()
+                body_part_ids = [
+                    row["id"] for row in body_rows
+                ]
+
+            # ----------------------------------------------
+            # SAFETY CHECK
+            # Check references outside the expected hierarchy
+            # ----------------------------------------------
+            records_to_check = [
+                ("programs", record_id),
+            ]
+
+            records_to_check.extend(
+                ("program_plans", item_id)
+                for item_id in split_ids
+            )
+
+            records_to_check.extend(
+                ("plan_days", item_id)
+                for item_id in day_ids
+            )
+
+            records_to_check.extend(
+                ("plan_day_body_parts", item_id)
+                for item_id in body_part_ids
+            )
+
+            for parent_table, parent_id in records_to_check:
+
+                expected_child = allowed_children.get(
+                    parent_table
+                )
+
+                cursor.execute(
+                    """
+                    SELECT
+                        TABLE_NAME,
+                        COLUMN_NAME
+                    FROM information_schema.KEY_COLUMN_USAGE
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND REFERENCED_TABLE_NAME = %s
+                      AND REFERENCED_COLUMN_NAME = 'id'
+                    """,
+                    (parent_table,)
+                )
+
+                references = cursor.fetchall()
+
+                for reference in references:
+
+                    child_table = reference["TABLE_NAME"]
+                    child_column = reference["COLUMN_NAME"]
+
+                    # Allow only the expected hierarchy relationship
+                    if child_table == expected_child:
+                        continue
+
+                    cursor.execute(
+                        f"""
+                        SELECT 1
+                        FROM `{child_table}`
+                        WHERE `{child_column}` = %s
+                        LIMIT 1
+                        """,
+                        (parent_id,)
+                    )
+
+                    if cursor.fetchone():
+                        conn.rollback()
+
+                        return jsonify({
+                            "status": "error",
+                            "message": (
+                                f"Cannot permanently delete Program. "
+                                f"Related record is still referenced "
+                                f"by {child_table}."
+                            )
+                        }), 409
+
+            # ----------------------------------------------
+            # DELETE IN FOREIGN KEY ORDER
+            # Body Parts -> Plan Days -> Splits -> Program
+            # ----------------------------------------------
+
+            if day_ids:
+                placeholders = ", ".join(
+                    ["%s"] * len(day_ids)
+                )
+
+                cursor.execute(
+                    f"""
+                    DELETE FROM plan_day_body_parts
+                    WHERE plan_day_id IN ({placeholders})
+                    """,
+                    tuple(day_ids)
+                )
+
+            if split_ids:
+                placeholders = ", ".join(
+                    ["%s"] * len(split_ids)
+                )
+
+                cursor.execute(
+                    f"""
+                    DELETE FROM plan_days
+                    WHERE plan_id IN ({placeholders})
+                    """,
+                    tuple(split_ids)
+                )
+
+                cursor.execute(
+                    f"""
+                    DELETE FROM program_plans
+                    WHERE id IN ({placeholders})
+                    """,
+                    tuple(split_ids)
+                )
+
+            cursor.execute(
+                """
+                DELETE FROM programs
+                WHERE id = %s
+                """,
+                (record_id,)
+            )
+
+            insert_audit_log(
+                cursor=cursor,
+                action="DELETE",
+                record_type="Program",
+                record_id=record_id,
+                record_name=record.get(
+                    config["name"]
+                ),
+                actor_id=actor_id,
+                details=(
+                    "Permanently deleted Program and its hierarchy. "
+                    f"Splits: {len(split_ids)}, "
+                    f"Plan Days: {len(day_ids)}, "
+                    f"Body Parts: {len(body_part_ids)}."
+                )
+            )
+
+            conn.commit()
+
+            return jsonify({
+                "status": "success",
+                "message": (
+                    "Program and its complete hierarchy "
+                    "deleted permanently."
+                ),
+                "deleted": {
+                    "programs": 1,
+                    "splits": len(split_ids),
+                    "plan_days": len(day_ids),
+                    "body_parts": len(body_part_ids)
+                }
+            }), 200
+
+        # ==================================================
+        # DEFAULT DELETE: OTHER MAINTENANCE MODULES
+        # Keep existing behavior
+        # ==================================================
+
         in_use, child_table = maintenance_check_references(
             cursor,
             table,
@@ -2134,7 +2371,6 @@ def maintenance_delete_record(
         )
 
         if in_use:
-
             return jsonify({
                 "status": "error",
                 "message": (
@@ -2176,8 +2412,8 @@ def maintenance_delete_record(
         return jsonify({
             "status": "error",
             "message": (
-                "This record is referenced by another database record. "
-                "Deactivate it instead."
+                "This record is referenced by another "
+                "database record. Deactivate it instead."
             )
         }), 409
 
@@ -2203,7 +2439,10 @@ def maintenance_delete_record(
             cursor.close()
 
         if conn:
-            conn.close()           
+            conn.close()
+
+
+
 @app.route(
     "/api/member/workout/<int:workout_id>/complete",
     methods=["POST"]
