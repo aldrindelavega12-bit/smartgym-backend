@@ -3804,6 +3804,7 @@ def save_user_module_access(user_id):
 
 @app.route("/api/locker_overtime/paid", methods=["POST"])
 def api_pay_locker_overtime():
+
     data = request.get_json(silent=True) or {}
 
     user_id = data.get("user_id")
@@ -3835,9 +3836,39 @@ def api_pay_locker_overtime():
         cursor = conn.cursor()
 
         try:
-            # Find the latest unpaid overtime session.
+            # CHECK IF PAYMENT WAS ALREADY SAVED
             cursor.execute("""
-                SELECT id, user_id, locker_number, overtime_paid, status
+                SELECT id
+                FROM payments
+                WHERE source_payment_id = %s
+                LIMIT 1
+            """, (payment_id,))
+
+            existing_payment = cursor.fetchone()
+
+            if existing_payment:
+                existing_payment_id = (
+                    existing_payment["id"]
+                    if isinstance(existing_payment, dict)
+                    else existing_payment[0]
+                )
+
+                conn.rollback()
+
+                return jsonify({
+                    "success": True,
+                    "message": "Locker overtime payment already recorded.",
+                    "payment_id": existing_payment_id
+                }), 200
+
+            # FIND LATEST UNPAID OVERTIME SESSION
+            cursor.execute("""
+                SELECT
+                    id,
+                    user_id,
+                    locker_number,
+                    overtime_paid,
+                    status
                 FROM locker_sessions
                 WHERE user_id = %s
                   AND locker_number = %s
@@ -3847,27 +3878,31 @@ def api_pay_locker_overtime():
                 ORDER BY id DESC
                 LIMIT 1
                 FOR UPDATE
-            """, (user_id, locker_number))
+            """, (
+                user_id,
+                locker_number
+            ))
 
             session = cursor.fetchone()
 
             if not session:
                 conn.rollback()
+
                 return jsonify({
                     "success": False,
                     "message": "No unpaid overtime locker session found."
                 }), 404
 
-            # Support dictionary or tuple cursor results.
             if isinstance(session, dict):
                 session_id = session["id"]
             else:
                 session_id = session[0]
 
-            # Mark this exact session as paid and ended.
+            # UPDATE THE EXACT LOCKER SESSION
             cursor.execute("""
                 UPDATE locker_sessions
-                SET overtime_paid = 1,
+                SET
+                    overtime_paid = 1,
                     status = 'ended',
                     end_time = NOW()
                 WHERE id = %s
@@ -3876,16 +3911,48 @@ def api_pay_locker_overtime():
                   AND LOWER(status) = 'overtime'
                   AND end_time IS NULL
                   AND COALESCE(overtime_paid, 0) = 0
-            """, (session_id, user_id, locker_number))
+            """, (
+                session_id,
+                user_id,
+                locker_number
+            ))
 
             if cursor.rowcount != 1:
                 conn.rollback()
+
                 return jsonify({
                     "success": False,
                     "message": "Unable to finish locker overtime session."
                 }), 409
 
+            # SAVE LOCKER OVERTIME PAYMENT
+            cursor.execute("""
+                INSERT INTO payments (
+                    user_id,
+                    payment_type,
+                    amount,
+                    paid_at,
+                    source_payment_id
+                )
+                VALUES (
+                    %s,
+                    'LOCKER_OVERTIME',
+                    %s,
+                    DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR),
+                    %s
+                )
+            """, (
+                user_id,
+                overtime_fee,
+                payment_id
+            ))
+
+            new_payment_id = cursor.lastrowid
+
+            # COMMIT BOTH OPERATIONS TOGETHER
             conn.commit()
+
+            socketio.emit("payment_update")
 
             return jsonify({
                 "success": True,
@@ -3894,6 +3961,7 @@ def api_pay_locker_overtime():
                 "locker_number": locker_number,
                 "overtime_fee": overtime_fee,
                 "payment_id": payment_id,
+                "database_payment_id": new_payment_id,
                 "session_id": session_id,
                 "status": "ended",
                 "overtime_paid": 1
@@ -3912,9 +3980,9 @@ def api_pay_locker_overtime():
 
         return jsonify({
             "success": False,
-            "message": "Failed to update locker overtime payment."
+            "message": "Failed to update locker overtime payment.",
+            "error": str(e)
         }), 500
-
 
 
 @app.route("/api/turnstile/lockers", methods=["GET"])
@@ -16495,7 +16563,6 @@ def website_walkins():
             conn.close()        
 
 
-
 @app.route("/api/walkin_payment_updated", methods=["POST"])
 def walkin_payment_updated():
 
@@ -16627,6 +16694,7 @@ def walkin_payment_updated():
 
         if conn:
             conn.close()
+
 
 
 
@@ -17124,9 +17192,6 @@ def api_get_locker_overtime(user_id):
         connection.close()
 
 
-
-
-
 @app.route("/api/payment_updated", methods=["POST"])
 def payment_updated():
 
@@ -17136,13 +17201,8 @@ def payment_updated():
     cursor = None
 
     try:
-
         print("\n========== PAYMENT SYNC ==========")
         print("DATA:", data)
-
-        # ==========================================
-        # REQUIRED FIELDS
-        # ==========================================
 
         required = [
             "payment_id",
@@ -17152,43 +17212,26 @@ def payment_updated():
         ]
 
         for field in required:
-
             if field not in data:
-
                 return jsonify({
                     "success": False,
                     "message": f"{field} is required"
                 }), 400
 
         conn = get_connection()
-
         cursor = conn.cursor()
 
-        # ==========================================
         # CHECK DUPLICATE PAYMENT
-        # ==========================================
-
         cursor.execute("""
-            SELECT
-                id
+            SELECT id
             FROM payments
             WHERE source_payment_id = %s
             LIMIT 1
-        """, (
-            data["payment_id"],
-        ))
+        """, (data["payment_id"],))
 
         existing = cursor.fetchone()
 
         if existing:
-
-            print(
-                "[PAYMENT SYNC] Payment already exists:",
-                existing["id"]
-                if isinstance(existing, dict)
-                else existing[0]
-            )
-
             existing_payment_id = (
                 existing["id"]
                 if isinstance(existing, dict)
@@ -17201,34 +17244,19 @@ def payment_updated():
                 "payment_id": existing_payment_id
             }), 200
 
-        # ==========================================
-        # UPDATE MEMBER
-        # ==========================================
-
-        membership_type = data.get(
-            "membership_type"
-        )
-
-        membership_expires = data.get(
-            "membership_expires"
-        )
-
-        monthly_expires = data.get(
-            "monthly_expires"
-        )
-
-        # Only update membership information
-        # when this payment contains it.
+        # UPDATE MEMBERSHIP INFORMATION
+        membership_type = data.get("membership_type")
+        membership_expires = data.get("membership_expires")
+        monthly_expires = data.get("monthly_expires")
 
         if membership_type is not None:
-
             cursor.execute("""
                 UPDATE members
                 SET
-                    membership_type=%s,
-                    membership_expires=%s,
-                    monthly_expires=%s
-                WHERE id=%s
+                    membership_type = %s,
+                    membership_expires = %s,
+                    monthly_expires = %s
+                WHERE id = %s
             """, (
                 membership_type,
                 membership_expires,
@@ -17236,13 +17264,9 @@ def payment_updated():
                 data["member_id"]
             ))
 
-        # ==========================================
-        # SAVE PAYMENT
-        # ==========================================
-
+        # SAVE PAYMENT USING PHT
         cursor.execute("""
-            INSERT INTO payments
-            (
+            INSERT INTO payments (
                 user_id,
                 payment_type,
                 amount,
@@ -17250,13 +17274,12 @@ def payment_updated():
                 paid_at,
                 source_payment_id
             )
-            VALUES
-            (
+            VALUES (
                 %s,
                 %s,
                 %s,
                 %s,
-                %s,
+                COALESCE(%s, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)),
                 %s
             )
         """, (
@@ -17264,71 +17287,44 @@ def payment_updated():
             data["payment_type"],
             data["amount"],
             data.get("trainer_id"),
-            data.get("paid_at") or datetime.now(),
+            data.get("paid_at") or None,
             data["payment_id"]
         ))
 
-        payment_id = cursor.lastrowid
+        new_payment_id = cursor.lastrowid
 
         conn.commit()
 
-        print(
-            "[PAYMENT SYNC] Payment saved:",
-            payment_id
-        )
-
-        print(
-            "[PAYMENT SYNC] Source Payment ID:",
-            data["payment_id"]
-        )
-
+        print("[PAYMENT SYNC] Payment saved:", new_payment_id)
+        print("[PAYMENT SYNC] Source Payment ID:", data["payment_id"])
         print("=================================\n")
 
         return jsonify({
-
             "success": True,
-
-            "message":
-                "Payment synchronized.",
-
-            "payment_id":
-                payment_id,
-
-            "source_payment_id":
-                data["payment_id"]
-
+            "message": "Payment synchronized.",
+            "payment_id": new_payment_id,
+            "source_payment_id": data["payment_id"]
         }), 200
 
     except Exception as e:
-
         if conn:
-
             conn.rollback()
 
-        print(
-            "[PAYMENT SYNC ERROR]",
-            str(e)
-        )
+        print("[PAYMENT SYNC ERROR]", str(e))
 
         return jsonify({
-
             "success": False,
-
-            "error":
-                str(e)
-
+            "error": str(e)
         }), 500
 
     finally:
-
         if cursor:
-
             cursor.close()
 
         if conn:
-
             conn.close()
-        
+
+      
 @app.route("/api/member_created", methods=["POST"])
 def member_created():
 
@@ -25062,18 +25058,26 @@ def delete_walkin_cloud_api():
             "success": False
         }), 500
     
-@app.route("/api/sync_payment", methods=["POST"])
 def sync_payment():
 
     try:
-
         data = request.get_json()
 
         execute_query(
             """
             INSERT INTO payments
-            (user_id, payment_type, amount, paid_at)
-            VALUES (%s,%s,%s,NOW())
+            (
+                user_id,
+                payment_type,
+                amount,
+                paid_at
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)
+            )
             """,
             (
                 data["user_id"],
@@ -25084,14 +25088,18 @@ def sync_payment():
 
         socketio.emit("payment_update")
 
-        return jsonify({"success": True})
+        return jsonify({
+            "success": True
+        })
 
     except Exception as e:
-
         print("SYNC PAYMENT ERROR:", e)
 
-        return jsonify({"success": False}), 500
-        
+        return jsonify({
+            "success": False
+        }), 500
+
+      
 @app.route(
     "/api/update_locker_status",
     methods=["POST"]
