@@ -16224,21 +16224,31 @@ def get_member_trainer_status(member_id):
     try:
         member_id = str(member_id or "").strip()
 
+        # =================================================
+        # VALIDATION
+        # =================================================
+
         if not member_id:
             return jsonify({
                 "status": "error",
                 "message": "Member ID is required."
             }), 400
 
+        # =================================================
+        # DATABASE CONNECTION
+        # =================================================
+
         conn = get_connection()
+
         cursor = conn.cursor(
             pymysql.cursors.DictCursor
         )
 
-        # =============================================
-        # CHECK TRAINER ASSIGNMENT
+        # =================================================
+        # GET CURRENT TRAINER ASSIGNMENT
+        # ACTIVE HAS PRIORITY OVER PENDING
         # KEEP EXISTING TRAINER LOGIC
-        # =============================================
+        # =================================================
 
         cursor.execute("""
             SELECT
@@ -16290,14 +16300,15 @@ def get_member_trainer_status(member_id):
                 tt.id DESC
 
             LIMIT 1
+
         """, (member_id,))
 
         row = cursor.fetchone()
 
-        # =============================================
-        # NO TRAINER
+        # =================================================
+        # NO TRAINER ASSIGNMENT
         # GET ALL ACTIVE MEMBER PROGRAMS
-        # =============================================
+        # =================================================
 
         if not row:
 
@@ -16320,79 +16331,79 @@ def get_member_trainer_status(member_id):
                 FROM member_programs mp
 
                 LEFT JOIN programs p
-                    ON mp.program_id = p.id
+                    ON p.id = mp.program_id
 
                 LEFT JOIN program_plans pp
-                    ON mp.program_plan_id = pp.id
+                    ON pp.id = mp.program_plan_id
 
                 WHERE mp.member_id = %s
                   AND mp.status = 'active'
 
                 ORDER BY
-                    mp.start_date ASC,
-                    mp.id ASC
+                    mp.start_date DESC,
+                    mp.id DESC
+
             """, (member_id,))
 
             program_rows = cursor.fetchall()
 
-            programs = []
+            # ---------------------------------------------
+            # FORMAT ALL PROGRAM DATES
+            # ---------------------------------------------
 
-            for program_row in program_rows:
+            for program in program_rows:
 
-                if program_row.get("start_date"):
+                if program.get("start_date"):
+
                     if hasattr(
-                        program_row["start_date"],
+                        program["start_date"],
                         "strftime"
                     ):
-                        program_row["start_date"] = (
-                            program_row["start_date"].strftime(
+
+                        program["start_date"] = (
+                            program["start_date"].strftime(
                                 "%Y-%m-%d"
                             )
                         )
 
-                programs.append(program_row)
-
-            # =========================================
+            # ---------------------------------------------
             # NO ACTIVE PROGRAM
-            # =========================================
+            # ---------------------------------------------
 
-            if not programs:
+            if not program_rows:
 
                 return jsonify({
                     "has_trainer": False,
                     "has_program": False,
                     "program_count": 0,
                     "programs": [],
+                    "trainer_rate_active": False,
+                    "trainer_rate_expired": False,
                     "trainer": None,
                     "program": None
                 }), 200
 
-            # =========================================
-            # RETURN ALL ACTIVE PROGRAMS
-            # KEEP program FOR OLD FRONTEND COMPATIBILITY
-            # =========================================
+            # ---------------------------------------------
+            # PROGRAMS WITHOUT TRAINER
+            # ---------------------------------------------
 
             return jsonify({
                 "has_trainer": False,
                 "has_program": True,
+                "program_count": len(program_rows),
+                "programs": program_rows,
 
-                "program_count": len(programs),
-                "programs": programs,
-
+                # Backward compatibility
                 "trainer_rate_active": False,
                 "trainer_rate_expired": False,
-
                 "trainer": None,
-
-                # Compatibility with existing frontend
-                "program": programs[0]
-
+                "program": program_rows[0]
             }), 200
 
-        # =============================================
+        # =================================================
         # TRAINER ASSIGNMENT EXISTS
-        # KEEP EXISTING TRAINER LOGIC
-        # =============================================
+        # KEEP EXISTING TRAINER STATUS LOGIC
+        # =================================================
 
         today = date.today()
 
@@ -16412,36 +16423,46 @@ def get_member_trainer_status(member_id):
             and row["end_date"] < today
         )
 
-        # FORMAT DATES
+        # =================================================
+        # FORMAT TRAINER DATES
+        # =================================================
 
         if row["start_date"] is not None:
+
             row["start_date"] = (
                 row["start_date"].strftime("%Y-%m-%d")
             )
 
         if row["end_date"] is not None:
+
             row["end_date"] = (
                 row["end_date"].strftime("%Y-%m-%d")
             )
 
-        # FORMAT PRICE
+        # =================================================
+        # FORMAT TRAINER PRICE
+        # =================================================
 
         if row["price"] is not None:
+
             row["price"] = float(row["price"])
+
+        # =================================================
+        # TRAINER RESPONSE
+        # =================================================
 
         return jsonify({
             "has_trainer": True,
             "has_program": True,
-
-            "program_count": 1,
-            "programs": [],
-
             "trainer_rate_active": trainer_rate_active,
             "trainer_rate_expired": trainer_rate_expired,
-
             "trainer": row,
             "program": None
         }), 200
+
+    # =====================================================
+    # ERROR HANDLING
+    # =====================================================
 
     except Exception as e:
 
@@ -16455,6 +16476,10 @@ def get_member_trainer_status(member_id):
             "message": str(e)
         }), 500
 
+    # =====================================================
+    # CLOSE CONNECTION
+    # =====================================================
+
     finally:
 
         if cursor:
@@ -16462,6 +16487,7 @@ def get_member_trainer_status(member_id):
 
         if conn:
             conn.close()
+
 
 
    
