@@ -5346,6 +5346,7 @@ def admin_get_user_accounts():
 # =========================================================
 
 
+
 @app.route(
     "/api/trainer/trainee/program/schedule",
     methods=["POST"]
@@ -5371,145 +5372,181 @@ def generate_trainer_trainee_program_schedule():
         conn = get_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # 1. GET TRAINER ASSIGNMENT
+        # 1. GET ALL ACTIVE PROGRAM ASSIGNMENTS
         cursor.execute("""
             SELECT
-                id,
-                trainer_id,
-                member_id,
-                program_id,
-                program_plan_id,
-                program_start_date,
-                start_date,
-                end_date,
-                status
-            FROM trainer_trainees
-            WHERE id = %s
-              AND trainer_id = %s
-              AND member_id = %s
-            LIMIT 1
-        """, (assignment_id, trainer_id, member_id))
+                tt.id AS assignment_id,
+                tt.trainer_id,
+                tt.member_id,
+                tt.program_id,
+                tt.program_plan_id,
+                tt.program_start_date,
+                tt.start_date,
+                tt.status,
+                p.program_name,
+                pp.plan_name
+            FROM trainer_trainees tt
+            LEFT JOIN programs p
+                ON p.id = tt.program_id
+            LEFT JOIN program_plans pp
+                ON pp.id = tt.program_plan_id
+            WHERE tt.member_id = %s
+              AND tt.trainer_id = %s
+              AND tt.status = 'active'
+              AND tt.program_id IS NOT NULL
+              AND tt.program_plan_id IS NOT NULL
+            ORDER BY tt.id ASC
+        """, (member_id, trainer_id))
 
-        trainee = cursor.fetchone()
+        assignments = cursor.fetchall()
 
-        if not trainee:
+        if not assignments:
+            return jsonify({
+                "status": "error",
+                "message": "No active trainer programs found."
+            }), 404
+
+        # Validate the requested assignment
+        if not any(
+            str(row["assignment_id"]) == str(assignment_id)
+            for row in assignments
+        ):
             return jsonify({
                 "status": "error",
                 "message": "Trainer trainee assignment not found."
             }), 404
 
-        program_id = trainee.get("program_id")
-        program_plan_id = trainee.get("program_plan_id")
-        program_start_date = trainee.get("program_start_date")
+        # 2. USE FIRST ACTIVE ASSIGNMENT START DATE
+        program_start_date = assignments[0].get(
+            "program_start_date"
+        )
 
-        if not program_id or not program_plan_id or not program_start_date:
+        if not program_start_date:
             return jsonify({
                 "status": "error",
-                "message": "Program, program plan and program starting date are required."
+                "message": "Program starting date is required in the first active assignment."
             }), 400
 
-        # 2. VALIDATE PROGRAM
-        cursor.execute("""
-            SELECT id, program_name
-            FROM programs
-            WHERE id = %s
-              AND active = 1
-            LIMIT 1
-        """, (program_id,))
+        if isinstance(program_start_date, str):
+            schedule_start_date = datetime.strptime(
+                program_start_date[:10],
+                "%Y-%m-%d"
+            ).date()
 
-        program = cursor.fetchone()
+        elif isinstance(program_start_date, datetime):
+            schedule_start_date = program_start_date.date()
 
-        if not program:
-            return jsonify({
-                "status": "error",
-                "message": "Program not found."
-            }), 404
+        else:
+            schedule_start_date = program_start_date
 
-        # 3. VALIDATE PROGRAM PLAN
-        cursor.execute("""
-            SELECT id, program_id, plan_name
-            FROM program_plans
-            WHERE id = %s
-              AND program_id = %s
-              AND active = 1
-            LIMIT 1
-        """, (program_plan_id, program_id))
+        # 3. BUILD EACH PROGRAM'S WORKOUT PATTERN
+        program_patterns = []
+        programs_response = []
 
-        program_plan = cursor.fetchone()
+        for assignment in assignments:
 
-        if not program_plan:
-            return jsonify({
-                "status": "error",
-                "message": "Program plan not found."
-            }), 404
+            program_id = assignment["program_id"]
+            program_plan_id = assignment["program_plan_id"]
 
-        # 4. GET PLAN DAYS
-        cursor.execute("""
-            SELECT
-                id AS plan_day_id,
-                day_number,
-                day_name
-            FROM plan_days
-            WHERE plan_id = %s
-              AND active = 1
-            ORDER BY day_number ASC
-        """, (program_plan_id,))
+            if not assignment.get("program_name"):
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        f"Program not found for assignment "
+                        f"{assignment['assignment_id']}."
+                    )
+                }), 404
 
-        plan_days = cursor.fetchall()
+            if not assignment.get("plan_name"):
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        f"Program plan not found for "
+                        f"{assignment['program_name']}."
+                    )
+                }), 404
 
-        if not plan_days:
-            return jsonify({
-                "status": "error",
-                "message": "No active workout days found."
-            }), 400
-
-        # 5. BUILD WORKOUT PATTERN
-        # Individual Rest days are skipped.
-        # Common Rest is automatically added after 3 workouts.
-
-        workout_pattern = []
-
-        for day in plan_days:
-            day_name = str(day.get("day_name") or "").strip()
-
-            if day_name.lower() in ("rest", "rest day"):
-                continue
-
+            # GET PLAN DAYS
             cursor.execute("""
-                SELECT body_part
-                FROM plan_day_body_parts
-                WHERE plan_day_id = %s
+                SELECT
+                    id AS plan_day_id,
+                    day_number,
+                    day_name
+                FROM plan_days
+                WHERE plan_id = %s
                   AND active = 1
-                ORDER BY id ASC
-            """, (day["plan_day_id"],))
+                ORDER BY day_number ASC
+            """, (program_plan_id,))
 
-            body_parts = cursor.fetchall()
+            plan_days = cursor.fetchall()
 
-            body_part_names = [
-                row["body_part"]
-                for row in body_parts
-                if row.get("body_part")
-            ]
+            workout_pattern = []
 
-            workout_name = (
-                ", ".join(body_part_names)
-                if body_part_names
-                else day_name or "Workout"
-            )
+            for day in plan_days:
 
-            workout_pattern.append({
-                "day_number": day["day_number"],
-                "day_name": day_name,
-                "workout_name": workout_name
+                day_name = str(
+                    day.get("day_name") or ""
+                ).strip()
+
+                # Skip individual rest days
+                if day_name.lower() in ("rest", "rest day"):
+                    continue
+
+                cursor.execute("""
+                    SELECT body_part
+                    FROM plan_day_body_parts
+                    WHERE plan_day_id = %s
+                      AND active = 1
+                    ORDER BY id ASC
+                """, (day["plan_day_id"],))
+
+                body_parts = cursor.fetchall()
+
+                body_part_names = [
+                    row["body_part"]
+                    for row in body_parts
+                    if row.get("body_part")
+                ]
+
+                workout_name = (
+                    ", ".join(body_part_names)
+                    if body_part_names
+                    else day_name or "Workout"
+                )
+
+                workout_pattern.append({
+                    "day_number": day["day_number"],
+                    "day_name": day_name,
+                    "workout_name": workout_name
+                })
+
+            if not workout_pattern:
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        f"No workout days found in "
+                        f"{assignment['program_name']}."
+                    )
+                }), 400
+
+            program_patterns.append({
+                "assignment_id": assignment["assignment_id"],
+                "program_id": program_id,
+                "program_name": assignment["program_name"],
+                "program_plan_id": program_plan_id,
+                "plan_name": assignment["plan_name"],
+                "pattern": workout_pattern
             })
 
-        if not workout_pattern:
-            return jsonify({
-                "status": "error",
-                "message": "No workout days available in this program plan."
-            }), 400
+            programs_response.append({
+                "assignment_id": assignment["assignment_id"],
+                "program_id": program_id,
+                "program_name": assignment["program_name"],
+                "program_plan_id": program_plan_id,
+                "plan_name": assignment["plan_name"]
+            })
 
-        # 6. PREVENT DUPLICATE GENERATION
+        # 4. PREVENT DUPLICATE GENERATION
         cursor.execute("""
             SELECT COUNT(*) AS schedule_count
             FROM trainer_workout_schedule
@@ -5530,23 +5567,18 @@ def generate_trainer_trainee_program_schedule():
                 "trainer_id": trainer_id
             }), 409
 
-        # 7. NORMALIZE START DATE
-        if isinstance(program_start_date, str):
-            schedule_start_date = datetime.strptime(
-                program_start_date[:10],
-                "%Y-%m-%d"
-            ).date()
-        elif isinstance(program_start_date, datetime):
-            schedule_start_date = program_start_date.date()
-        else:
-            schedule_start_date = program_start_date
-
-        # 8. GENERATE SAME 3 + 1 CYCLE
+        # 5. GENERATE ALTERNATING PROGRAM SCHEDULE
         generated_count = 0
         workout_count = 0
         rest_count = 0
+
         workouts_since_rest = 0
-        pattern_index = 0
+
+        # Each program maintains its own split-day position
+        pattern_indexes = [0] * len(program_patterns)
+
+        # Continue program rotation even after a rest day
+        current_program_index = 0
 
         for day_offset in range(365):
 
@@ -5555,7 +5587,7 @@ def generate_trainer_trainee_program_schedule():
                 + timedelta(days=day_offset)
             )
 
-            # Common Rest Day after 3 workouts
+            # REST AFTER EVERY 3 WORKOUT DAYS
             if workouts_since_rest == 3:
 
                 cursor.execute("""
@@ -5577,12 +5609,30 @@ def generate_trainer_trainee_program_schedule():
                 rest_count += 1
                 workouts_since_rest = 0
 
+                # Do not reset program rotation
                 continue
 
-            # Get next workout from the same program pattern
-            workout = workout_pattern[
-                pattern_index % len(workout_pattern)
+            # SELECT NEXT PROGRAM
+            selected_index = current_program_index
+
+            selected_program = program_patterns[
+                selected_index
             ]
+
+            pattern = selected_program["pattern"]
+
+            split_index = (
+                pattern_indexes[selected_index]
+                % len(pattern)
+            )
+
+            workout = pattern[split_index]
+
+            # Include program name to identify its workout
+            workout_name = (
+                f"{selected_program['program_name']} - "
+                f"{workout['workout_name']}"
+            )
 
             cursor.execute("""
                 INSERT INTO trainer_workout_schedule (
@@ -5597,31 +5647,35 @@ def generate_trainer_trainee_program_schedule():
                 member_id,
                 trainer_id,
                 workout_date,
-                workout["workout_name"]
+                workout_name
             ))
 
             generated_count += 1
             workout_count += 1
             workouts_since_rest += 1
-            pattern_index += 1
 
-        # 9. COMMIT
+            # Advance only the selected program's split
+            pattern_indexes[selected_index] += 1
+
+            # Alternate to the next program
+            current_program_index = (
+                current_program_index + 1
+            ) % len(program_patterns)
+
+        # 6. COMMIT
         conn.commit()
 
         return jsonify({
             "status": "success",
-            "message": "Workout schedule generated successfully.",
+            "message": (
+                "Alternating trainer workout schedule "
+                "generated successfully."
+            ),
             "assignment_id": assignment_id,
             "member_id": member_id,
             "trainer_id": trainer_id,
-            "program": {
-                "id": program["id"],
-                "program_name": program["program_name"]
-            },
-            "program_plan": {
-                "id": program_plan["id"],
-                "plan_name": program_plan["plan_name"]
-            },
+            "program_count": len(program_patterns),
+            "programs": programs_response,
             "program_start_date": schedule_start_date.isoformat(),
             "schedule_end_date": (
                 schedule_start_date + timedelta(days=364)
@@ -5629,14 +5683,21 @@ def generate_trainer_trainee_program_schedule():
             "generated_count": generated_count,
             "workout_days": workout_count,
             "rest_days": rest_count,
-            "cycle": "3 workout days + 1 rest day"
+            "cycle": "Alternating programs with 3 workouts + 1 rest day"
         }), 200
 
     except Exception as e:
+
         if conn:
             conn.rollback()
 
-        print("GENERATE TRAINEE PROGRAM SCHEDULE ERROR:", e)
+        print(
+            "GENERATE TRAINEE PROGRAM SCHEDULE ERROR:",
+            e
+        )
+
+        import traceback
+        traceback.print_exc()
 
         return jsonify({
             "status": "error",
@@ -5644,6 +5705,7 @@ def generate_trainer_trainee_program_schedule():
         }), 500
 
     finally:
+
         if cursor:
             cursor.close()
 
