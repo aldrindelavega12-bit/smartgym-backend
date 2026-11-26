@@ -6,13 +6,16 @@ from db.connection import get_connection
 
 API_URL = "https://smartgym-api-ia2e.onrender.com"
 
-# IMPORTANT:
-# Use the actual user_id of an ADMIN account in the CLOUD database.
-# This is not necessarily the numeric account ID.
-SYNC_ACTOR_ID = "YOUR_CLOUD_ADMIN_USER_ID"
+# Use the existing API key from your cloud backend.
+API_KEY = "GYM_MASTER_2026"
+
+HEADERS = {
+    "X-API-KEY": API_KEY
+}
 
 
 MAINTENANCE_CONFIG = {
+
     "gym-access-types": {
         "table": "gym_access_types",
         "fields": [
@@ -43,6 +46,7 @@ MAINTENANCE_CONFIG = {
             "active"
         ]
     }
+
 }
 
 
@@ -54,10 +58,8 @@ def sync_maintenance(resource):
     fields = config["fields"]
 
     response = requests.get(
-        f"{API_URL}/api/maintenance/{resource}",
-        params={
-            "actor_id": SYNC_ACTOR_ID
-        },
+        f"{API_URL}/api/sync/maintenance/{resource}",
+        headers=HEADERS,
         timeout=30
     )
 
@@ -66,7 +68,10 @@ def sync_maintenance(resource):
     result = response.json()
 
     if result.get("status") != "success":
-        raise Exception(result.get("message", "Cloud sync failed"))
+
+        raise Exception(
+            result.get("message", "Cloud sync failed")
+        )
 
     data = result["data"]
 
@@ -83,7 +88,10 @@ def sync_maintenance(resource):
 
             record_id = row["id"]
 
-            values = [row[field] for field in fields]
+            values = [
+                row[field]
+                for field in fields
+            ]
 
             cursor.execute(
                 f"""

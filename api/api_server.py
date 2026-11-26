@@ -5347,6 +5347,7 @@ def admin_get_user_accounts():
 # Generates 365 days starting from program_start_date.
 # =========================================================
 
+
 @app.route(
     "/api/trainer/trainee/program/schedule",
     methods=["POST"]
@@ -5357,51 +5358,22 @@ def generate_trainer_trainee_program_schedule():
     cursor = None
 
     try:
-
         data = request.get_json() or {}
 
         assignment_id = data.get("assignment_id")
+        trainer_id = str(data.get("trainer_id", "")).strip()
+        member_id = str(data.get("member_id", "")).strip()
 
-        trainer_id = str(
-            data.get("trainer_id", "")
-        ).strip()
-
-        member_id = str(
-            data.get("member_id", "")
-        ).strip()
-
-        # -------------------------------------------------
-        # VALIDATE REQUEST
-        # -------------------------------------------------
-
-        if not assignment_id:
+        if not assignment_id or not trainer_id or not member_id:
             return jsonify({
                 "status": "error",
-                "message": "Assignment ID is required."
-            }), 400
-
-        if not trainer_id:
-            return jsonify({
-                "status": "error",
-                "message": "Trainer ID is required."
-            }), 400
-
-        if not member_id:
-            return jsonify({
-                "status": "error",
-                "message": "Member ID is required."
+                "message": "Assignment ID, Trainer ID and Member ID are required."
             }), 400
 
         conn = get_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        cursor = conn.cursor(
-            pymysql.cursors.DictCursor
-        )
-
-        # -------------------------------------------------
-        # GET TRAINEE ASSIGNMENT
-        # -------------------------------------------------
-
+        # 1. GET TRAINER ASSIGNMENT
         cursor.execute("""
             SELECT
                 id,
@@ -5418,70 +5390,34 @@ def generate_trainer_trainee_program_schedule():
               AND trainer_id = %s
               AND member_id = %s
             LIMIT 1
-        """, (
-            assignment_id,
-            trainer_id,
-            member_id
-        ))
+        """, (assignment_id, trainer_id, member_id))
 
         trainee = cursor.fetchone()
 
         if not trainee:
             return jsonify({
                 "status": "error",
-                "message":
-                    "Trainer trainee assignment not found."
+                "message": "Trainer trainee assignment not found."
             }), 404
-
-        # -------------------------------------------------
-        # REQUIRE PROGRAM DETAILS
-        # -------------------------------------------------
 
         program_id = trainee.get("program_id")
         program_plan_id = trainee.get("program_plan_id")
-        program_start_date = trainee.get(
-            "program_start_date"
-        )
+        program_start_date = trainee.get("program_start_date")
 
-        if not program_id:
+        if not program_id or not program_plan_id or not program_start_date:
             return jsonify({
                 "status": "error",
-                "message":
-                    "No program has been assigned to this trainee."
+                "message": "Program, program plan and program starting date are required."
             }), 400
 
-        if not program_plan_id:
-            return jsonify({
-                "status": "error",
-                "message":
-                    "No program plan has been assigned to this trainee."
-            }), 400
-
-        if not program_start_date:
-            return jsonify({
-                "status": "error",
-                "message":
-                    "Program starting date has not been set."
-            }), 400
-
-        # -------------------------------------------------
-        # GET PROGRAM
-        # -------------------------------------------------
-
+        # 2. VALIDATE PROGRAM
         cursor.execute("""
-            SELECT
-                id,
-                program_name,
-                description,
-                duration_days,
-                active
+            SELECT id, program_name
             FROM programs
             WHERE id = %s
               AND active = 1
             LIMIT 1
-        """, (
-            program_id,
-        ))
+        """, (program_id,))
 
         program = cursor.fetchone()
 
@@ -5491,40 +5427,25 @@ def generate_trainer_trainee_program_schedule():
                 "message": "Program not found."
             }), 404
 
-        # -------------------------------------------------
-        # GET PROGRAM PLAN
-        # -------------------------------------------------
-
+        # 3. VALIDATE PROGRAM PLAN
         cursor.execute("""
-            SELECT
-                id,
-                program_id,
-                plan_name,
-                description,
-                active
+            SELECT id, program_id, plan_name
             FROM program_plans
             WHERE id = %s
               AND program_id = %s
               AND active = 1
             LIMIT 1
-        """, (
-            program_plan_id,
-            program_id
-        ))
+        """, (program_plan_id, program_id))
 
         program_plan = cursor.fetchone()
 
         if not program_plan:
             return jsonify({
                 "status": "error",
-                "message":
-                    "Program plan not found for this program."
+                "message": "Program plan not found."
             }), 404
 
-        # -------------------------------------------------
-        # GET PLAN DAYS
-        # -------------------------------------------------
-
+        # 4. GET PLAN DAYS
         cursor.execute("""
             SELECT
                 id AS plan_day_id,
@@ -5534,161 +5455,100 @@ def generate_trainer_trainee_program_schedule():
             WHERE plan_id = %s
               AND active = 1
             ORDER BY day_number ASC
-        """, (
-            program_plan_id,
-        ))
+        """, (program_plan_id,))
 
         plan_days = cursor.fetchall()
 
         if not plan_days:
             return jsonify({
                 "status": "error",
-                "message":
-                    "No active plan days found for this program plan."
+                "message": "No active workout days found."
             }), 400
 
-        # -------------------------------------------------
-        # GET BODY PARTS FOR EACH PLAN DAY
-        # -------------------------------------------------
-
-        for day in plan_days:
-
-            cursor.execute("""
-                SELECT
-                    body_part
-                FROM plan_day_body_parts
-                WHERE plan_day_id = %s
-                  AND active = 1
-                ORDER BY id ASC
-            """, (
-                day["plan_day_id"],
-            ))
-
-            body_parts = cursor.fetchall()
-
-            day["body_parts"] = [
-                row["body_part"]
-                for row in body_parts
-            ]
-
-        # -------------------------------------------------
-        # BUILD WORKOUT PATTERN
-        # -------------------------------------------------
+        # 5. BUILD WORKOUT PATTERN
+        # Individual Rest days are skipped.
+        # Common Rest is automatically added after 3 workouts.
 
         workout_pattern = []
 
         for day in plan_days:
+            day_name = str(day.get("day_name") or "").strip()
 
-            day_name = day.get("day_name")
-            body_parts = day.get("body_parts", [])
+            if day_name.lower() in ("rest", "rest day"):
+                continue
 
-            if (
-                day_name
-                and day_name.lower() == "rest"
-            ):
-                workout_name = "Rest"
+            cursor.execute("""
+                SELECT body_part
+                FROM plan_day_body_parts
+                WHERE plan_day_id = %s
+                  AND active = 1
+                ORDER BY id ASC
+            """, (day["plan_day_id"],))
 
-            elif body_parts:
+            body_parts = cursor.fetchall()
 
-                workout_name = ", ".join(
-                    body_parts
-                )
+            body_part_names = [
+                row["body_part"]
+                for row in body_parts
+                if row.get("body_part")
+            ]
 
-            else:
-
-                workout_name = (
-                    day_name
-                    or "Workout"
-                )
+            workout_name = (
+                ", ".join(body_part_names)
+                if body_part_names
+                else day_name or "Workout"
+            )
 
             workout_pattern.append({
-                "day_number":
-                    day["day_number"],
-                "day_name":
-                    day_name,
-                "workout_name":
-                    workout_name
+                "day_number": day["day_number"],
+                "day_name": day_name,
+                "workout_name": workout_name
             })
 
         if not workout_pattern:
             return jsonify({
                 "status": "error",
-                "message":
-                    "Unable to create workout pattern."
+                "message": "No workout days available in this program plan."
             }), 400
 
-        # -------------------------------------------------
-        # PREVENT DUPLICATE INITIAL GENERATION
-        #
-        # We only check whether the trainee already has
-        # schedule records.
-        #
-        # Existing schedules are NOT deleted.
-        # -------------------------------------------------
-
+        # 6. PREVENT DUPLICATE GENERATION
         cursor.execute("""
-            SELECT
-                COUNT(*) AS schedule_count
+            SELECT COUNT(*) AS schedule_count
             FROM trainer_workout_schedule
             WHERE member_id = %s
               AND trainer_id = %s
-        """, (
-            member_id,
-            trainer_id
-        ))
+        """, (member_id, trainer_id))
 
         existing_schedule = cursor.fetchone()
 
-        if (
-            existing_schedule
-            and existing_schedule["schedule_count"] > 0
-        ):
-
+        if existing_schedule and existing_schedule["schedule_count"] > 0:
             conn.rollback()
 
             return jsonify({
                 "status": "exists",
-                "message":
-                    "A workout schedule already exists for this trainee.",
-                "assignment_id":
-                    assignment_id,
-                "member_id":
-                    member_id,
-                "trainer_id":
-                    trainer_id,
-                "program_id":
-                    program_id,
-                "program_plan_id":
-                    program_plan_id,
-                "program_start_date":
-                    program_start_date.strftime(
-                        "%Y-%m-%d"
-                    )
-                    if hasattr(
-                        program_start_date,
-                        "strftime"
-                    )
-                    else str(
-                        program_start_date
-                    )
+                "message": "A workout schedule already exists for this trainee.",
+                "assignment_id": assignment_id,
+                "member_id": member_id,
+                "trainer_id": trainer_id
             }), 409
 
-        # -------------------------------------------------
-        # GENERATE 365 DAYS
-        #
-        # IMPORTANT:
-        # Starts from program_start_date
-        # NOT trainer payment/assignment start_date.
-        # -------------------------------------------------
+        # 7. NORMALIZE START DATE
+        if isinstance(program_start_date, str):
+            schedule_start_date = datetime.strptime(
+                program_start_date[:10],
+                "%Y-%m-%d"
+            ).date()
+        elif isinstance(program_start_date, datetime):
+            schedule_start_date = program_start_date.date()
+        else:
+            schedule_start_date = program_start_date
 
-        schedule_start_date = program_start_date
-
-        schedule_end_date = (
-            schedule_start_date
-            + timedelta(days=364)
-        )
-
+        # 8. GENERATE SAME 3 + 1 CYCLE
         generated_count = 0
+        workout_count = 0
+        rest_count = 0
+        workouts_since_rest = 0
+        pattern_index = 0
 
         for day_offset in range(365):
 
@@ -5697,32 +5557,44 @@ def generate_trainer_trainee_program_schedule():
                 + timedelta(days=day_offset)
             )
 
-            pattern_index = (
-                day_offset
-                % len(workout_pattern)
-            )
+            # Common Rest Day after 3 workouts
+            if workouts_since_rest == 3:
 
+                cursor.execute("""
+                    INSERT INTO trainer_workout_schedule (
+                        member_id,
+                        trainer_id,
+                        workout_date,
+                        workout_name,
+                        status
+                    )
+                    VALUES (%s, %s, %s, 'Rest', 'scheduled')
+                """, (
+                    member_id,
+                    trainer_id,
+                    workout_date
+                ))
+
+                generated_count += 1
+                rest_count += 1
+                workouts_since_rest = 0
+
+                continue
+
+            # Get next workout from the same program pattern
             workout = workout_pattern[
-                pattern_index
+                pattern_index % len(workout_pattern)
             ]
 
             cursor.execute("""
-                INSERT INTO trainer_workout_schedule
-                (
+                INSERT INTO trainer_workout_schedule (
                     member_id,
                     trainer_id,
                     workout_date,
                     workout_name,
                     status
                 )
-                VALUES
-                (
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    'scheduled'
-                )
+                VALUES (%s, %s, %s, %s, 'scheduled')
             """, (
                 member_id,
                 trainer_id,
@@ -5731,64 +5603,42 @@ def generate_trainer_trainee_program_schedule():
             ))
 
             generated_count += 1
+            workout_count += 1
+            workouts_since_rest += 1
+            pattern_index += 1
 
-        # -------------------------------------------------
-        # COMMIT
-        # -------------------------------------------------
-
+        # 9. COMMIT
         conn.commit()
 
         return jsonify({
             "status": "success",
-            "message":
-                "Workout schedule generated successfully.",
-
-            "assignment_id":
-                assignment_id,
-
-            "member_id":
-                member_id,
-
-            "trainer_id":
-                trainer_id,
-
+            "message": "Workout schedule generated successfully.",
+            "assignment_id": assignment_id,
+            "member_id": member_id,
+            "trainer_id": trainer_id,
             "program": {
-                "id":
-                    program["id"],
-                "program_name":
-                    program["program_name"]
+                "id": program["id"],
+                "program_name": program["program_name"]
             },
-
             "program_plan": {
-                "id":
-                    program_plan["id"],
-                "plan_name":
-                    program_plan["plan_name"]
+                "id": program_plan["id"],
+                "plan_name": program_plan["plan_name"]
             },
-
-            "program_start_date":
-                schedule_start_date.strftime(
-                    "%Y-%m-%d"
-                ),
-
-            "schedule_end_date":
-                schedule_end_date.strftime(
-                    "%Y-%m-%d"
-                ),
-
-            "generated_count":
-                generated_count
+            "program_start_date": schedule_start_date.isoformat(),
+            "schedule_end_date": (
+                schedule_start_date + timedelta(days=364)
+            ).isoformat(),
+            "generated_count": generated_count,
+            "workout_days": workout_count,
+            "rest_days": rest_count,
+            "cycle": "3 workout days + 1 rest day"
         }), 200
 
     except Exception as e:
-
         if conn:
             conn.rollback()
 
-        print(
-            "GENERATE TRAINEE PROGRAM SCHEDULE ERROR:",
-            e
-        )
+        print("GENERATE TRAINEE PROGRAM SCHEDULE ERROR:", e)
 
         return jsonify({
             "status": "error",
@@ -5796,30 +5646,16 @@ def generate_trainer_trainee_program_schedule():
         }), 500
 
     finally:
-
         if cursor:
             cursor.close()
 
         if conn:
             conn.close()
-# =========================================================      
-# =========================================================
-# SET TRAINER TRAINEE PROGRAM
-#
-# Trainer selects:
-#   - Program
-#   - Program Plan / Split
-#   - Program Starting Date
-#
-# IMPORTANT:
-#   start_date / end_date = trainer payment/assignment period
-#   program_start_date   = actual workout program start
-#
-# This endpoint ONLY updates:
-#   program_id
-#   program_plan_id
-#   program_start_date
-# =========================================================
+
+
+
+
+======================================================
 
 @app.route(
     "/api/trainer/trainee/program",
@@ -19477,11 +19313,6 @@ def sync_maintenance_cloud(resource):
 
         if conn:
             conn.close()
-
-
-
-
-
 
 
 
