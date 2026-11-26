@@ -20733,43 +20733,81 @@ def locker_status():
         "active_lockers": sessions
     })
 
+
+
+
 @app.route("/api/end_locker", methods=["POST"])
 def end_locker():
+    conn = None
+    cursor = None
+
     try:
         if not require_api_key(request):
-            return jsonify({"error": "Unauthorized"}), 401
+            return jsonify({"success": False, "message": "Unauthorized"}), 401
 
-        data = request.get_json()
-        user_id = data.get("user_id")
+        data = request.get_json(silent=True) or {}
+        user_id = str(data.get("user_id") or "").strip()
+
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "message": "Missing user_id"
+            }), 400
 
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
 
-        # 🔥 GET ACTIVE LOCKER
+        # GET SESSION: ACTIVE OR PAID OVERTIME ONLY
         cursor.execute("""
-            SELECT locker_number FROM locker_sessions
-            WHERE user_id=%s AND status='active'
+            SELECT locker_number
+            FROM locker_sessions
+            WHERE user_id = %s
+              AND LOWER(status) IN ('active', 'overtime')
+              AND end_time IS NULL
+              AND (
+                    LOWER(status) = 'active'
+                    OR COALESCE(overtime_paid, 0) = 1
+              )
+            ORDER BY start_time DESC, id DESC
+            LIMIT 1
+            FOR UPDATE
         """, (user_id,))
 
         result = cursor.fetchone()
 
         if not result:
+            conn.rollback()
             return jsonify({
                 "success": False,
-                "message": "No active session"
+                "message": "No eligible active or paid overtime session"
             }), 200
 
         locker_number = result[0]
 
-        # 🔥 END SESSION
+        # END SESSION ONLY AFTER SECOND VALIDATION
         cursor.execute("""
             UPDATE locker_sessions
-            SET end_time = NOW(),
-                status = 'ended'
-            WHERE user_id = %s AND status = 'active'
-        """, (user_id,))
+            SET
+                status = 'ended',
+                end_time = NOW()
+            WHERE user_id = %s
+              AND locker_number = %s
+              AND LOWER(status) IN ('active', 'overtime')
+              AND end_time IS NULL
+              AND (
+                    LOWER(status) = 'active'
+                    OR COALESCE(overtime_paid, 0) = 1
+              )
+        """, (user_id, locker_number))
 
-        # 🔥 🔥 CRITICAL FIX (ETO KULANG MO)
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Session was not updated"
+            }), 409
+
+        # RELEASE DATABASE LOCKER
         cursor.execute("""
             UPDATE lockers
             SET status = 'AVAILABLE'
@@ -20778,7 +20816,11 @@ def end_locker():
 
         conn.commit()
 
-        print(f"✅ RELEASED LOCKER {locker_number}")
+        print(
+            f"[LOCKER ENDED] User {user_id} "
+            f"Locker {locker_number}",
+            flush=True
+        )
 
         return jsonify({
             "success": True,
@@ -20786,8 +20828,23 @@ def end_locker():
         }), 200
 
     except Exception as e:
-        print("🔥 ERROR END:", e)
-        return jsonify({"error": str(e)}), 500
+        if conn and conn.is_connected():
+            conn.rollback()
+
+        print("[END LOCKER ERROR]", e, flush=True)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn and conn.is_connected():
+            conn.close()
+
 
 
 @app.route('/api/overtime', methods=['POST'])
