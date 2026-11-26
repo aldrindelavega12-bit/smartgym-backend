@@ -3836,7 +3836,7 @@ def api_pay_locker_overtime():
         cursor = conn.cursor()
 
         try:
-            # CHECK IF PAYMENT WAS ALREADY SAVED
+            # CHECK IF PAYMENT ALREADY EXISTS
             cursor.execute("""
                 SELECT id
                 FROM payments
@@ -3861,7 +3861,7 @@ def api_pay_locker_overtime():
                     "payment_id": existing_payment_id
                 }), 200
 
-            # FIND LATEST UNPAID OVERTIME SESSION
+            # FIND UNPAID OVERTIME SESSION
             cursor.execute("""
                 SELECT
                     id,
@@ -3872,7 +3872,7 @@ def api_pay_locker_overtime():
                 FROM locker_sessions
                 WHERE user_id = %s
                   AND locker_number = %s
-                  AND LOWER(status) = 'overtime'
+                  AND LOWER(TRIM(status)) = 'overtime'
                   AND end_time IS NULL
                   AND COALESCE(overtime_paid, 0) = 0
                 ORDER BY id DESC
@@ -3898,17 +3898,16 @@ def api_pay_locker_overtime():
             else:
                 session_id = session[0]
 
-            # UPDATE THE EXACT LOCKER SESSION
+            # IMPORTANT:
+            # MARK AS PAID ONLY.
+            # DO NOT END THE SESSION YET.
             cursor.execute("""
                 UPDATE locker_sessions
-                SET
-                    overtime_paid = 1,
-                    status = 'ended',
-                    end_time = NOW()
+                SET overtime_paid = 1
                 WHERE id = %s
                   AND user_id = %s
                   AND locker_number = %s
-                  AND LOWER(status) = 'overtime'
+                  AND LOWER(TRIM(status)) = 'overtime'
                   AND end_time IS NULL
                   AND COALESCE(overtime_paid, 0) = 0
             """, (
@@ -3922,10 +3921,10 @@ def api_pay_locker_overtime():
 
                 return jsonify({
                     "success": False,
-                    "message": "Unable to finish locker overtime session."
+                    "message": "Unable to update locker overtime payment."
                 }), 409
 
-            # SAVE LOCKER OVERTIME PAYMENT
+            # SAVE PAYMENT
             cursor.execute("""
                 INSERT INTO payments (
                     user_id,
@@ -3949,22 +3948,22 @@ def api_pay_locker_overtime():
 
             new_payment_id = cursor.lastrowid
 
-            # COMMIT BOTH OPERATIONS TOGETHER
             conn.commit()
 
             socketio.emit("payment_update")
 
             return jsonify({
                 "success": True,
-                "message": "Locker overtime paid. Session marked as ended.",
+                "message": "Locker overtime paid. Locker remains occupied until exit is confirmed.",
                 "user_id": user_id,
                 "locker_number": locker_number,
                 "overtime_fee": overtime_fee,
                 "payment_id": payment_id,
                 "database_payment_id": new_payment_id,
                 "session_id": session_id,
-                "status": "ended",
-                "overtime_paid": 1
+                "status": "overtime",
+                "overtime_paid": 1,
+                "end_time": None
             }), 200
 
         except Exception:
@@ -3983,7 +3982,6 @@ def api_pay_locker_overtime():
             "message": "Failed to update locker overtime payment.",
             "error": str(e)
         }), 500
-
 
 @app.route("/api/turnstile/lockers", methods=["GET"])
 def get_turnstile_lockers():
