@@ -19183,14 +19183,25 @@ def activate_member():
         conn.close()
 
 
-
 @app.route("/api/activate_member", methods=["POST"])
 def activate_member_cloud():
 
     data = request.get_json()
 
-    account_id = data["account_id"]
-    member_id = data["member_id"]
+    if not data:
+        return jsonify({
+            "success": False,
+            "error": "Missing request data."
+        }), 400
+
+    account_id = data.get("account_id")
+    member_id = data.get("member_id")
+
+    if not account_id or not member_id:
+        return jsonify({
+            "success": False,
+            "error": "account_id and member_id are required."
+        }), 400
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -19198,19 +19209,24 @@ def activate_member_cloud():
     try:
 
         # ==========================================
-        # UPDATE PRE-MEMBER ACCOUNT TO MEMBER
+        # 1. UPDATE EXISTING PRE-MEMBER ACCOUNT
         # ==========================================
 
         cursor.execute("""
             UPDATE user_accounts
             SET
-                user_id=%s,
-                role='member'
-            WHERE id=%s
+                user_id = %s,
+                role = 'member'
+            WHERE id = %s
         """, (member_id, account_id))
 
+        if cursor.rowcount == 0:
+            raise Exception(
+                f"User account ID {account_id} was not found."
+            )
+
         # ==========================================
-        # DEFAULT MODULES FOR MEMBER
+        # 2. DEFAULT MODULES FOR MEMBER
         # ==========================================
 
         default_modules = [
@@ -19224,6 +19240,7 @@ def activate_member_cloud():
 
         for module_key in default_modules:
 
+            # Find active module
             cursor.execute("""
                 SELECT id
                 FROM modules
@@ -19239,9 +19256,13 @@ def activate_member_cloud():
                     f"Active module '{module_key}' was not found."
                 )
 
-            module_id = module["id"]
+            # Tuple indexing
+            module_id = module[0]
 
-            # Check existing module access using MEMBER ID
+            # ======================================
+            # 3. CHECK EXISTING MODULE ACCESS
+            # ======================================
+
             cursor.execute("""
                 SELECT id
                 FROM user_module_access
@@ -19254,14 +19275,16 @@ def activate_member_cloud():
 
             if existing:
 
+                # Reactivate existing access
                 cursor.execute("""
                     UPDATE user_module_access
                     SET has_access = 1
                     WHERE id = %s
-                """, (existing["id"],))
+                """, (existing[0],))
 
             else:
 
+                # Insert new module access
                 cursor.execute("""
                     INSERT INTO user_module_access
                     (
@@ -19275,17 +19298,26 @@ def activate_member_cloud():
                     module_id
                 ))
 
+        # ==========================================
+        # 4. COMMIT CLOUD CHANGES
+        # ==========================================
+
         conn.commit()
 
         return jsonify({
             "success": True,
-            "message": "Account activated.",
+            "message": "Pre-Member successfully activated as Member.",
+            "account_id": account_id,
+            "member_id": member_id,
+            "role": "member",
             "modules": default_modules
-        })
+        }), 200
 
     except Exception as e:
 
         conn.rollback()
+
+        print("[CLOUD ACTIVATION ERROR]", str(e))
 
         return jsonify({
             "success": False,
@@ -19296,7 +19328,6 @@ def activate_member_cloud():
 
         cursor.close()
         conn.close()
-
 
        
 @app.route("/api/pending_completed", methods=["POST"])
