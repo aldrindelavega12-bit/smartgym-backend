@@ -19398,6 +19398,94 @@ def require_api_key(f):
         return jsonify({"error": "Unauthorized Access"}), 401
     return decorated
 
+
+
+
+
+# ============================================================
+# MAINTENANCE SYNC - CLOUD TO LOCAL
+# ============================================================
+
+@app.route(
+    "/api/sync/maintenance/<string:resource>",
+    methods=["GET"]
+)
+@require_api_key
+def sync_maintenance_cloud(resource):
+
+    allowed_tables = {
+        "gym-access-types": {
+            "table": "gym_access_types"
+        },
+        "membership-types": {
+            "table": "membership_types"
+        },
+        "trainer-plans": {
+            "table": "trainer_plans"
+        }
+    }
+
+    if resource not in allowed_tables:
+
+        return jsonify({
+            "status": "error",
+            "message": "Invalid maintenance resource."
+        }), 404
+
+    conn = None
+    cursor = None
+
+    try:
+
+        table = allowed_tables[resource]["table"]
+
+        conn = get_connection()
+
+        cursor = conn.cursor(
+            pymysql.cursors.DictCursor
+        )
+
+        cursor.execute(
+            f"""
+            SELECT *
+            FROM `{table}`
+            ORDER BY id ASC
+            """
+        )
+
+        records = cursor.fetchall()
+
+        return jsonify({
+            "status": "success",
+            "data": records,
+            "total": len(records)
+        }), 200
+
+    except Exception as e:
+
+        print("MAINTENANCE SYNC ERROR:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+
+
+
+
+
+
+
 # --- MILESTONE 1: TEST ENDPOINT ---
 @app.route('/api/ping', methods=['GET'])
 def ping():
